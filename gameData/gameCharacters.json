@@ -1,0 +1,184 @@
+{
+  "1": {
+    "firstName": "Ichika",
+    "givenName": "Hoshino",
+    "unit": "leo_need",
+    "fullUnit": "Leo/need",
+    "birthday": "08-11"
+  },
+  "2": {
+    "firstName": "Saki",
+    "givenName": "Tenma",
+    "unit": "leo_need",
+    "fullUnit": "Leo/need",
+    "birthday": "05-09"
+  },
+  "3": {
+    "firstName": "Honami",
+    "givenName": "Mochizuki",
+    "unit": "leo_need",
+    "fullUnit": "Leo/need",
+    "birthday": "10-27"
+  },
+  "4": {
+    "firstName": "Shiho",
+    "givenName": "Hinomori",
+    "unit": "leo_need",
+    "fullUnit": "Leo/need",
+    "birthday": "01-08"
+  },
+  "5": {
+    "firstName": "Minori",
+    "givenName": "Hanasato",
+    "unit": "more_more_jump",
+    "fullUnit": "MORE MORE JUMP!",
+    "birthday": "04-14"
+  },
+  "6": {
+    "firstName": "Haruka",
+    "givenName": "Kiritani",
+    "unit": "more_more_jump",
+    "fullUnit": "MORE MORE JUMP!",
+    "birthday": "10-05"
+  },
+  "7": {
+    "firstName": "Airi",
+    "givenName": "Momoi",
+    "unit": "more_more_jump",
+    "fullUnit": "MORE MORE JUMP!",
+    "birthday": "03-19"
+  },
+  "8": {
+    "firstName": "Shizuku",
+    "givenName": "Hinomori",
+    "unit": "more_more_jump",
+    "fullUnit": "MORE MORE JUMP!",
+    "birthday": "12-06"
+  },
+  "9": {
+    "firstName": "Kohane",
+    "givenName": "Azusawa",
+    "unit": "vivid_bad_squad",
+    "fullUnit": "Vivid BAD SQUAD",
+    "birthday": "03-02"
+  },
+  "10": {
+    "firstName": "An",
+    "givenName": "Shiraishi",
+    "unit": "vivid_bad_squad",
+    "fullUnit": "Vivid BAD SQUAD",
+    "birthday": "07-26"
+  },
+  "11": {
+    "firstName": "Akito",
+    "givenName": "Shinonome",
+    "unit": "vivid_bad_squad",
+    "fullUnit": "Vivid BAD SQUAD",
+    "birthday": "11-12"
+  },
+  "12": {
+    "firstName": "Toya",
+    "givenName": "Aoyagi",
+    "unit": "vivid_bad_squad",
+    "fullUnit": "Vivid BAD SQUAD",
+    "birthday": "05-25"
+  },
+  "13": {
+    "firstName": "Tsukasa",
+    "givenName": "Tenma",
+    "unit": "wonderlands_showtime",
+    "fullUnit": "Wonderlands x Showtime",
+    "birthday": "05-17"
+  },
+  "14": {
+    "firstName": "Emu",
+    "givenName": "Otori",
+    "unit": "wonderlands_showtime",
+    "fullUnit": "Wonderlands x Showtime",
+    "birthday": "09-09"
+  },
+  "15": {
+    "firstName": "Nene",
+    "givenName": "Kusanagi",
+    "unit": "wonderlands_showtime",
+    "fullUnit": "Wonderlands x Showtime",
+    "birthday": "07-20"
+  },
+  "16": {
+    "firstName": "Rui",
+    "givenName": "Kamishiro",
+    "unit": "wonderlands_showtime",
+    "fullUnit": "Wonderlands x Showtime",
+    "birthday": "06-24"
+  },
+  "17": {
+    "firstName": "Kanade",
+    "givenName": "Yoisaki",
+    "unit": "nightcord_at_2500",
+    "fullUnit": "Nightcord at 25:00",
+    "birthday": "02-10"
+  },
+  "18": {
+    "firstName": "Mafuyu",
+    "givenName": "Asahina",
+    "unit": "nightcord_at_2500",
+    "fullUnit": "Nightcord at 25:00",
+    "birthday": "01-27"
+  },
+  "19": {
+    "firstName": "Ena",
+    "givenName": "Shinonome",
+    "unit": "nightcord_at_2500",
+    "fullUnit": "Nightcord at 25:00",
+    "birthday": "04-30"
+  },
+  "20": {
+    "firstName": "Mizuki",
+    "givenName": "Akiyama",
+    "unit": "nightcord_at_2500",
+    "fullUnit": "Nightcord at 25:00",
+    "birthday": "08-27"
+  },
+  "21": {
+    "firstName": "Hatsune",
+    "givenName": "Miku",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "08-31"
+  },
+  "22": {
+    "firstName": "Kagamine",
+    "givenName": "Rin",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "12-27"
+  },
+  "23": {
+    "firstName": "Kagamine",
+    "givenName": "Len",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "12-27"
+  },
+  "24": {
+    "firstName": "Megurine",
+    "givenName": "Luka",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "01-30"
+  },
+  "25": {
+    "firstName": "MEIKO",
+    "givenName": "",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "11-05"
+  },
+  "26": {
+    "firstName": "KAITO",
+    "givenName": "",
+    "unit": "virtual_singer",
+    "fullUnit": "VIRTUAL SINGER",
+    "birthday": "02-17"
+  }
+}

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Environment variables
+.env
+.env.local
+
+# Bot specific - user data
+pityData.json
+.gachacache/
+music/
+music.rar
+
+# Game data - auto-downloaded (ignored)
+gameData/cards.json
+gameData/musics.json
+gameData/musicDifficulties.json
+gameData/stamps.json
+gameData/characterProfiles.json
+gameData/events.json
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

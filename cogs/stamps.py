@@ -1,0 +1,273 @@
+"""
+Stamp Database Cog - Browse and search Project Sekai stamps.
+"""
+import discord
+from discord import app_commands
+from discord.ext import commands
+import json
+import logging
+import aiofiles
+import random
+
+from config import STAMPS_FILE
+from utils.game_data import get_character_name, get_unit_color, character_autocomplete, game_data
+from utils.romaji import matches_query, normalize_for_search
+
+logger = logging.getLogger(__name__)
+
+# Stamp image base URL
+STAMP_IMAGE_URL = "https://storage.sekai.best/sekai-jp-assets/stamp/{asset}/{asset}.png"
+
+
+class StampsCog(commands.Cog):
+    """Cog for browsing and searching Project Sekai stamps."""
+    
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.stamps = []
+        
+    async def cog_load(self):
+        """Load stamp data when the cog loads."""
+        await self.load_data()
+        logger.info("StampsCog loaded with %d stamps", len(self.stamps))
+    
+    async def load_data(self):
+        """Load stamps data from JSON file."""
+        try:
+            async with aiofiles.open(STAMPS_FILE, 'r', encoding='utf-8') as f:
+                self.stamps = json.loads(await f.read())
+        except Exception as e:
+            logger.error("Failed to load stamp data: %s", e)
+    
+    def create_stamp_embed(self, stamp: dict) -> discord.Embed:
+        """Create an embed for a stamp."""
+        char_id = stamp.get('characterId1', stamp.get('gameCharacterUnitId', 0))
+        char_name = get_character_name(char_id)
+        
+        name = stamp.get('name', 'Unknown')
+        if name.startswith('[スタンプ]'):
+            name = name[6:]
+        
+        embed = discord.Embed(
+            title=f"{name}",
+            color=get_unit_color(char_id)
+        )
+        
+        embed.add_field(name="Nhân vật", value=char_name, inline=True)
+        embed.add_field(name="ID", value=str(stamp.get('id', 'N/A')), inline=True)
+        embed.add_field(name="Loại", value=stamp.get('stampType', 'illustration'), inline=True)
+        
+        if stamp.get('description'):
+            embed.add_field(name="Cách nhận", value=stamp['description'], inline=False)
+        
+        asset = stamp.get('assetbundleName', '')
+        if asset:
+            embed.set_image(url=STAMP_IMAGE_URL.format(asset=asset))
+        
+        return embed
+    
+    def search_stamps(self, keyword: str, limit: int = 10) -> list:
+        """Search stamps by keyword, ID, or romaji."""
+        # If keyword is a number, try ID-based search
+        if keyword.isdigit():
+            target_id = int(keyword)
+            # First check for exact name match
+            name_matches = [s for s in self.stamps if keyword in s.get('name', '')]
+            if name_matches:
+                return name_matches[:limit]
+            
+            # Find nearest ID (higher if tied)
+            sorted_stamps = sorted(self.stamps, key=lambda s: (abs(s['id'] - target_id), -s['id']))
+            if sorted_stamps:
+                return [sorted_stamps[0]]
+            return []
+        
+        # Search by name with romaji support
+        results = []
+        for stamp in self.stamps:
+            name = stamp.get('name', '')
+            if matches_query(keyword, name):
+                results.append(stamp)
+                if len(results) >= limit:
+                    break
+        return results
+    
+    def get_stamps_by_character(self, char_id: int) -> list:
+        """Get all stamps for a character."""
+        return [s for s in self.stamps 
+                if s.get('characterId1') == char_id or s.get('gameCharacterUnitId') == char_id]
+    
+    # --- Autocomplete ---
+    async def char_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return character_autocomplete(current)
+    
+    # ===== SLASH COMMANDS =====
+    stamp_group = app_commands.Group(name="stamp", description="Tìm kiếm và xem stamp")
+    
+    @stamp_group.command(name="search", description="Tìm stamp theo từ khóa")
+    @app_commands.describe(keyword="Từ khóa tìm kiếm (tên stamp)")
+    async def stamp_search(self, interaction: discord.Interaction, keyword: str):
+        await interaction.response.defer()
+        results = self.search_stamps(keyword)
+        
+        if not results:
+            await interaction.followup.send(f"Không tìm thấy stamp với từ khóa: **{keyword}**")
+            return
+        
+        embed = discord.Embed(
+            title=f"🔍 Kết quả tìm kiếm: {keyword}",
+            description=f"Tìm thấy {len(results)} stamp",
+            color=0x5865F2
+        )
+        
+        for stamp in results:
+            name = stamp.get('name', 'Unknown')
+            if name.startswith('[スタンプ]'):
+                name = name[6:]
+            char_id = stamp.get('characterId1', stamp.get('gameCharacterUnitId', 0))
+            char_name = get_character_name(char_id)
+            embed.add_field(name=name, value=f"ID: {stamp['id']} | {char_name}", inline=False)
+        
+        if results and results[0].get('assetbundleName'):
+            embed.set_thumbnail(url=STAMP_IMAGE_URL.format(asset=results[0]['assetbundleName']))
+        
+        await interaction.followup.send(embed=embed)
+    
+    @stamp_group.command(name="character", description="Xem tất cả stamp của một nhân vật")
+    @app_commands.describe(character="Chọn nhân vật")
+    @app_commands.autocomplete(character=char_autocomplete)
+    async def stamp_character(self, interaction: discord.Interaction, character: str):
+        await interaction.response.defer()
+        
+        try:
+            char_id = int(character)
+        except ValueError:
+            char_id, _ = game_data.get_character_by_name(character)
+            if char_id is None:
+                await interaction.followup.send(f"Không tìm thấy nhân vật: **{character}**")
+                return
+        
+        char_name = get_character_name(char_id)
+        results = self.get_stamps_by_character(char_id)
+        
+        if not results:
+            await interaction.followup.send(f"Không tìm thấy stamp của **{char_name}**")
+            return
+        
+        embed = discord.Embed(
+            title=f"Stamp của {char_name}",
+            description=f"Tìm thấy {len(results)} stamp",
+            color=get_unit_color(char_id)
+        )
+        
+        for stamp in results[:10]:
+            name = stamp.get('name', 'Unknown')
+            if name.startswith('[スタンプ]'):
+                name = name[6:]
+            embed.add_field(name=name, value=f"ID: {stamp['id']}", inline=True)
+        
+        if len(results) > 10:
+            embed.set_footer(text=f"Và {len(results) - 10} stamp khác...")
+        
+        if results and results[0].get('assetbundleName'):
+            embed.set_thumbnail(url=STAMP_IMAGE_URL.format(asset=results[0]['assetbundleName']))
+        
+        await interaction.followup.send(embed=embed)
+    
+    @stamp_group.command(name="random", description="Xem một stamp ngẫu nhiên")
+    async def stamp_random_slash(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        if not self.stamps:
+            await interaction.followup.send("Không có dữ liệu stamp!")
+            return
+        
+        stamp = random.choice(self.stamps)
+        embed = self.create_stamp_embed(stamp)
+        embed.set_footer(text="Stamp ngẫu nhiên")
+        
+        await interaction.followup.send(embed=embed)
+    
+    # ===== PREFIX COMMANDS =====
+    @commands.command(name='stamp', aliases=['st'])
+    async def stamp_prefix(self, ctx: commands.Context, *, keyword: str = None):
+        """Search for stamps: !stamp <keyword>"""
+        if not keyword:
+            await ctx.send("Vui lòng nhập từ khóa: `!stamp <keyword>`")
+            return
+        
+        results = self.search_stamps(keyword)
+        
+        if not results:
+            await ctx.send(f"Không tìm thấy stamp với từ khóa: **{keyword}**")
+            return
+        
+        embed = discord.Embed(
+            title=f"🔍 Kết quả tìm kiếm: {keyword}",
+            description=f"Tìm thấy {len(results)} stamp",
+            color=0x5865F2
+        )
+        
+        for stamp in results[:5]:
+            name = stamp.get('name', 'Unknown')
+            if name.startswith('[スタンプ]'):
+                name = name[6:]
+            char_name = get_character_name(stamp.get('characterId1', 0))
+            embed.add_field(name=name, value=f"ID: {stamp['id']} | {char_name}", inline=False)
+        
+        if results and results[0].get('assetbundleName'):
+            embed.set_thumbnail(url=STAMP_IMAGE_URL.format(asset=results[0]['assetbundleName']))
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='stampc')
+    async def stamp_char_prefix(self, ctx: commands.Context, *, name: str = None):
+        """Get stamps by character: !stampc <name>"""
+        if not name:
+            await ctx.send("Vui lòng nhập tên nhân vật: `!stampc <name>`")
+            return
+        
+        char_id, char = game_data.get_character_by_name(name)
+        if char_id is None:
+            await ctx.send(f"Không tìm thấy nhân vật: **{name}**")
+            return
+        
+        char_name = get_character_name(char_id)
+        results = self.get_stamps_by_character(char_id)
+        
+        if not results:
+            await ctx.send(f"Không tìm thấy stamp của **{char_name}**")
+            return
+        
+        embed = discord.Embed(
+            title=f"🎨 Stamp của {char_name}",
+            description=f"Tìm thấy {len(results)} stamp",
+            color=get_unit_color(char_id)
+        )
+        
+        for stamp in results[:10]:
+            name = stamp.get('name', 'Unknown')
+            if name.startswith('[スタンプ]'):
+                name = name[6:]
+            embed.add_field(name=name, value=f"ID: {stamp['id']}", inline=True)
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='stampr')
+    async def stamp_random_prefix(self, ctx: commands.Context):
+        """Get a random stamp: !stampr"""
+        if not self.stamps:
+            await ctx.send("Không có dữ liệu stamp!")
+            return
+        
+        stamp = random.choice(self.stamps)
+        embed = self.create_stamp_embed(stamp)
+        embed.set_footer(text="🎲 Stamp ngẫu nhiên")
+        
+        await ctx.send(embed=embed)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(StampsCog(bot))

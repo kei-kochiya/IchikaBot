@@ -1,0 +1,6 @@
+aiohttp
+aiofiles
+discord.py
+Pillow
+python-dotenv
+pydub
