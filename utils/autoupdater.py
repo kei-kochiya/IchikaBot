@@ -196,29 +196,41 @@ auto_updater = AutoUpdater()
 
 
 async def register_all_sources():
-    """Register all known data sources for auto-updating."""
+    """Register all known data sources for auto-updating (both JP and EN)."""
     from config import (
-        CARDS_FILE, CARD_DATA_URL,
-        MUSICS_FILE, MUSICS_DATA_URL,
-        MUSIC_DIFFICULTIES_FILE, MUSIC_DIFFICULTIES_URL,
-        STAMPS_FILE, STAMPS_DATA_URL,
-        PROFILES_FILE, PROFILES_DATA_URL,
-        EVENTS_FILE, EVENTS_DATA_URL,
+        # JP Data
+        CARDS_FILE_JP, CARD_DATA_URL_JP,
+        MUSICS_FILE_JP, MUSICS_DATA_URL_JP,
+        MUSIC_DIFFICULTIES_FILE_JP, MUSIC_DIFFICULTIES_URL_JP,
+        STAMPS_FILE_JP, STAMPS_DATA_URL_JP,
+        EVENTS_FILE_JP, EVENTS_DATA_URL_JP,
+        # EN Data
+        CARDS_FILE_EN, CARD_DATA_URL_EN,
+        MUSICS_FILE_EN, MUSICS_DATA_URL_EN,
+        MUSIC_DIFFICULTIES_FILE_EN, MUSIC_DIFFICULTIES_URL_EN,
+        STAMPS_FILE_EN, STAMPS_DATA_URL_EN,
+        EVENTS_FILE_EN, EVENTS_DATA_URL_EN,
     )
     
     sources = [
-        DataSource("cards", CARD_DATA_URL, CARDS_FILE),
-        DataSource("musics", MUSICS_DATA_URL, MUSICS_FILE),
-        DataSource("music_difficulties", MUSIC_DIFFICULTIES_URL, MUSIC_DIFFICULTIES_FILE),
-        DataSource("stamps", STAMPS_DATA_URL, STAMPS_FILE),
-        DataSource("profiles", PROFILES_DATA_URL, PROFILES_FILE),
-        DataSource("events", EVENTS_DATA_URL, EVENTS_FILE),
+        # JP Sources
+        DataSource("cards_jp", CARD_DATA_URL_JP, CARDS_FILE_JP),
+        DataSource("musics_jp", MUSICS_DATA_URL_JP, MUSICS_FILE_JP),
+        DataSource("music_difficulties_jp", MUSIC_DIFFICULTIES_URL_JP, MUSIC_DIFFICULTIES_FILE_JP),
+        DataSource("stamps_jp", STAMPS_DATA_URL_JP, STAMPS_FILE_JP),
+        DataSource("events_jp", EVENTS_DATA_URL_JP, EVENTS_FILE_JP),
+        # EN Sources
+        DataSource("cards_en", CARD_DATA_URL_EN, CARDS_FILE_EN),
+        DataSource("musics_en", MUSICS_DATA_URL_EN, MUSICS_FILE_EN),
+        DataSource("music_difficulties_en", MUSIC_DIFFICULTIES_URL_EN, MUSIC_DIFFICULTIES_FILE_EN),
+        DataSource("stamps_en", STAMPS_DATA_URL_EN, STAMPS_FILE_EN),
+        DataSource("events_en", EVENTS_DATA_URL_EN, EVENTS_FILE_EN),
     ]
     
     for source in sources:
         auto_updater.register(source)
     
-    logger.info("AutoUpdater: Registered %d data sources", len(sources))
+    logger.info("AutoUpdater: Registered %d data sources (JP and EN)", len(sources))
 
 
 async def run_all_updates() -> dict[str, tuple[bool, str]]:

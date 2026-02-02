@@ -61,14 +61,18 @@ class DataUpdaterCog(commands.Cog):
     
     async def _notify_cogs_to_reload(self, results: dict):
         """Notify relevant cogs to reload their data after updates."""
-        # Map source names to cog names
+        # Map source names (JP/EN) to cog names
         source_to_cog = {
-            'cards': 'CardCog',
-            'musics': 'SongsCog',
-            'music_difficulties': 'SongsCog',
-            'stamps': 'StampsCog',
-            'profiles': 'ProfileCog',
-            'events': 'EventsCog',
+            'cards_jp': 'CardCog',
+            'cards_en': 'CardCog',
+            'musics_jp': 'SongsCog',
+            'musics_en': 'SongsCog',
+            'music_difficulties_jp': 'SongsCog',
+            'music_difficulties_en': 'SongsCog',
+            'stamps_jp': 'StampsCog',
+            'stamps_en': 'StampsCog',
+            'events_jp': 'EventsCog',
+            'events_en': 'EventsCog',
         }
         
         cogs_to_reload = set()
@@ -82,8 +86,11 @@ class DataUpdaterCog(commands.Cog):
             cog = self.bot.get_cog(cog_name)
             if cog and hasattr(cog, 'load_data'):
                 try:
-                    # Call synchronous load_data
-                    cog.load_data()
+                    # Handle both sync and async load_data methods
+                    import asyncio
+                    result = cog.load_data()
+                    if asyncio.iscoroutine(result):
+                        await result
                     logger.info("DataUpdater: Reloaded data for %s", cog_name)
                 except Exception as e:
                     logger.error("DataUpdater: Failed to reload %s: %s", cog_name, e)

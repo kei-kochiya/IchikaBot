@@ -9,7 +9,7 @@ import logging
 from PIL import Image, ImageOps
 from io import BytesIO
 from utils.image_helper import get_card_image_path
-from config import CARDS_FILE, CHARACTERS_FILE, NICKNAMES_FILE, SONG_GUESS_DURATION
+from config import CARDS_FILE_JP, CARDS_FILE_EN, CHARACTERS_FILE, NICKNAMES_FILE, SONG_GUESS_DURATION
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +22,15 @@ class GuessCog(commands.Cog):
         self.bot = bot
         self.active_channels = set()
         self.cards = []
+        self.cards_en_by_id = {}  # EN cards for display names
         self.chars = {}
         self.nicknames = {}
         self.load_data()
 
     def load_data(self):
+        # Load JP cards for card pool
         try:
-            with open(CARDS_FILE, 'r', encoding='utf-8') as f:
+            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
                 raw = json.load(f)
                 self.cards = [c for c in raw if c.get('prefix') and c['cardRarityType'] in ['rarity_3', 'rarity_4']]
             with open(CHARACTERS_FILE, 'r', encoding='utf-8') as f:
@@ -36,13 +38,34 @@ class GuessCog(commands.Cog):
             if NICKNAMES_FILE.exists():
                 with open(NICKNAMES_FILE, 'r', encoding='utf-8') as f:
                     self.nicknames = json.load(f)
-            logger.info("Guess: Data loaded successfully.")
+            logger.info("Guess: Loaded %d JP cards.", len(self.cards))
         except FileNotFoundError as e:
             logger.error(f"Guess: Missing data file: {e.filename}")
         except json.JSONDecodeError as e:
             logger.error(f"Guess: Invalid JSON: {e}")
         except Exception as e:
             logger.error(f"Guess: Failed to load data: {e}")
+        
+        # Load EN cards for display names
+        try:
+            with open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
+                cards_en = json.load(f)
+                self.cards_en_by_id = {c['id']: c for c in cards_en}
+            logger.info("Guess: Loaded %d EN cards for display.", len(self.cards_en_by_id))
+        except FileNotFoundError as e:
+            logger.warning(f"Guess: Missing EN data file: {e.filename}")
+            self.cards_en_by_id = {}
+        except Exception as e:
+            logger.error(f"Guess: Failed to load EN data: {e}")
+            self.cards_en_by_id = {}
+
+    def get_display_prefix(self, card: dict) -> str:
+        """Get display prefix, using EN if available."""
+        card_id = card.get('id')
+        en_card = self.cards_en_by_id.get(card_id)
+        if en_card and en_card.get('prefix'):
+            return en_card['prefix']
+        return card.get('prefix', 'Unknown')
 
     async def process_game_image(self, asset_name: str, is_trained: bool, difficulty: str) -> tuple[BytesIO | None, BytesIO | None]:
         """Process card image for guessing game."""
@@ -178,7 +201,7 @@ class GuessCog(commands.Cog):
             result_file = discord.File(full_img, filename="reveal.png")
             result_embed = discord.Embed(description=f"Đáp án: **{char_data['firstName']} {char_data['givenName']}**")
             result_embed.set_image(url="attachment://reveal.png")
-            result_embed.add_field(name="Card", value=card.get('prefix', 'Unknown'))
+            result_embed.add_field(name="Card", value=self.get_display_prefix(card))
             
             if reason == "win":
                 result_embed.title = f"Đúng rồi! Xin chúc mừng {winner.display_name}"

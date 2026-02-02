@@ -14,7 +14,7 @@ from io import BytesIO
 from utils.image_helper import get_card_image_path
 from utils.game_data import get_unit_color_hex
 from config import (
-    CARDS_FILE, RARITY_ICONS, PITY_FILE,
+    CARDS_FILE_JP, CARDS_FILE_EN, RARITY_ICONS, PITY_FILE,
     PITY_THRESHOLD, GACHA_RATES, SharedResources
 )
 
@@ -25,6 +25,7 @@ class GachaCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cards = []
+        self.cards_en_by_id = {}  # EN cards for display names
         self.load_data()
         
         self.cards_2 = [c for c in self.cards if c['cardRarityType'] == 'rarity_2' and c.get('prefix')]
@@ -32,14 +33,36 @@ class GachaCog(commands.Cog):
         self.cards_4 = [c for c in self.cards if c['cardRarityType'] == 'rarity_4' and c.get('prefix')]
 
     def load_data(self):
+        # Load JP cards for gacha pool
         try:
-            with open(CARDS_FILE, 'r', encoding='utf-8') as f:
+            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
                 self.cards = json.load(f)
-            logger.info("Gacha: Data loaded successfully.")
+            logger.info("Gacha: Loaded %d JP cards.", len(self.cards))
         except FileNotFoundError as e:
-            logger.error(f"Gacha: Missing data file: {e.filename}")
+            logger.error(f"Gacha: Missing JP data file: {e.filename}")
         except Exception as e:
-            logger.error(f"Gacha: Failed to load game data: {e}")
+            logger.error(f"Gacha: Failed to load JP data: {e}")
+        
+        # Load EN cards for display names
+        try:
+            with open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
+                cards_en = json.load(f)
+                self.cards_en_by_id = {c['id']: c for c in cards_en}
+            logger.info("Gacha: Loaded %d EN cards for display.", len(self.cards_en_by_id))
+        except FileNotFoundError as e:
+            logger.warning(f"Gacha: Missing EN data file: {e.filename}")
+            self.cards_en_by_id = {}
+        except Exception as e:
+            logger.error(f"Gacha: Failed to load EN data: {e}")
+            self.cards_en_by_id = {}
+
+    def get_display_prefix(self, card: dict) -> str:
+        """Get display prefix, using EN if available."""
+        card_id = card.get('id')
+        en_card = self.cards_en_by_id.get(card_id)
+        if en_card and en_card.get('prefix'):
+            return en_card['prefix']
+        return card.get('prefix', 'Unknown')
 
     async def get_user_pity(self, user_id: int) -> int:
         """Get user's current pity count with async file access."""
@@ -154,9 +177,10 @@ class GachaCog(commands.Cog):
             color = get_unit_color_hex(card['characterId'])
             rarity_icon = RARITY_ICONS.get(card['cardRarityType'], '')
 
+            display_name = self.get_display_prefix(card)
             embed = discord.Embed(
                 title=f"{rarity_icon} Kết Quả Gacha",
-                description=f"**{card['prefix']}**",
+                description=f"**{display_name}**",
                 color=discord.Color.from_str(color)
             )
             embed.set_image(url="attachment://card.png")

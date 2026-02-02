@@ -1,5 +1,6 @@
 """
 Card Cog - Display Project Sekai card information.
+Supports both JP and EN card data with English search.
 """
 import discord
 from discord.ext import commands
@@ -7,7 +8,7 @@ from discord import app_commands
 import json
 import logging
 
-from config import CARDS_FILE, RARITY_ICONS, ASSETS_PATH
+from config import CARDS_FILE_JP, CARDS_FILE_EN, RARITY_ICONS, ASSETS_PATH
 from utils.game_data import game_data, get_character_name, get_unit_color_hex
 
 logger = logging.getLogger(__name__)
@@ -61,25 +62,65 @@ class CardView(discord.ui.View):
 class CardCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.card_data = []
+        self.cards_jp = []
+        self.cards_en = []
+        self.cards_en_by_id = {}  # For quick ID lookup
         self.load_data()
 
     def load_data(self):
+        """Load both JP and EN card data."""
+        # Load JP data
         try:
-            with open(CARDS_FILE, 'r', encoding='utf-8') as f:
-                self.card_data = json.load(f)
-            logger.info(f"Card: Loaded {len(self.card_data)} cards.")
+            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
+                self.cards_jp = json.load(f)
+            logger.info(f"Card: Loaded {len(self.cards_jp)} JP cards.")
         except FileNotFoundError as e:
-            logger.error(f"Card: Missing file: {e.filename}")
+            logger.error(f"Card: Missing JP file: {e.filename}")
+            self.cards_jp = []
         except Exception as e:
-            logger.error(f"Card: Failed to load data: {e}")
+            logger.error(f"Card: Failed to load JP data: {e}")
+            self.cards_jp = []
+        
+        # Load EN data
+        try:
+            with open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
+                self.cards_en = json.load(f)
+            self.cards_en_by_id = {c['id']: c for c in self.cards_en}
+            logger.info(f"Card: Loaded {len(self.cards_en)} EN cards.")
+        except FileNotFoundError as e:
+            logger.warning(f"Card: Missing EN file: {e.filename}")
+            self.cards_en = []
+            self.cards_en_by_id = {}
+        except Exception as e:
+            logger.error(f"Card: Failed to load EN data: {e}")
+            self.cards_en = []
+            self.cards_en_by_id = {}
+
+    def get_card_by_id(self, card_id: int) -> dict | None:
+        """Get card by ID, prioritizing EN data, fallback to JP."""
+        # Try EN first
+        if card_id in self.cards_en_by_id:
+            return self.cards_en_by_id[card_id]
+        # Fallback to JP
+        for card in self.cards_jp:
+            if card['id'] == card_id:
+                return card
+        return None
+
+    def get_display_name(self, card: dict, card_id: int) -> str:
+        """Get display name for a card, using EN if available."""
+        en_card = self.cards_en_by_id.get(card_id)
+        if en_card and en_card.get('prefix'):
+            return en_card['prefix']
+        return card.get('prefix', 'No Prefix')
 
     @app_commands.command(name="card", description="Get Card Information")
-    @app_commands.describe(card_name="Search for a card by name")
+    @app_commands.describe(card_name="Search for a card by name (JP/EN)")
     async def card_command(self, interaction: discord.Interaction, card_name: str):
         await interaction.response.defer()
 
-        selected_card = next((c for c in self.card_data if str(c['id']) == card_name), None)
+        card_id = int(card_name)
+        selected_card = self.get_card_by_id(card_id)
 
         if not selected_card:
             await interaction.followup.send("Card not found.", ephemeral=True)
@@ -92,6 +133,7 @@ class CardCog(commands.Cog):
             await interaction.followup.send("Character data missing for this card.", ephemeral=True)
             return
 
+        # Asset URLs always use JP storage
         base_url = f"https://storage.sekai.best/sekai-jp-assets/character/member/{selected_card['assetbundleName']}"
         image_url = f"{base_url}/card_normal.png"
 
@@ -114,8 +156,11 @@ class CardCog(commands.Cog):
 
         color_hex = get_unit_color_hex(char_id)
 
+        # Use EN name if available
+        display_title = self.get_display_name(selected_card, card_id)
+
         embed = discord.Embed(
-            title=selected_card.get('prefix', 'No Prefix'),
+            title=display_title,
             description=f"**Rarity:** {RARITY_ICONS.get(selected_card['cardRarityType'], selected_card['cardRarityType'])}",
             color=discord.Color.from_str(color_hex)
         )
@@ -131,11 +176,18 @@ class CardCog(commands.Cog):
 
     @card_command.autocomplete('card_name')
     async def card_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete that searches both JP and EN card names."""
         choices = []
         current_lower = current.lower()
+        seen_ids = set()
         
-        for card in self.card_data:
+        # Search EN cards first (gives EN names priority in display)
+        for card in self.cards_en:
             if not card.get('prefix'): 
+                continue
+            
+            card_id = card['id']
+            if card_id in seen_ids:
                 continue
             
             char_id = card['characterId']
@@ -145,9 +197,35 @@ class CardCog(commands.Cog):
             display_name = f"{rarity_str} // {card['prefix']} [{char_name}]"
 
             if current_lower in display_name.lower():
-                choices.append(app_commands.Choice(name=display_name, value=str(card['id'])))
+                choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
+                seen_ids.add(card_id)
                 if len(choices) >= 25: 
                     break
+        
+        # If not enough results, search JP cards too
+        if len(choices) < 25:
+            for card in self.cards_jp:
+                if not card.get('prefix'): 
+                    continue
+                
+                card_id = card['id']
+                if card_id in seen_ids:
+                    continue
+                
+                char_id = card['characterId']
+                char_name = get_character_name(char_id, full=True)
+
+                rarity_str = "🎂" if 'birthday' in card['cardRarityType'] else f"{card['cardRarityType'][-1]}⭐"
+                # Check if EN version exists for display
+                en_prefix = self.cards_en_by_id.get(card_id, {}).get('prefix')
+                prefix = en_prefix if en_prefix else card['prefix']
+                display_name = f"{rarity_str} // {prefix} [{char_name}]"
+
+                if current_lower in display_name.lower() or current_lower in card['prefix'].lower():
+                    choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
+                    seen_ids.add(card_id)
+                    if len(choices) >= 25: 
+                        break
         
         return choices
 

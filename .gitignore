@@ -16,17 +16,20 @@ env/
 
 # Bot specific - user data
 pityData.json
+birthdaySettings.json
 .gachacache/
+
+# Music folder
 music/
 music.rar
 
-# Game data - auto-downloaded (ignored)
-gameData/cards.json
-gameData/musics.json
-gameData/musicDifficulties.json
-gameData/stamps.json
-gameData/characterProfiles.json
-gameData/events.json
+# Game data - auto-updated (JP and EN)
+gameData/JP_data/
+gameData/EN_data/
+
+# Markdown files (documentation/notes)
+*.md
+!README.md
 
 # Logs
 *.log
@@ -38,3 +41,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Cache
+*.tmp

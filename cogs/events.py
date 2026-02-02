@@ -1,5 +1,6 @@
 """
 Event Tracker Cog - Track current and past Project Sekai events.
+Supports both JP and EN event data with English search.
 """
 import discord
 from discord import app_commands
@@ -9,11 +10,12 @@ import logging
 import aiofiles
 from datetime import datetime, timezone
 
-from config import EVENTS_FILE
+from config import EVENTS_FILE_JP, EVENTS_FILE_EN
 from utils.romaji import matches_query
 
 logger = logging.getLogger(__name__)
 
+# Asset URLs always use JP storage
 EVENT_BANNER_URL = "https://storage.sekai.best/sekai-jp-assets/home/banner/{asset}/{asset}.webp"
 
 EVENT_TYPES = {
@@ -28,19 +30,60 @@ class EventsCog(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.events = []
+        self.events_jp = []
+        self.events_en = []
+        self.events_en_by_id = {}
         
     async def cog_load(self):
         await self.load_data()
-        logger.info("EventsCog loaded with %d events", len(self.events))
+        logger.info("EventsCog loaded with %d JP events and %d EN events", 
+                    len(self.events_jp), len(self.events_en))
     
     async def load_data(self):
+        """Load both JP and EN event data."""
+        # Load JP events
         try:
-            async with aiofiles.open(EVENTS_FILE, 'r', encoding='utf-8') as f:
-                self.events = json.loads(await f.read())
-                self.events.sort(key=lambda e: e.get('startAt', 0), reverse=True)
+            async with aiofiles.open(EVENTS_FILE_JP, 'r', encoding='utf-8') as f:
+                self.events_jp = json.loads(await f.read())
+                self.events_jp.sort(key=lambda e: e.get('startAt', 0), reverse=True)
+        except FileNotFoundError as e:
+            logger.error("Events: Missing JP file: %s", e.filename)
+            self.events_jp = []
         except Exception as e:
-            logger.error("Failed to load event data: %s", e)
+            logger.error("Failed to load JP event data: %s", e)
+            self.events_jp = []
+        
+        # Load EN events
+        try:
+            async with aiofiles.open(EVENTS_FILE_EN, 'r', encoding='utf-8') as f:
+                self.events_en = json.loads(await f.read())
+                self.events_en.sort(key=lambda e: e.get('startAt', 0), reverse=True)
+                self.events_en_by_id = {e['id']: e for e in self.events_en}
+        except FileNotFoundError as e:
+            logger.warning("Events: Missing EN file: %s", e.filename)
+            self.events_en = []
+            self.events_en_by_id = {}
+        except Exception as e:
+            logger.error("Failed to load EN event data: %s", e)
+            self.events_en = []
+            self.events_en_by_id = {}
+
+    def get_event_by_id(self, event_id: int) -> dict | None:
+        """Get event by ID from JP data (for correct timing)."""
+        for event in self.events_jp:
+            if event['id'] == event_id:
+                return event
+        # Fallback to EN if not in JP
+        if event_id in self.events_en_by_id:
+            return self.events_en_by_id[event_id]
+        return None
+
+    def get_display_name(self, event: dict, event_id: int) -> str:
+        """Get display name, using EN if available."""
+        en_event = self.events_en_by_id.get(event_id)
+        if en_event and en_event.get('name'):
+            return en_event['name']
+        return event.get('name', 'Unknown Event')
     
     def format_timestamp(self, ms: int, style: str = 'F') -> str:
         """Format timestamp using Discord's dynamic timestamp.
@@ -68,20 +111,21 @@ class EventsCog(commands.Cog):
         if now_ms < start:
             return "⏳ Sắp diễn ra", self.format_timestamp(start, 'R')
         elif now_ms < aggregate:
-            return "Đang diễn ra", f"Kết thúc {self.format_timestamp(aggregate, 'R')}"
+            return "🟢 Đang diễn ra", f"Kết thúc {self.format_timestamp(aggregate, 'R')}"
         elif now_ms < end:
-            return "Đang xếp hạng", "Đang tổng hợp kết quả"
+            return "🟡 Đang xếp hạng", "Đang tổng hợp kết quả"
         else:
-            return "Đã kết thúc", self.format_timestamp(end, 'R')
+            return "⚫ Đã kết thúc", self.format_timestamp(end, 'R')
     
     def create_event_embed(self, event: dict, show_details: bool = True) -> discord.Embed:
-        name = event.get('name', 'Unknown Event')
+        event_id = event.get('id', 0)
+        name = self.get_display_name(event, event_id)
         event_type = EVENT_TYPES.get(event.get('eventType', ''), event.get('eventType', 'Unknown'))
         status, status_info = self.get_event_status(event)
         
         embed = discord.Embed(
             title=f"🎉 {name}",
-            color=0xFF69B4 if status.startswith("🟢") else 0x5865F2
+            color=0xFF69B4 if "Đang diễn ra" in status else 0x5865F2
         )
         
         embed.add_field(name="Loại sự kiện", value=event_type, inline=True)
@@ -91,8 +135,9 @@ class EventsCog(commands.Cog):
         if show_details:
             embed.add_field(name="Bắt đầu", value=self.format_timestamp(event.get('startAt')), inline=True)
             embed.add_field(name="Kết thúc", value=self.format_timestamp(event.get('closedAt')), inline=True)
-            embed.add_field(name="ID", value=str(event.get('id', 'N/A')), inline=True)
+            embed.add_field(name="ID", value=str(event_id), inline=True)
         
+        # Asset URLs always use JP storage
         asset = event.get('assetbundleName', '')
         if asset:
             embed.set_image(url=EVENT_BANNER_URL.format(asset=asset))
@@ -100,40 +145,62 @@ class EventsCog(commands.Cog):
         return embed
     
     def get_current_event(self) -> dict | None:
+        """Get current event from JP data (more up to date)."""
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        for event in self.events:
+        for event in self.events_jp:
             start = event.get('startAt', 0)
             end = event.get('closedAt', 0)
             if start <= now_ms <= end:
                 return event
             elif now_ms < start:
                 return event  # Return upcoming if no current
-        return self.events[0] if self.events else None
+        return self.events_jp[0] if self.events_jp else None
     
     def search_events(self, query: str, limit: int = 5) -> list:
-        """Search events by name, ID, or romaji."""
+        """Search events by name, ID, or romaji. Returns JP events for correct timing."""
+        # Build JP lookup for quick access
+        jp_by_id = {e['id']: e for e in self.events_jp}
+        
         # If query is a number, try ID-based search
         if query.isdigit():
             target_id = int(query)
-            # First check for exact name match
-            name_matches = [e for e in self.events if query in e.get('name', '')]
-            if name_matches:
-                return name_matches[:limit]
-            
-            # Find nearest ID (higher if tied)
-            sorted_events = sorted(self.events, key=lambda e: (abs(e['id'] - target_id), -e['id']))
+            event = self.get_event_by_id(target_id)
+            if event:
+                return [event]
+            # Find nearest ID
+            all_events = self.events_jp if self.events_jp else self.events_en
+            sorted_events = sorted(all_events, key=lambda e: (abs(e['id'] - target_id), -e['id']))
             if sorted_events:
                 return [sorted_events[0]]
             return []
         
-        # Search by name with romaji support
         results = []
-        for event in self.events:
+        seen_ids = set()
+        
+        # Search EN events first (for name matching), but return JP event
+        for event in self.events_en:
+            name = event.get('name', '')
+            if matches_query(query, name):
+                event_id = event['id']
+                if event_id not in seen_ids:
+                    # Return JP event for correct timing, fallback to EN
+                    jp_event = jp_by_id.get(event_id, event)
+                    results.append(jp_event)
+                    seen_ids.add(event_id)
+                    if len(results) >= limit:
+                        return results
+        
+        # Then search JP events
+        for event in self.events_jp:
+            if event['id'] in seen_ids:
+                continue
             name = event.get('name', '')
             if matches_query(query, name):
                 results.append(event)
+                seen_ids.add(event['id'])
                 if len(results) >= limit:
                     break
+        
         return results
     
     # ===== SLASH COMMANDS =====
@@ -157,14 +224,14 @@ class EventsCog(commands.Cog):
         
         count = max(1, min(count, 25))
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        past_events = [e for e in self.events if e.get('closedAt', 0) < now_ms][:count]
+        past_events = [e for e in self.events_jp if e.get('closedAt', 0) < now_ms][:count]
         
         if not past_events:
             await interaction.followup.send("Không có sự kiện đã kết thúc!")
             return
         
         embed = discord.Embed(
-            title="Lịch sử sự kiện",
+            title="📜 Lịch sử sự kiện",
             description=f"Hiển thị {len(past_events)} sự kiện gần nhất",
             color=0x5865F2
         )
@@ -172,15 +239,16 @@ class EventsCog(commands.Cog):
         for event in past_events:
             event_type = EVENT_TYPES.get(event.get('eventType', ''), '❓')
             end_date = self.format_timestamp(event.get('closedAt'))[:10]
+            name = self.get_display_name(event, event['id'])
             embed.add_field(
-                name=f"{event_type} {event.get('name', 'Unknown')}",
+                name=f"{event_type} {name}",
                 value=f"ID: {event['id']} | Kết thúc: {end_date}",
                 inline=False
             )
         
         await interaction.followup.send(embed=embed)
     
-    @event_group.command(name="search", description="Tìm kiếm sự kiện theo tên")
+    @event_group.command(name="search", description="Tìm kiếm sự kiện theo tên (JP/EN)")
     @app_commands.describe(name="Tên sự kiện cần tìm")
     async def event_search(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer()
@@ -204,8 +272,9 @@ class EventsCog(commands.Cog):
         for event in results:
             status, _ = self.get_event_status(event)
             event_type = EVENT_TYPES.get(event.get('eventType', ''), '❓')
+            display_name = self.get_display_name(event, event['id'])
             embed.add_field(
-                name=f"{event_type} {event.get('name', 'Unknown')}",
+                name=f"{event_type} {display_name}",
                 value=f"{status} | ID: {event['id']}",
                 inline=False
             )
@@ -227,22 +296,23 @@ class EventsCog(commands.Cog):
         """Get event history: !events [count]"""
         count = max(1, min(count, 10))
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        past_events = [e for e in self.events if e.get('closedAt', 0) < now_ms][:count]
+        past_events = [e for e in self.events_jp if e.get('closedAt', 0) < now_ms][:count]
         
         if not past_events:
             await ctx.send("Không có sự kiện đã kết thúc!")
             return
         
         embed = discord.Embed(
-            title="Lịch sử sự kiện",
+            title="📜 Lịch sử sự kiện",
             description=f"Hiển thị {len(past_events)} sự kiện gần nhất",
             color=0x5865F2
         )
         
         for event in past_events:
             event_type = EVENT_TYPES.get(event.get('eventType', ''), '❓')
+            name = self.get_display_name(event, event['id'])
             embed.add_field(
-                name=f"{event_type} {event.get('name', 'Unknown')}",
+                name=f"{event_type} {name}",
                 value=f"ID: {event['id']}",
                 inline=False
             )
@@ -273,8 +343,9 @@ class EventsCog(commands.Cog):
         
         for event in results:
             status, _ = self.get_event_status(event)
+            display_name = self.get_display_name(event, event['id'])
             embed.add_field(
-                name=event.get('name', 'Unknown'),
+                name=display_name,
                 value=f"{status} | ID: {event['id']}",
                 inline=False
             )

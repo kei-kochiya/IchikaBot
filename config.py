@@ -8,15 +8,42 @@ from pathlib import Path
 
 # --- Paths ---
 GAME_DATA_PATH = Path('./gameData')
+STATIC_DATA_PATH = GAME_DATA_PATH / 'static'
+JP_DATA_PATH = GAME_DATA_PATH / 'JP_data'
+EN_DATA_PATH = GAME_DATA_PATH / 'EN_data'
+
 CACHE_DIR = Path('./.gachacache')
 TEMP_DIR = CACHE_DIR / 'temp'
 ASSETS_PATH = Path('./assets')
 AUDIO_DIR = Path('./music')
 
-CARDS_FILE = GAME_DATA_PATH / 'cards.json'
-CHARACTERS_FILE = GAME_DATA_PATH / 'gameCharacters.json'
-UNIT_COLOR_FILE = GAME_DATA_PATH / 'gameCharacterUnits.json'
-NICKNAMES_FILE = GAME_DATA_PATH / 'nicknames.json'
+# Static files (not updated)
+CHARACTERS_FILE = STATIC_DATA_PATH / 'gameCharacters.json'
+UNIT_COLOR_FILE = STATIC_DATA_PATH / 'gameCharacterUnits.json'
+NICKNAMES_FILE = STATIC_DATA_PATH / 'nicknames.json'
+PROFILES_FILE = STATIC_DATA_PATH / 'characterProfiles.json'
+
+# JP Data files
+CARDS_FILE_JP = JP_DATA_PATH / 'cards.json'
+MUSICS_FILE_JP = JP_DATA_PATH / 'musics.json'
+MUSIC_DIFFICULTIES_FILE_JP = JP_DATA_PATH / 'musicDifficulties.json'
+STAMPS_FILE_JP = JP_DATA_PATH / 'stamps.json'
+EVENTS_FILE_JP = JP_DATA_PATH / 'events.json'
+
+# EN Data files
+CARDS_FILE_EN = EN_DATA_PATH / 'cards.json'
+MUSICS_FILE_EN = EN_DATA_PATH / 'musics.json'
+MUSIC_DIFFICULTIES_FILE_EN = EN_DATA_PATH / 'musicDifficulties.json'
+STAMPS_FILE_EN = EN_DATA_PATH / 'stamps.json'
+EVENTS_FILE_EN = EN_DATA_PATH / 'events.json'
+
+# Legacy aliases for backwards compatibility
+CARDS_FILE = CARDS_FILE_JP
+MUSICS_FILE = MUSICS_FILE_JP
+MUSIC_DIFFICULTIES_FILE = MUSIC_DIFFICULTIES_FILE_JP
+STAMPS_FILE = STAMPS_FILE_JP
+EVENTS_FILE = EVENTS_FILE_JP
+
 PITY_FILE = Path('./pityData.json')
 
 # Rarity display icons
@@ -27,10 +54,6 @@ RARITY_ICONS = {
     'rarity_4': '★★★★',
     'rarity_birthday': '🎂 Birthday'
 }
-
-# Song Database
-MUSICS_FILE = GAME_DATA_PATH / 'musics.json'
-MUSIC_DIFFICULTIES_FILE = GAME_DATA_PATH / 'musicDifficulties.json'
 
 # Birthday Announcements
 BIRTHDAY_SETTINGS_FILE = GAME_DATA_PATH / 'birthdaySettings.json'
@@ -56,23 +79,28 @@ CACHE_CLEANUP_THRESHOLD = 0.9  # Clean when 90% full
 
 # --- Card Update Settings ---
 CARD_UPDATE_INTERVAL_HOURS = 6
-CARD_DATA_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/cards.json'
 
-# Song Update URLs
-MUSICS_DATA_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musics.json'
-MUSIC_DIFFICULTIES_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musicDifficulties.json'
+# JP Data Update URLs
+CARD_DATA_URL_JP = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/cards.json'
+MUSICS_DATA_URL_JP = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musics.json'
+MUSIC_DIFFICULTIES_URL_JP = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musicDifficulties.json'
+STAMPS_DATA_URL_JP = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/stamps.json'
+EVENTS_DATA_URL_JP = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/events.json'
 
-# Stamp Database
-STAMPS_FILE = GAME_DATA_PATH / 'stamps.json'
-STAMPS_DATA_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/stamps.json'
+# EN Data Update URLs
+CARD_DATA_URL_EN = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/cards.json'
+MUSICS_DATA_URL_EN = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/musics.json'
+MUSIC_DIFFICULTIES_URL_EN = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/musicDifficulties.json'
+STAMPS_DATA_URL_EN = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/stamps.json'
+EVENTS_DATA_URL_EN = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/events.json'
 
-# Character Profiles
-PROFILES_FILE = GAME_DATA_PATH / 'characterProfiles.json'
-PROFILES_DATA_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/characterProfiles.json'
+# Legacy aliases (point to JP)
+CARD_DATA_URL = CARD_DATA_URL_JP
+MUSICS_DATA_URL = MUSICS_DATA_URL_JP
+MUSIC_DIFFICULTIES_URL = MUSIC_DIFFICULTIES_URL_JP
+STAMPS_DATA_URL = STAMPS_DATA_URL_JP
+EVENTS_DATA_URL = EVENTS_DATA_URL_JP
 
-# Events
-EVENTS_FILE = GAME_DATA_PATH / 'events.json'
-EVENTS_DATA_URL = 'https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/events.json'
 
 # --- Shared Resources ---
 class SharedResources:

@@ -9,7 +9,7 @@ import logging
 import aiofiles
 import random
 
-from config import PROFILES_FILE, CARDS_FILE
+from config import PROFILES_FILE, CARDS_FILE_JP, CARDS_FILE_EN
 from utils.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
 )
@@ -26,21 +26,44 @@ class ProfileCog(commands.Cog):
         self.bot = bot
         self.profiles = {}
         self.cards = []
+        self.cards_en_by_id = {}  # EN cards for display names
         
     async def cog_load(self):
         await self.load_data()
         logger.info("ProfileCog loaded with %d profiles, %d cards", len(self.profiles), len(self.cards))
     
     async def load_data(self):
+        # Load profiles and JP cards
         try:
             async with aiofiles.open(PROFILES_FILE, 'r', encoding='utf-8') as f:
                 profiles = json.loads(await f.read())
                 self.profiles = {p['characterId']: p for p in profiles}
             
-            async with aiofiles.open(CARDS_FILE, 'r', encoding='utf-8') as f:
+            async with aiofiles.open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
                 self.cards = json.loads(await f.read())
         except Exception as e:
             logger.error("Failed to load profile data: %s", e)
+        
+        # Load EN cards for display names
+        try:
+            async with aiofiles.open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
+                cards_en = json.loads(await f.read())
+                self.cards_en_by_id = {c['id']: c for c in cards_en}
+            logger.info("Profile: Loaded %d EN cards for display.", len(self.cards_en_by_id))
+        except FileNotFoundError as e:
+            logger.warning("Profile: Missing EN data file: %s", e.filename)
+            self.cards_en_by_id = {}
+        except Exception as e:
+            logger.error("Profile: Failed to load EN data: %s", e)
+            self.cards_en_by_id = {}
+
+    def get_display_prefix(self, card: dict) -> str:
+        """Get display prefix, using EN if available."""
+        card_id = card.get('id')
+        en_card = self.cards_en_by_id.get(card_id)
+        if en_card and en_card.get('prefix'):
+            return en_card['prefix']
+        return card.get('prefix', 'Unknown')
     
     def get_random_card_for_character(self, char_id: int, rarity: list[str] = None) -> dict | None:
         """Get a random 3-star or 4-star card for a character."""
@@ -87,7 +110,7 @@ class ProfileCog(commands.Cog):
         if card:
             embed.set_image(url=get_card_image_url(card['assetbundleName'], False))
             rarity = "🎂" if card['cardRarityType'] == 'rarity_birthday' else f"{card['cardRarityType'][-1]}⭐"
-            embed.set_footer(text=f"Card: {card.get('prefix', 'Unknown')} ({rarity})")
+            embed.set_footer(text=f"Card: {self.get_display_prefix(card)} ({rarity})")
         
         return embed
     

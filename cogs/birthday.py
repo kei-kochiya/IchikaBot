@@ -9,7 +9,7 @@ import logging
 import aiofiles
 from datetime import datetime, time, timezone, timedelta
 
-from config import CHARACTERS_FILE, BIRTHDAY_SETTINGS_FILE, CARDS_FILE
+from config import CHARACTERS_FILE, BIRTHDAY_SETTINGS_FILE, CARDS_FILE_JP
 from utils.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
 )
@@ -145,7 +145,7 @@ class BirthdayCog(commands.Cog):
         try:
             with open(CHARACTERS_FILE, 'r', encoding='utf-8') as f:
                 self.characters = json.load(f)
-            with open(CARDS_FILE, 'r', encoding='utf-8') as f:
+            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
                 self.cards = json.load(f)
             logger.info(f"Birthday: Loaded {len(self.characters)} characters, {len(self.cards)} cards.")
         except Exception as e:
@@ -264,9 +264,32 @@ class BirthdayCog(commands.Cog):
         
         return upcoming
 
-    def get_random_card_for_character(self, char_id) -> dict | None:
-        """Get a random card (any rarity) for a character."""
-        return get_random_card(self.cards, char_id)
+    def get_random_card_for_character(self, char_id, rarity: list[str] = None) -> dict | None:
+        """Get a random card for a character, optionally filtered by rarity."""
+        if rarity is None:
+            rarity = ['rarity_3', 'rarity_4']  # Default to 3/4 star
+        return get_random_card(self.cards, char_id, rarity)
+
+    def get_next_birthday(self) -> tuple[int, dict] | None:
+        """Get the character with the nearest upcoming birthday (within 365 days)."""
+        today = datetime.now(JST)
+        
+        for days_ahead in range(1, 366):
+            future_date = today + timedelta(days=days_ahead)
+            date_str = future_date.strftime('%m-%d')
+            chars = self.get_characters_with_birthday(date_str)
+            if chars:
+                return (days_ahead, chars[0])
+        return None
+
+    def get_random_character(self) -> dict | None:
+        """Get a random character from all characters."""
+        import random
+        if not self.characters:
+            return None
+        char_id = random.choice(list(self.characters.keys()))
+        char = self.characters[char_id]
+        return {**char, 'id': int(char_id)}
 
     def create_countdown_embed(self, days_until: int, character: dict, card: dict) -> discord.Embed:
         """Create a countdown embed for an upcoming birthday with card image."""
@@ -317,24 +340,65 @@ class BirthdayCog(commands.Cog):
         else:
             await channel.send(embed=embed)
 
+    def create_daily_card_embed(self, character: dict, card: dict, days_until_bday: int) -> discord.Embed:
+        """Create daily card embed with birthday countdown."""
+        full_name = get_character_name(character['id'], full=True)
+        char_id = character.get('id')
+        unit = character.get('unit', 'virtual_singer')
+        unit_display = UNIT_NAMES.get(unit, unit)
+        
+        # Countdown text
+        if days_until_bday == 1:
+            countdown_text = "**Ngày mai** là sinh nhật!"
+        elif days_until_bday <= 7:
+            countdown_text = f"Còn **{days_until_bday} ngày** nữa là sinh nhật!"
+        else:
+            countdown_text = f"Sinh nhật: còn **{days_until_bday} ngày**"
+        
+        embed = discord.Embed(
+            title=f"Daily Card: {full_name}",
+            description=f"**{unit_display}**\n\n{countdown_text}",
+            color=get_unit_color(char_id)
+        )
+        embed.add_field(name="Birthday", value=character.get('birthday', 'Unknown'), inline=True)
+        
+        # Use trained art for 3/4 star
+        is_trained = supports_trained_art(card)
+        card_url = get_card_image_url(card['assetbundleName'], trained=is_trained)
+        
+        embed.set_image(url=card_url)
+        embed.set_footer(text=card.get('prefix', 'Card'))
+        embed.timestamp = datetime.now(JST)
+        return embed
+
+    async def send_daily_card_message(self, channel, character: dict, days_until_bday: int):
+        """Send daily card message with countdown and toggle button."""
+        card = self.get_random_card_for_character(character['id'])
+        
+        if not card:
+            logger.warning(f"Birthday: No 3/4 star cards found for character {character['id']}")
+            return
+        
+        embed = self.create_daily_card_embed(character, card, days_until_bday)
+        
+        # Add view with toggle button if 3/4 star
+        if supports_trained_art(card):
+            view = CardToggleView(embed, card, default_trained=True)
+            msg = await channel.send(embed=embed, view=view)
+            view.message = msg
+        else:
+            await channel.send(embed=embed)
+
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=JST))
     async def birthday_check_task(self):
+        """Daily birthday and card announcement at 12:00 AM JST."""
         import random
         now = datetime.now(JST)
         today = now.strftime('%m-%d')
-        logger.info(f"Birthday: Checking for birthdays on {today}")
+        logger.info(f"Birthday: Daily check on {today}")
         
         # Get today's birthdays
         birthday_chars = self.get_characters_with_birthday(today)
-        
-        # Get upcoming birthdays for countdown (next 10 days)
-        upcoming = self.get_upcoming_birthdays(days=10)
-        
-        if not birthday_chars and not upcoming:
-            logger.debug("Birthday: No birthdays today or upcoming")
-            return
-        
-        logger.info(f"Birthday: Found {len(birthday_chars)} birthday(s) today, {len(upcoming)} upcoming")
         
         for guild_id_str, channel_id in self.settings.items():
             try:
@@ -342,14 +406,33 @@ class BirthdayCog(commands.Cog):
                 if not channel:
                     continue
                 
-                # Send birthday announcements (all characters having birthday today)
-                for char in birthday_chars:
-                    await self.send_birthday_message(channel, char)
+                # CASE 1: Birthday today - send birthday cards only (existing logic)
+                if birthday_chars:
+                    logger.info(f"Birthday: Sending {len(birthday_chars)} birthday announcement(s)")
+                    for char in birthday_chars:
+                        await self.send_birthday_message(channel, char)
+                    continue  # Don't send daily card on birthday
                 
-                # Send countdown notification (only ONE random character)
+                # CASE 2 & 3: No birthday today - send daily random card
+                upcoming = self.get_upcoming_birthdays(days=7)
+                
                 if upcoming:
-                    days_until, char = random.choice(upcoming)
-                    await self.send_countdown_message(channel, days_until, char)
+                    # CASE 2: Birthday within 7 days - use nearest birthday character
+                    # upcoming is sorted by days, so first one is nearest
+                    days_until, char = upcoming[0]
+                    logger.info(f"Birthday: Sending daily card for {char.get('id')} (birthday in {days_until} days)")
+                else:
+                    # CASE 3: No birthday within 7 days - use random character
+                    char = self.get_random_character()
+                    if not char:
+                        logger.warning("Birthday: No characters available")
+                        continue
+                    # Get days until next birthday for countdown
+                    next_bday = self.get_next_birthday()
+                    days_until = next_bday[0] if next_bday else 365
+                    logger.info(f"Birthday: Sending random daily card for {char.get('id')} (next birthday in {days_until} days)")
+                
+                await self.send_daily_card_message(channel, char, days_until)
                         
             except Exception as e:
                 logger.error(f"Birthday: Failed to send to guild {guild_id_str}: {e}")
@@ -378,6 +461,44 @@ class BirthdayCog(commands.Cog):
             color=discord.Color.green()
         )
         await interaction.response.send_message(embed=embed)
+
+    @birthday_group.command(name="test", description="Test daily card announcement (Admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def test_daily(self, interaction: discord.Interaction):
+        """Manually trigger the daily card logic for testing."""
+        await interaction.response.defer()
+        
+        now = datetime.now(JST)
+        today = now.strftime('%m-%d')
+        
+        # Get today's birthdays
+        birthday_chars = self.get_characters_with_birthday(today)
+        
+        if birthday_chars:
+            # Birthday today
+            await interaction.followup.send(f"Today is birthday! Sending {len(birthday_chars)} announcement(s)...")
+            for char in birthday_chars:
+                await self.send_birthday_message(interaction.channel, char)
+            return
+        
+        # No birthday - check upcoming
+        upcoming = self.get_upcoming_birthdays(days=7)
+        
+        if upcoming:
+            days_until, char = upcoming[0]
+            full_name = get_character_name(char['id'], full=True)
+            await interaction.followup.send(f"Birthday within 7 days: {full_name} in {days_until} day(s)")
+        else:
+            char = self.get_random_character()
+            if not char:
+                await interaction.followup.send("No characters available")
+                return
+            next_bday = self.get_next_birthday()
+            days_until = next_bday[0] if next_bday else 365
+            full_name = get_character_name(char['id'], full=True)
+            await interaction.followup.send(f"Random character: {full_name} (next bday in {days_until} days)")
+        
+        await self.send_daily_card_message(interaction.channel, char, days_until)
 
     @birthday_group.command(name="disable", description="Tắt thông báo sinh nhật")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -425,13 +546,13 @@ class BirthdayCog(commands.Cog):
         
         # Build embed
         embed = discord.Embed(
-            title="📅 Lịch sinh nhật",
+            title="Lịch sinh nhật",
             color=discord.Color.purple()
         )
         
         # Today section
         if birthday_chars:
-            today_names = [f"🎂 **{get_character_name(c['id'], full=True)}**" for c in birthday_chars]
+            today_names = [f"**{get_character_name(c['id'], full=True)}**" for c in birthday_chars]
             embed.add_field(
                 name="🎉 Hôm nay!",
                 value='\n'.join(today_names),
@@ -479,7 +600,7 @@ class BirthdayCog(commands.Cog):
     async def birthday_admin_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
-                "❌ Bạn cần quyền **Manage Server** để sử dụng lệnh này.",
+                "Bạn cần quyền **Manage Server** để sử dụng lệnh này.",
                 ephemeral=True
             )
 
@@ -498,13 +619,13 @@ class BirthdayCog(commands.Cog):
         
         # Build embed
         embed = discord.Embed(
-            title="📅 Lịch sinh nhật",
+            title="Lịch sinh nhật",
             color=discord.Color.purple()
         )
         
         # Today section
         if birthday_chars:
-            today_names = [f"🎂 **{get_character_name(c['id'], full=True)}**" for c in birthday_chars]
+            today_names = [f"**{get_character_name(c['id'], full=True)}**" for c in birthday_chars]
             embed.add_field(
                 name="🎉 Hôm nay!",
                 value='\n'.join(today_names),
@@ -524,9 +645,9 @@ class BirthdayCog(commands.Cog):
                 name = get_character_name(char['id'], full=True)
                 date_str = char.get('birthday', '')
                 if days_until == 1:
-                    upcoming_lines.append(f"⏰ **Ngày mai** - {name}")
+                    upcoming_lines.append(f"**Ngày mai** - {name}")
                 else:
-                    upcoming_lines.append(f"📌 **{days_until} ngày** ({date_str}) - {name}")
+                    upcoming_lines.append(f"**{days_until} ngày** ({date_str}) - {name}")
             
             if len(upcoming) > 10:
                 upcoming_lines.append(f"*...và {len(upcoming) - 10} sinh nhật khác*")

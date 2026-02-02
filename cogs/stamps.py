@@ -1,5 +1,6 @@
 """
 Stamp Database Cog - Browse and search Project Sekai stamps.
+Supports both JP and EN stamp data with English search.
 """
 import discord
 from discord import app_commands
@@ -9,13 +10,13 @@ import logging
 import aiofiles
 import random
 
-from config import STAMPS_FILE
+from config import STAMPS_FILE_JP, STAMPS_FILE_EN
 from utils.game_data import get_character_name, get_unit_color, character_autocomplete, game_data
 from utils.romaji import matches_query, normalize_for_search
 
 logger = logging.getLogger(__name__)
 
-# Stamp image base URL
+# Stamp image base URL - Always uses JP storage
 STAMP_IMAGE_URL = "https://storage.sekai.best/sekai-jp-assets/stamp/{asset}/{asset}.png"
 
 
@@ -24,29 +25,75 @@ class StampsCog(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.stamps = []
+        self.stamps_jp = []
+        self.stamps_en = []
+        self.stamps_en_by_id = {}
         
     async def cog_load(self):
         """Load stamp data when the cog loads."""
         await self.load_data()
-        logger.info("StampsCog loaded with %d stamps", len(self.stamps))
+        logger.info("StampsCog loaded with %d JP stamps and %d EN stamps", 
+                    len(self.stamps_jp), len(self.stamps_en))
     
     async def load_data(self):
-        """Load stamps data from JSON file."""
+        """Load both JP and EN stamps data from JSON files."""
+        # Load JP stamps
         try:
-            async with aiofiles.open(STAMPS_FILE, 'r', encoding='utf-8') as f:
-                self.stamps = json.loads(await f.read())
+            async with aiofiles.open(STAMPS_FILE_JP, 'r', encoding='utf-8') as f:
+                self.stamps_jp = json.loads(await f.read())
+        except FileNotFoundError as e:
+            logger.error("Stamps: Missing JP file: %s", e.filename)
+            self.stamps_jp = []
         except Exception as e:
-            logger.error("Failed to load stamp data: %s", e)
+            logger.error("Failed to load JP stamp data: %s", e)
+            self.stamps_jp = []
+        
+        # Load EN stamps
+        try:
+            async with aiofiles.open(STAMPS_FILE_EN, 'r', encoding='utf-8') as f:
+                self.stamps_en = json.loads(await f.read())
+            self.stamps_en_by_id = {s['id']: s for s in self.stamps_en}
+        except FileNotFoundError as e:
+            logger.warning("Stamps: Missing EN file: %s", e.filename)
+            self.stamps_en = []
+            self.stamps_en_by_id = {}
+        except Exception as e:
+            logger.error("Failed to load EN stamp data: %s", e)
+            self.stamps_en = []
+            self.stamps_en_by_id = {}
+
+    def get_stamp_by_id(self, stamp_id: int) -> dict | None:
+        """Get stamp by ID, prioritizing EN data, fallback to JP."""
+        if stamp_id in self.stamps_en_by_id:
+            return self.stamps_en_by_id[stamp_id]
+        for stamp in self.stamps_jp:
+            if stamp['id'] == stamp_id:
+                return stamp
+        return None
+
+    def get_display_name(self, stamp: dict, stamp_id: int) -> str:
+        """Get display name, using EN if available."""
+        en_stamp = self.stamps_en_by_id.get(stamp_id)
+        name = stamp.get('name', 'Unknown')
+        
+        if en_stamp and en_stamp.get('name'):
+            name = en_stamp['name']
+        
+        # Strip prefix
+        if name.startswith('[スタンプ]'):
+            name = name[6:]
+        if name.startswith('[Stamp]'):
+            name = name[7:]
+        
+        return name
     
     def create_stamp_embed(self, stamp: dict) -> discord.Embed:
         """Create an embed for a stamp."""
+        stamp_id = stamp.get('id', 0)
         char_id = stamp.get('characterId1', stamp.get('gameCharacterUnitId', 0))
         char_name = get_character_name(char_id)
         
-        name = stamp.get('name', 'Unknown')
-        if name.startswith('[スタンプ]'):
-            name = name[6:]
+        name = self.get_display_name(stamp, stamp_id)
         
         embed = discord.Embed(
             title=f"{name}",
@@ -54,12 +101,13 @@ class StampsCog(commands.Cog):
         )
         
         embed.add_field(name="Nhân vật", value=char_name, inline=True)
-        embed.add_field(name="ID", value=str(stamp.get('id', 'N/A')), inline=True)
+        embed.add_field(name="ID", value=str(stamp_id), inline=True)
         embed.add_field(name="Loại", value=stamp.get('stampType', 'illustration'), inline=True)
         
         if stamp.get('description'):
             embed.add_field(name="Cách nhận", value=stamp['description'], inline=False)
         
+        # Asset URLs always use JP storage
         asset = stamp.get('assetbundleName', '')
         if asset:
             embed.set_image(url=STAMP_IMAGE_URL.format(asset=asset))
@@ -67,34 +115,49 @@ class StampsCog(commands.Cog):
         return embed
     
     def search_stamps(self, keyword: str, limit: int = 10) -> list:
-        """Search stamps by keyword, ID, or romaji."""
+        """Search stamps by keyword, ID, or romaji in both JP and EN."""
         # If keyword is a number, try ID-based search
         if keyword.isdigit():
             target_id = int(keyword)
-            # First check for exact name match
-            name_matches = [s for s in self.stamps if keyword in s.get('name', '')]
-            if name_matches:
-                return name_matches[:limit]
-            
-            # Find nearest ID (higher if tied)
-            sorted_stamps = sorted(self.stamps, key=lambda s: (abs(s['id'] - target_id), -s['id']))
+            stamp = self.get_stamp_by_id(target_id)
+            if stamp:
+                return [stamp]
+            # Find nearest ID
+            all_stamps = self.stamps_jp if self.stamps_jp else self.stamps_en
+            sorted_stamps = sorted(all_stamps, key=lambda s: (abs(s['id'] - target_id), -s['id']))
             if sorted_stamps:
                 return [sorted_stamps[0]]
             return []
         
-        # Search by name with romaji support
         results = []
-        for stamp in self.stamps:
+        seen_ids = set()
+        
+        # Search EN stamps first
+        for stamp in self.stamps_en:
+            name = stamp.get('name', '')
+            if matches_query(keyword, name):
+                if stamp['id'] not in seen_ids:
+                    results.append(stamp)
+                    seen_ids.add(stamp['id'])
+                    if len(results) >= limit:
+                        return results
+        
+        # Then search JP stamps
+        for stamp in self.stamps_jp:
+            if stamp['id'] in seen_ids:
+                continue
             name = stamp.get('name', '')
             if matches_query(keyword, name):
                 results.append(stamp)
+                seen_ids.add(stamp['id'])
                 if len(results) >= limit:
                     break
+        
         return results
     
     def get_stamps_by_character(self, char_id: int) -> list:
-        """Get all stamps for a character."""
-        return [s for s in self.stamps 
+        """Get all stamps for a character (from JP data as it's more complete)."""
+        return [s for s in self.stamps_jp 
                 if s.get('characterId1') == char_id or s.get('gameCharacterUnitId') == char_id]
     
     # --- Autocomplete ---
@@ -106,7 +169,7 @@ class StampsCog(commands.Cog):
     # ===== SLASH COMMANDS =====
     stamp_group = app_commands.Group(name="stamp", description="Tìm kiếm và xem stamp")
     
-    @stamp_group.command(name="search", description="Tìm stamp theo từ khóa")
+    @stamp_group.command(name="search", description="Tìm stamp theo từ khóa (JP/EN)")
     @app_commands.describe(keyword="Từ khóa tìm kiếm (tên stamp)")
     async def stamp_search(self, interaction: discord.Interaction, keyword: str):
         await interaction.response.defer()
@@ -123,9 +186,7 @@ class StampsCog(commands.Cog):
         )
         
         for stamp in results:
-            name = stamp.get('name', 'Unknown')
-            if name.startswith('[スタンプ]'):
-                name = name[6:]
+            name = self.get_display_name(stamp, stamp['id'])
             char_id = stamp.get('characterId1', stamp.get('gameCharacterUnitId', 0))
             char_name = get_character_name(char_id)
             embed.add_field(name=name, value=f"ID: {stamp['id']} | {char_name}", inline=False)
@@ -163,9 +224,7 @@ class StampsCog(commands.Cog):
         )
         
         for stamp in results[:10]:
-            name = stamp.get('name', 'Unknown')
-            if name.startswith('[スタンプ]'):
-                name = name[6:]
+            name = self.get_display_name(stamp, stamp['id'])
             embed.add_field(name=name, value=f"ID: {stamp['id']}", inline=True)
         
         if len(results) > 10:
@@ -180,13 +239,14 @@ class StampsCog(commands.Cog):
     async def stamp_random_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        if not self.stamps:
+        all_stamps = self.stamps_jp if self.stamps_jp else self.stamps_en
+        if not all_stamps:
             await interaction.followup.send("Không có dữ liệu stamp!")
             return
         
-        stamp = random.choice(self.stamps)
+        stamp = random.choice(all_stamps)
         embed = self.create_stamp_embed(stamp)
-        embed.set_footer(text="Stamp ngẫu nhiên")
+        embed.set_footer(text="🎲 Stamp ngẫu nhiên")
         
         await interaction.followup.send(embed=embed)
     
@@ -211,9 +271,7 @@ class StampsCog(commands.Cog):
         )
         
         for stamp in results[:5]:
-            name = stamp.get('name', 'Unknown')
-            if name.startswith('[スタンプ]'):
-                name = name[6:]
+            name = self.get_display_name(stamp, stamp['id'])
             char_name = get_character_name(stamp.get('characterId1', 0))
             embed.add_field(name=name, value=f"ID: {stamp['id']} | {char_name}", inline=False)
         
@@ -248,21 +306,20 @@ class StampsCog(commands.Cog):
         )
         
         for stamp in results[:10]:
-            name = stamp.get('name', 'Unknown')
-            if name.startswith('[スタンプ]'):
-                name = name[6:]
-            embed.add_field(name=name, value=f"ID: {stamp['id']}", inline=True)
+            stamp_name = self.get_display_name(stamp, stamp['id'])
+            embed.add_field(name=stamp_name, value=f"ID: {stamp['id']}", inline=True)
         
         await ctx.send(embed=embed)
     
     @commands.command(name='stampr')
     async def stamp_random_prefix(self, ctx: commands.Context):
         """Get a random stamp: !stampr"""
-        if not self.stamps:
+        all_stamps = self.stamps_jp if self.stamps_jp else self.stamps_en
+        if not all_stamps:
             await ctx.send("Không có dữ liệu stamp!")
             return
         
-        stamp = random.choice(self.stamps)
+        stamp = random.choice(all_stamps)
         embed = self.create_stamp_embed(stamp)
         embed.set_footer(text="🎲 Stamp ngẫu nhiên")
         
