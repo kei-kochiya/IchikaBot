@@ -462,7 +462,7 @@ class BirthdayCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @birthday_group.command(name="test", description="Test daily card announcement (Admin)")
+    @birthday_group.command(name="test_daily", description="Test daily card announcement (Admin)")
     @app_commands.checks.has_permissions(administrator=True)
     async def test_daily(self, interaction: discord.Interaction):
         """Manually trigger the daily card logic for testing."""

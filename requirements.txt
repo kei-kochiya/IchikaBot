@@ -4,3 +4,4 @@ discord.py
 Pillow
 python-dotenv
 pydub
+PyNaCl
