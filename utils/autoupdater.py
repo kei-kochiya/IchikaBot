@@ -174,6 +174,9 @@ class AutoUpdater:
     
     async def _save_local(self, path: Path, data: Any):
         """Save data to local JSON file atomically."""
+        # Ensure parent directory exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
         # Write to temp file first, then rename (atomic on most systems)
         temp_path = path.with_suffix('.tmp')
         
