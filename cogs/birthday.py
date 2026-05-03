@@ -4,17 +4,15 @@ Birthday Cog - Character birthday announcements for Project Sekai.
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import json
 import logging
-import aiofiles
 from datetime import datetime, time, timezone, timedelta
 
-from config import BIRTHDAY_SETTINGS_FILE
 from utils.card_data import card_data
 from utils.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
 )
 from utils.cards import get_card_image_url, get_random_card, CardToggleView, supports_trained_art
+from utils import database
 
 logger = logging.getLogger(__name__)
 
@@ -149,22 +147,18 @@ class BirthdayCog(commands.Cog):
         logger.info("Birthday: Refreshed shared singleton refs.")
 
     async def load_settings(self):
-        if not BIRTHDAY_SETTINGS_FILE.exists():
-            self.settings = {}
-            return
+        """Load all birthday channel settings from the database into memory."""
         try:
-            async with aiofiles.open(BIRTHDAY_SETTINGS_FILE, 'r') as f:
-                self.settings = json.loads(await f.read())
+            rows = await database.get_all_settings('birthday_channel')
+            # Store as {guild_id_str: channel_id} to preserve existing access patterns
+            self.settings = {str(gid): int(ch_id) for gid, ch_id in rows.items()}
         except Exception as e:
             logger.error(f"Birthday: Failed to load settings: {e}")
             self.settings = {}
 
     async def save_settings(self):
-        try:
-            async with aiofiles.open(BIRTHDAY_SETTINGS_FILE, 'w') as f:
-                await f.write(json.dumps(self.settings, indent=2))
-        except Exception as e:
-            logger.error(f"Birthday: Failed to save settings: {e}")
+        """Deprecated — settings are now written directly in set/delete helpers."""
+        pass
 
     def get_characters_with_birthday(self, date_str: str) -> list:
         birthday_chars = []
@@ -430,8 +424,9 @@ class BirthdayCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        self.settings[str(interaction.guild_id)] = channel.id
-        await self.save_settings()
+        guild_id = str(interaction.guild_id)
+        self.settings[guild_id] = channel.id
+        await database.set_setting(interaction.guild_id, 'birthday_channel', str(channel.id))
         embed = discord.Embed(
             title="Đã cài đặt thành công!",
             description=f"Thông báo sinh nhật sẽ được gửi đến {channel.mention}\n\n"
@@ -478,7 +473,7 @@ class BirthdayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
             del self.settings[guild_id]
-            await self.save_settings()
+            await database.delete_setting(interaction.guild_id, 'birthday_channel')
             await interaction.response.send_message("Đã tắt thông báo sinh nhật.", ephemeral=True)
         else:
             await interaction.response.send_message("Chưa bật thông báo sinh nhật.", ephemeral=True)

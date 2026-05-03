@@ -4,19 +4,18 @@ Gacha Cog - Gacha simulation for Project Sekai.
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
-import random
 import logging
-import aiofiles
+import random
 from PIL import Image, ImageDraw
 from io import BytesIO
 
 from utils.image_helper import get_card_image_path
 from utils.game_data import get_unit_color_hex
 from utils.card_data import card_data
+from utils import database
 from config import (
-    CARDS_FILE_JP, CARDS_FILE_EN, RARITY_ICONS, PITY_FILE,
-    PITY_THRESHOLD, GACHA_RATES, SharedResources
+    RARITY_ICONS,
+    PITY_THRESHOLD, GACHA_RATES
 )
 
 logger = logging.getLogger(__name__)
@@ -40,48 +39,13 @@ class GachaCog(commands.Cog):
         return card_data.get_display_prefix(card)
 
     async def get_user_pity(self, user_id: int) -> int:
-        """Get user's current pity count with async file access."""
-        user_id_str = str(user_id)
-        lock = SharedResources.get_pity_lock()
-        
-        async with lock:
-            if not PITY_FILE.exists():
-                async with aiofiles.open(PITY_FILE, 'w') as f:
-                    await f.write('{}')
-                return 0
-            
-            try:
-                async with aiofiles.open(PITY_FILE, 'r') as f:
-                    data = json.loads(await f.read())
-                return data.get(user_id_str, 0)
-            except json.JSONDecodeError:
-                logger.warning("Pity file corrupted, resetting...")
-                return 0
-            except Exception as e:
-                logger.error(f"Error reading pity data: {e}")
-                return 0
+        """Get user's current pity count from the database."""
+        return await database.get_pity(user_id)
 
     async def update_user_pity(self, user_id: int, count: int):
-        """Update user's pity count with async file access and locking."""
-        user_id_str = str(user_id)
-        lock = SharedResources.get_pity_lock()
-        
-        async with lock:
-            data = {}
-            if PITY_FILE.exists():
-                try:
-                    async with aiofiles.open(PITY_FILE, 'r') as f:
-                        data = json.loads(await f.read())
-                except Exception as e:
-                    logger.warning(f"Error reading pity file, starting fresh: {e}")
-            
-            data[user_id_str] = count
-            
-            try:
-                async with aiofiles.open(PITY_FILE, 'w') as f:
-                    await f.write(json.dumps(data, indent=4))
-            except Exception as e:
-                logger.error(f"Error saving pity data: {e}")
+        """Update user's pity count in the database."""
+        await database.set_pity(user_id, count)
+
 
     async def pull_one_card(self, user_id: int, is_guaranteed_slot: bool = False):
         """Pull a single card with pity system."""
