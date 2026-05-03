@@ -8,4 +8,5 @@ pydub
 PyNaCl
 davey
 mercapi
-yt-dlp
+yt-dlp
+openpyxl

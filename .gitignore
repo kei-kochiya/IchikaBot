@@ -44,3 +44,5 @@ Thumbs.db
 
 # Cache
 *.tmp
+~$*.xlsx
+~$*.xls

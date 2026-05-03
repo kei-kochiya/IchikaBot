@@ -7,6 +7,7 @@ import asyncio
 import logging
 import glob
 import re
+from pathlib import Path
 from pydub import AudioSegment
 from pydub.effects import speedup
 from config import AUDIO_DIR, TEMP_DIR, GUESS_TIME_LIMIT, MAX_GUESSES, SONG_CLIP_DURATION, SONG_SAFE_ZONE
@@ -17,94 +18,171 @@ TEMP_CLIP_PREFIX = "temp_guess_clip_"
 WRONG_EMOJI = '❌'
 CORRECT_EMOJI = '✅'
 
+# Path to the song database spreadsheet
+SONG_DB_PATH = Path(__file__).parent.parent / "gameData" / "static" / "song.xlsx"
+
+
+def normalize(text: str) -> str:
+    """
+    Keep only alphanumeric characters, strip everything else (including spaces),
+    and lowercase. Applied to both song titles and player guesses before comparison.
+    """
+    return re.sub(r'[^a-zA-Z0-9]', '', text).lower()
+
+
+def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
+    """
+    Check whether raw_guess matches any of the normalized target strings.
+
+    Rules:
+      - Normalize the guess the same way as the titles.
+      - Exact match  → correct.
+      - len(normalized_guess) >= 3 AND normalized_guess is a substring of any target → correct.
+    """
+    ng = normalize(raw_guess)
+    if not ng:
+        return False
+    for target in norm_targets:
+        if ng == target:
+            return True
+        if len(ng) >= 3 and ng in target:
+            return True
+    return False
+
 
 class MusicGuess(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_games = {}
         # Per-session song tracking (two-set approach for efficient selection)
-        self.played_songs = set()      # Songs that have been played this session
-        self.available_songs = set()   # Songs that haven't been played yet
+        self.played_songs: set = set()
+        self.available_songs: set = set()
+        # song_db: str(index) -> {"title_en": str|None, "romaji_title": str|None, "title_jp": str|None}
+        self.song_db: dict[str, dict] = {}
+
+    # ── Song database ──────────────────────────────────────────────────────────
+
+    def load_song_db(self) -> None:
+        """Load song.xlsx into self.song_db keyed by song index (as string)."""
+        if not SONG_DB_PATH.exists():
+            logger.warning("Music: song.xlsx not found at %s", SONG_DB_PATH)
+            return
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(SONG_DB_PATH, read_only=True, data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+        except Exception as e:
+            logger.error("Music: Failed to load song.xlsx: %s", e)
+            return
+
+        if not rows:
+            return
+
+        # Detect header row: first row where column A looks like "index" (text)
+        # Skip if it is a header
+        start = 0
+        if rows[0][0] is not None and str(rows[0][0]).lower() == 'index':
+            start = 1
+
+        db: dict[str, dict] = {}
+        # Columns: 0=index, 1=title_jp, 2=title_en, 3=lyricist, 4=composer,
+        #           5=arranger, 6=link, 7=romaji_title
+        for row in rows[start:]:
+            if not row or row[0] is None:
+                continue
+            idx        = str(row[0]).strip()
+            title_jp   = str(row[1]).strip() if len(row) > 1 and row[1] else None
+            title_en   = str(row[2]).strip() if len(row) > 2 and row[2] else None
+            romaji     = str(row[7]).strip() if len(row) > 7 and row[7] else None
+            # Treat empty strings as None
+            title_jp   = title_jp   or None
+            title_en   = title_en   or None
+            romaji     = romaji     or None
+            db[idx] = {"title_en": title_en, "romaji_title": romaji, "title_jp": title_jp}
+
+        self.song_db = db
+        logger.info("Music: Loaded %d songs from song.xlsx", len(db))
+
+    def get_song_info(self, filename: str) -> dict:
+        """
+        Look up song info by filename.
+        filename e.g. '123.mp3' → index '123'.
+        Returns dict with title_en, romaji_title, title_jp (any may be None).
+        """
+        idx = os.path.splitext(filename)[0]
+        return self.song_db.get(idx, {"title_en": None, "romaji_title": None, "title_jp": idx})
+
+    def build_display_answer(self, info: dict) -> str:
+        """Build the human-readable answer string shown on reveal."""
+        parts = []
+        if info.get("title_en"):
+            parts.append(info["title_en"])
+        if info.get("romaji_title") and info["romaji_title"] != info.get("title_en"):
+            parts.append(info["romaji_title"])
+        if not parts:
+            # Fallback to jp title or raw index
+            parts.append(info.get("title_jp") or "???")
+        return " / ".join(parts)
+
+    def build_norm_targets(self, info: dict) -> list[str]:
+        """Return list of normalized strings the player may guess against."""
+        targets = []
+        if info.get("title_en"):
+            targets.append(normalize(info["title_en"]))
+        if info.get("romaji_title"):
+            targets.append(normalize(info["romaji_title"]))
+        return [t for t in targets if t]  # filter out empty strings
+
+    # ── Pool management ────────────────────────────────────────────────────────
 
     def _refresh_available_songs(self, all_songs: list[str]) -> None:
-        """Refresh available songs pool when all songs have been played."""
         if not self.available_songs:
-            # Reset: move all songs back to available
             self.available_songs = set(all_songs)
             self.played_songs.clear()
             logger.info("Music: All songs played, resetting song pool.")
 
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
+
     async def cog_load(self):
-        """Clean up leftover temp files from previous runs."""
+        """Load song database and clean up leftover temp files."""
+        self.load_song_db()
+
         logger.info("Music: Checking for leftover temp files...")
         count = 0
-        
-        # Clean from the dedicated temp directory
         for file in TEMP_DIR.glob(f"{TEMP_CLIP_PREFIX}*.mp3"):
             try:
                 file.unlink()
                 count += 1
             except OSError as e:
-                logger.warning(f"Could not remove {file}: {e}")
-        
-        # Also clean any in root (from old version)
+                logger.warning("Could not remove %s: %s", file, e)
         for file in glob.glob(f"./{TEMP_CLIP_PREFIX}*.mp3"):
             try:
                 os.remove(file)
                 count += 1
             except OSError as e:
-                logger.warning(f"Could not remove legacy temp file {file}: {e}")
-        
+                logger.warning("Could not remove legacy temp file %s: %s", file, e)
         if count > 0:
-            logger.info(f"Music: Cleaned up {count} temp files.")
+            logger.info("Music: Cleaned up %d temp files.", count)
 
-    def clean_answer(self, filename: str) -> str:
-        """Clean filename to create answer string - trim, lowercase, remove special chars."""
-        name_without_ext = os.path.splitext(filename)[0]
-        # Remove special characters, keep only alphanumeric and spaces
-        cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', name_without_ext)
-        return cleaned.strip().lower()
-
-    def check_answer(self, guess: str, correct_answer: str, full_name: str) -> bool:
-        """Check if guess matches the answer."""
-        # Remove special characters, keep only alphanumeric and spaces
-        guess_clean = re.sub(r'[^a-zA-Z0-9\s]', '', guess).strip().lower()
-        
-        # Exact match
-        if guess_clean == correct_answer:
-            return True
-        
-        # Partial match (at least 3 chars and is substring)
-        if len(guess_clean) >= 3:
-            if guess_clean in correct_answer or correct_answer in guess_clean:
-                return True
-            # Also check against full name (cleaned)
-            full_clean = re.sub(r'[^a-zA-Z0-9\s]', '', full_name).strip().lower()
-            if guess_clean in full_clean or full_clean in guess_clean:
-                return True
-        
-        return False
+    # ── Audio helpers ──────────────────────────────────────────────────────────
 
     def prepare_clip(self, file_path: str, variant: str | None = None) -> tuple[str | None, str | None]:
         """Prepare audio clip with optional effects."""
         try:
             song = AudioSegment.from_file(file_path)
         except Exception as e:
-            logger.error(f"Failed to load audio file: {e}")
+            logger.error("Failed to load audio file: %s", e)
             return None, None
 
         duration_ms = len(song)
         min_start = SONG_SAFE_ZONE
         max_start = duration_ms - SONG_SAFE_ZONE - SONG_CLIP_DURATION
 
-        if min_start >= max_start:
-            start_time = 0
-        else:
-            start_time = random.randint(min_start, max_start)
-        
-        end_time = start_time + SONG_CLIP_DURATION
-        clip = song[start_time:end_time]
-        
+        start_time = random.randint(min_start, max_start) if min_start < max_start else 0
+        clip = song[start_time:start_time + SONG_CLIP_DURATION]
+
         effect_name = "Bình thường"
         if variant == 'fast':
             clip = speedup(clip, playback_speed=1.5)
@@ -115,59 +193,60 @@ class MusicGuess(commands.Cog):
         elif variant == 'reverse':
             clip = clip.reverse()
             effect_name = "Phát ngược 🔄"
-        
-        # Save to dedicated temp directory
+
         temp_filename = TEMP_DIR / f"{TEMP_CLIP_PREFIX}{random.randint(1000, 9999)}.mp3"
         clip.export(str(temp_filename), format="mp3")
         return str(temp_filename), effect_name
 
+    # ── Game lifecycle ─────────────────────────────────────────────────────────
+
     async def cleanup_game(self, channel_id: int):
-        """Clean up game resources."""
         if channel_id not in self.active_games:
             return
+        game = self.active_games.pop(channel_id)
 
-        game_data = self.active_games.pop(channel_id)
-        
         current_task = asyncio.current_task()
-        if game_data['timer_task'] and game_data['timer_task'] != current_task:
-            game_data['timer_task'].cancel()
+        if game['timer_task'] and game['timer_task'] != current_task:
+            game['timer_task'].cancel()
 
-        if game_data['voice_client'] and game_data['voice_client'].is_connected():
-            game_data['voice_client'].stop()
-            await game_data['voice_client'].disconnect()
-            
+        if game['voice_client'] and game['voice_client'].is_connected():
+            game['voice_client'].stop()
+            await game['voice_client'].disconnect()
+
         await asyncio.sleep(0.5)
 
         try:
-            clip_path = game_data['clip_path']
-            if clip_path and os.path.exists(clip_path):
-                os.remove(clip_path)
+            if game['clip_path'] and os.path.exists(game['clip_path']):
+                os.remove(game['clip_path'])
         except OSError as e:
-            logger.warning(f"Failed to remove temp file {game_data['clip_path']}: {e}")
-            
-        for msg in game_data['wrong_reactions']:
+            logger.warning("Failed to remove temp file %s: %s", game['clip_path'], e)
+
+        for msg in game['wrong_reactions']:
             try:
                 await msg.remove_reaction(WRONG_EMOJI, self.bot.user)
             except discord.HTTPException:
-                pass  # Reaction already removed or message deleted
+                pass
 
     async def end_game_timer(self, channel, channel_id: int):
-        """Timer that ends the game when time runs out."""
         await asyncio.sleep(GUESS_TIME_LIMIT)
         if channel_id in self.active_games:
-            game_data = self.active_games[channel_id]
-            await channel.send(f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game_data['full_answer']}**")
+            game = self.active_games[channel_id]
+            await channel.send(
+                f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**"
+            )
             await self.cleanup_game(channel_id)
 
+    # ── Core game logic ────────────────────────────────────────────────────────
+
     async def start_game_logic(self, interaction_or_ctx, variant_mode: bool = False):
-        """Core game logic shared between command types."""
+        """Core game logic shared between slash and prefix commands."""
         if isinstance(interaction_or_ctx, discord.Interaction):
             interaction = interaction_or_ctx
             user = interaction.user
             channel = interaction.channel
             await interaction.response.defer()
+
             async def send_msg(content, **kwargs):
-                # Webhook.send() doesn't support delete_after; use ephemeral instead
                 if 'delete_after' in kwargs:
                     del kwargs['delete_after']
                     kwargs.setdefault('ephemeral', True)
@@ -176,6 +255,7 @@ class MusicGuess(commands.Cog):
             ctx = interaction_or_ctx
             user = ctx.author
             channel = ctx.channel
+
             async def send_msg(content, **kwargs):
                 await ctx.send(content, **kwargs)
 
@@ -187,59 +267,49 @@ class MusicGuess(commands.Cog):
             await send_msg("Mời bạn vào kênh voice để chơi nhé!", delete_after=10)
             return
 
+        # ── Scan song files ─────────────────────────────────────────────────
         try:
             audio_dir = str(AUDIO_DIR)
             if not os.path.exists(audio_dir):
                 os.makedirs(audio_dir)
-            
             song_files = [f for f in os.listdir(audio_dir) if f.endswith(('.mp3', '.wav', '.m4a', '.ogg'))]
             if not song_files:
                 await send_msg(f"Không tìm thấy bài hát nào trong thư mục `{audio_dir}`.")
                 return
         except Exception as e:
-            logger.error(f"Error reading music directory: {e}")
+            logger.error("Error reading music directory: %s", e)
             await send_msg(f"Lỗi đọc thư mục nhạc: {e}")
             return
 
         variant = random.choice(['fast', 'slow', 'reverse']) if variant_mode else None
-        
-        # Initialize or sync available_songs with current song files
+
+        # Sync pool with current files
         song_files_set = set(song_files)
-        # Remove any songs that no longer exist from our tracking sets
         self.available_songs &= song_files_set
-        self.played_songs &= song_files_set
-        
-        # If available_songs is empty, refresh the pool
+        self.played_songs    &= song_files_set
         if not self.available_songs:
             self._refresh_available_songs(song_files)
-        
+
+        # ── Pick a song ─────────────────────────────────────────────────────
         chosen_file = None
-        clip_path = None
+        clip_path   = None
         effect_name = None
-        
-        attempts = 0
-        while clip_path is None and attempts < 5:
-            # Choose from available songs only
+
+        for _ in range(5):
             if not self.available_songs:
-                # Edge case: all songs failed to process
                 await send_msg("Không có bài hát nào có thể phát được.")
                 return
-            
             chosen_file = random.choice(list(self.available_songs))
-            full_path = os.path.join(audio_dir, chosen_file)
+            full_path   = os.path.join(audio_dir, chosen_file)
             clip_path, effect_name = await self.bot.loop.run_in_executor(
                 None, self.prepare_clip, full_path, variant
             )
-            
-            if clip_path is None:
-                # Remove problematic song from available pool for this attempt
-                self.available_songs.discard(chosen_file)
-                if not self.available_songs:
-                    self._refresh_available_songs(song_files)
-            
-            attempts += 1
-        
-        # Mark the chosen song as played
+            if clip_path is not None:
+                break
+            self.available_songs.discard(chosen_file)
+            if not self.available_songs:
+                self._refresh_available_songs(song_files)
+
         if chosen_file:
             self.available_songs.discard(chosen_file)
             self.played_songs.add(chosen_file)
@@ -248,49 +318,63 @@ class MusicGuess(commands.Cog):
             await send_msg("Lỗi kỹ thuật khi xử lý bài hát.")
             return
 
+        # ── Look up song titles ─────────────────────────────────────────────
+        info           = self.get_song_info(chosen_file)
+        display_answer = self.build_display_answer(info)
+        norm_targets   = self.build_norm_targets(info)
+
+        if not norm_targets:
+            # No known title — fall back to filename stem so the game can still work
+            stem = os.path.splitext(chosen_file)[0]
+            norm_targets = [normalize(stem)]
+            logger.warning("Music: No title found for song index %s; using filename as answer.", stem)
+
+        # ── Connect to voice ────────────────────────────────────────────────
         try:
-            voice_channel = user.voice.channel
-            voice_client = await voice_channel.connect()
+            voice_client = await user.voice.channel.connect()
         except discord.errors.ClientException:
             voice_client = user.guild.voice_client
-            if voice_client and voice_client.channel != voice_channel:
-                 await voice_client.move_to(voice_channel)
+            if voice_client and voice_client.channel != user.voice.channel:
+                await voice_client.move_to(user.voice.channel)
             elif not voice_client:
-                 await send_msg("Bot đang bị kẹt voice. Hãy kick bot ra.")
-                 return
+                await send_msg("Bot đang bị kẹt voice. Hãy kick bot ra.")
+                return
         except Exception as e:
-            logger.error(f"Voice connection error: {e}")
+            logger.error("Voice connection error: %s", e)
             await send_msg(f"Lỗi vào voice: {e}")
-            if clip_path and os.path.exists(clip_path): 
+            if clip_path and os.path.exists(clip_path):
                 os.remove(clip_path)
             return
 
-        full_answer_name = os.path.splitext(chosen_file)[0]
-        correct_answer = self.clean_answer(chosen_file)
-        
         timer_task = self.bot.loop.create_task(self.end_game_timer(channel, channel.id))
 
         self.active_games[channel.id] = {
-            'answer': correct_answer,
-            'full_answer': full_answer_name,
-            'guesses': {}, 
+            'norm_targets':   norm_targets,    # normalized strings to match against
+            'display_answer': display_answer,  # shown on reveal
+            'info':           info,            # full title dict for rich embeds
+            'guesses':        {},
             'wrong_reactions': [],
-            'voice_client': voice_client,
-            'clip_path': clip_path,
-            'timer_task': timer_task
+            'voice_client':   voice_client,
+            'clip_path':      clip_path,
+            'timer_task':     timer_task,
         }
 
         mode_text = f"\n(Chế độ: {effect_name})" if variant_mode else ""
-        await send_msg(f"**Đoán Tên Bài Hát!** 🎧{mode_text}\nThời gian: {GUESS_TIME_LIMIT}s | Số lượt đoán: {MAX_GUESSES}\nGõ `-g [tên bài hát]` để trả lời!")
-        
+        await send_msg(
+            f"**Đoán Tên Bài Hát!** 🎧{mode_text}\n"
+            f"Thời gian: {GUESS_TIME_LIMIT}s | Số lượt đoán: {MAX_GUESSES}\n"
+            f"Gõ `-g [tên bài hát]` để trả lời!"
+        )
+
         try:
             voice_client.play(discord.FFmpegPCMAudio(clip_path))
         except Exception as e:
-            logger.error(f"Playback error: {e}")
+            logger.error("Playback error: %s", e)
             await send_msg("Lỗi khi phát nhạc.")
             await self.cleanup_game(channel.id)
 
-    # --- COMMANDS ---
+    # ── Commands ───────────────────────────────────────────────────────────────
+
     @commands.command(name='songguess', aliases=['sg'])
     async def guess_music(self, ctx):
         await self.start_game_logic(ctx, variant_mode=False)
@@ -302,11 +386,12 @@ class MusicGuess(commands.Cog):
     @app_commands.command(name="songguess", description="Bắt đầu game đoán bài hát!")
     @app_commands.choices(mode=[
         app_commands.Choice(name="Bình thường", value="normal"),
-        app_commands.Choice(name="Khó (Hiệu ứng)", value="hard")
+        app_commands.Choice(name="Khó (Hiệu ứng)", value="hard"),
     ])
     async def slash_songguess(self, interaction: discord.Interaction, mode: str = "normal"):
-        variant_mode = (mode == "hard")
-        await self.start_game_logic(interaction, variant_mode=variant_mode)
+        await self.start_game_logic(interaction, variant_mode=(mode == "hard"))
+
+    # ── Message listener ───────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -317,29 +402,48 @@ class MusicGuess(commands.Cog):
         if channel_id not in self.active_games:
             return
 
-        game_data = self.active_games[channel_id]
+        game    = self.active_games[channel_id]
         user_id = message.author.id
-        
-        if game_data['guesses'].get(user_id, 0) >= MAX_GUESSES:
+
+        if game['guesses'].get(user_id, 0) >= MAX_GUESSES:
             return
 
         guess_input = message.content[3:].strip()
         if not guess_input:
             return
-            
-        is_correct = self.check_answer(guess_input, game_data['answer'], game_data['full_answer'])
-        
-        if is_correct:
+
+        if is_correct_guess(guess_input, game['norm_targets']):
             await message.add_reaction(CORRECT_EMOJI)
-            await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\nBài hát là: **{game_data['full_answer']}**")
+
+            info   = game['info']
+            reveal = self._build_reveal(info)
+            await message.reply(
+                f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}"
+            )
             await self.cleanup_game(channel_id)
         else:
-            game_data['guesses'][user_id] = game_data['guesses'].get(user_id, 0) + 1
+            game['guesses'][user_id] = game['guesses'].get(user_id, 0) + 1
             await message.add_reaction(WRONG_EMOJI)
-            game_data['wrong_reactions'].append(message)
+            game['wrong_reactions'].append(message)
 
-            if game_data['guesses'][user_id] >= MAX_GUESSES:
+            if game['guesses'][user_id] >= MAX_GUESSES:
                 await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_reveal(info: dict) -> str:
+        """Build the reveal string shown when someone wins or time runs out."""
+        lines = []
+        if info.get("title_en"):
+            lines.append(f"🎵 **{info['title_en']}**")
+        if info.get("romaji_title") and info["romaji_title"] != info.get("title_en"):
+            lines.append(f"🔤 *{info['romaji_title']}*")
+        if not lines and info.get("title_jp"):
+            lines.append(f"🎵 **{info['title_jp']}**")
+        return "\n".join(lines) if lines else "???"
+
+    # ── Error handlers ─────────────────────────────────────────────────────────
 
     @guess_music.error
     @guess_music_variant.error
