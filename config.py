@@ -7,6 +7,8 @@ import asyncio
 from pathlib import Path
 
 # --- Paths ---
+DB_FILE = Path('./ichika.db')
+
 GAME_DATA_PATH = Path('./gameData')
 STATIC_DATA_PATH = GAME_DATA_PATH / 'static'
 JP_DATA_PATH = GAME_DATA_PATH / 'JP_data'

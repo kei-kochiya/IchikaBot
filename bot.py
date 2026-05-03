@@ -6,6 +6,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 from config import SharedResources
+from utils import database
 
 # Configure logging
 logging.basicConfig(
@@ -112,6 +113,7 @@ async def load_cogs():
 
 async def main():
     async with bot:
+        await database.init_db()
         await load_cogs()
         try:
             await bot.start(TOKEN)

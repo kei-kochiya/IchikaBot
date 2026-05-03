@@ -5,16 +5,14 @@ Admins can set the channel and interval (in hours) per guild.
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import json
 import random
 import logging
-import aiofiles
 from datetime import datetime, timezone
 
-from config import CARD_OF_DAY_SETTINGS_FILE
 from utils.card_data import card_data
 from utils.game_data import get_character_name, get_unit_color
 from utils.cards import get_card_image_url, CardToggleView
+from utils import database
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +45,33 @@ class CardOfDayCog(commands.Cog):
     # --- Settings persistence ---
 
     async def load_settings(self):
-        if not CARD_OF_DAY_SETTINGS_FILE.exists():
-            self.settings = {}
-            return
+        """Load all cotd guild configs from the database into memory."""
         try:
-            async with aiofiles.open(CARD_OF_DAY_SETTINGS_FILE, 'r') as f:
-                self.settings = json.loads(await f.read())
+            rows = await database.get_all_settings_prefix('cotd_')
+            # Rebuild the in-memory dict: {guild_id_str: {channel_id, interval_hours, last_post_ts}}
+            self.settings = {}
+            for gid, kv in rows.items():
+                cfg: dict = {}
+                if 'channel_id' in kv:
+                    cfg['channel_id'] = int(kv['channel_id'])
+                if 'interval_hours' in kv:
+                    cfg['interval_hours'] = float(kv['interval_hours'])
+                if 'last_post_ts' in kv:
+                    cfg['last_post_ts'] = float(kv['last_post_ts'])
+                if cfg:
+                    self.settings[str(gid)] = cfg
         except Exception as e:
             logger.error("CardOfDay: Failed to load settings: %s", e)
             self.settings = {}
 
     async def save_settings(self):
-        try:
-            async with aiofiles.open(CARD_OF_DAY_SETTINGS_FILE, 'w') as f:
-                await f.write(json.dumps(self.settings, indent=2))
-        except Exception as e:
-            logger.error("CardOfDay: Failed to save settings: %s", e)
+        """Deprecated — DB writes happen directly in the command handlers."""
+        pass
+
+    async def _save_guild_cfg(self, guild_id: int, cfg: dict) -> None:
+        """Persist a single guild's cotd config to the DB."""
+        for key, val in cfg.items():
+            await database.set_setting(guild_id, f'cotd_{key}', str(val))
 
     # --- Helpers ---
 
@@ -123,7 +132,8 @@ class CardOfDayCog(commands.Cog):
                 logger.error("CardOfDay: Failed to post in guild %s: %s", guild_id_str, e)
 
         if changed:
-            await self.save_settings()
+            for guild_id_str, cfg in self.settings.items():
+                await self._save_guild_cfg(int(guild_id_str), cfg)
 
     @card_loop.before_loop
     async def before_card_loop(self):
@@ -151,7 +161,7 @@ class CardOfDayCog(commands.Cog):
         else:
             self.settings[guild_id]['channel_id'] = channel.id
 
-        await self.save_settings()
+        await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
         interval = self.settings[guild_id]['interval_hours']
 
         embed = discord.Embed(
@@ -185,7 +195,7 @@ class CardOfDayCog(commands.Cog):
             return
 
         self.settings[guild_id]['interval_hours'] = hours
-        await self.save_settings()
+        await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
 
         await interaction.response.send_message(
             f"Tần suất đã cập nhật: mỗi **{hours}** giờ.",
@@ -211,7 +221,7 @@ class CardOfDayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
             self.settings[guild_id]['last_post_ts'] = datetime.now(timezone.utc).timestamp()
-            await self.save_settings()
+            await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
 
     @cotd_group.command(name="disable", description="Tắt Card of the Day")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -219,7 +229,8 @@ class CardOfDayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
             del self.settings[guild_id]
-            await self.save_settings()
+            for key in ('channel_id', 'interval_hours', 'last_post_ts'):
+                await database.delete_setting(interaction.guild_id, f'cotd_{key}')
             await interaction.response.send_message("Đã tắt Card of the Day.", ephemeral=True)
         else:
             await interaction.response.send_message("Chưa bật Card of the Day.", ephemeral=True)

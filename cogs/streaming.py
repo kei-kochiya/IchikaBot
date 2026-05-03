@@ -139,6 +139,9 @@ class GuildPlayer:
         self.inactivity_task: Optional[asyncio.Task] = None
         self._skip_flag:      bool = False
         self._stop_flag:      bool = False
+        # Persistent Now-Playing embed
+        self.np_message:      Optional[discord.Message] = None
+        self.np_view:         Optional["NowPlayingView"] = None
 
     @property
     def is_active(self) -> bool:
@@ -155,6 +158,146 @@ class GuildPlayer:
         if self.inactivity_task and not self.inactivity_task.done():
             self.inactivity_task.cancel()
         self.inactivity_task = asyncio.create_task(coro)
+
+
+# ── Now-Playing interactive view ───────────────────────────────────────────────
+
+class NowPlayingView(discord.ui.View):
+    """Persistent Now-Playing control buttons attached to the NP embed."""
+
+    def __init__(self, cog: "StreamingCog", guild_id: int):
+        super().__init__(timeout=None)   # Never times out while music plays
+        self.cog = cog
+        self.guild_id = guild_id
+        self._refresh_pause_button()
+
+    # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _player(self) -> Optional[GuildPlayer]:
+        return self.cog._players.get(self.guild_id)
+
+    def _refresh_pause_button(self):
+        """Update the pause/resume button label & style to match current state."""
+        player = self._player()
+        is_paused = player and player.vc and player.vc.is_paused()
+        self.btn_pause.label  = "▶ Resume" if is_paused else "⏸ Pause"
+        self.btn_pause.style  = discord.ButtonStyle.success if is_paused else discord.ButtonStyle.secondary
+
+    def _refresh_loop_button(self):
+        player = self._player()
+        loop = player.loop if player else GuildPlayer.LOOP_OFF
+        labels = {GuildPlayer.LOOP_OFF: "🔁 Loop", GuildPlayer.LOOP_TRACK: "🔂 Track", GuildPlayer.LOOP_QUEUE: "🔁 Queue"}
+        styles = {
+            GuildPlayer.LOOP_OFF:   discord.ButtonStyle.secondary,
+            GuildPlayer.LOOP_TRACK: discord.ButtonStyle.primary,
+            GuildPlayer.LOOP_QUEUE: discord.ButtonStyle.primary,
+        }
+        self.btn_loop.label = labels[loop]
+        self.btn_loop.style = styles[loop]
+
+    async def _vc_guard(self, interaction: discord.Interaction) -> bool:
+        """Return True if the user is allowed to use the buttons."""
+        player = self._player()
+        member = interaction.user
+        if (
+            player
+            and player.vc
+            and player.vc.channel
+            and hasattr(member, 'voice')
+            and member.voice
+            and member.voice.channel
+            and member.voice.channel.id == player.vc.channel.id
+        ):
+            return True
+        await interaction.response.send_message(
+            "Bạn cần vào cùng kênh voice với bot để dùng nút này!",
+            ephemeral=True,
+        )
+        return False
+
+    # ── Buttons ────────────────────────────────────────────────────────────
+
+    @discord.ui.button(label="⏸ Pause", style=discord.ButtonStyle.secondary,
+                       custom_id="np:pause", row=0)
+    async def btn_pause(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._vc_guard(interaction):
+            return
+        player = self._player()
+        if not player:
+            await interaction.response.send_message("Không có gì đang phát.", ephemeral=True)
+            return
+        if player.vc and player.vc.is_playing():
+            player.vc.pause()
+        elif player.vc and player.vc.is_paused():
+            player.vc.resume()
+        self._refresh_pause_button()
+        # Update embed to reflect new pause state
+        if player.current and player.np_message:
+            embed = self.cog._np_embed(player.current, player)
+            try:
+                await player.np_message.edit(embed=embed, view=self)
+            except discord.HTTPException:
+                pass
+        await interaction.response.defer()
+
+    @discord.ui.button(label="⏭ Skip", style=discord.ButtonStyle.primary,
+                       custom_id="np:skip", row=0)
+    async def btn_skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._vc_guard(interaction):
+            return
+        player = self._player()
+        if player and self.cog._do_skip(player):
+            await interaction.response.send_message("⏭️ Đã bỏ qua!", ephemeral=True)
+        else:
+            await interaction.response.send_message("Không có gì đang phát.", ephemeral=True)
+
+    @discord.ui.button(label="🔁 Loop", style=discord.ButtonStyle.secondary,
+                       custom_id="np:loop", row=0)
+    async def btn_loop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._vc_guard(interaction):
+            return
+        player = self._player()
+        if not player:
+            await interaction.response.send_message("Không có gì đang phát.", ephemeral=True)
+            return
+        player.loop = (player.loop + 1) % 3
+        self._refresh_loop_button()
+        if player.current and player.np_message:
+            embed = self.cog._np_embed(player.current, player)
+            try:
+                await player.np_message.edit(embed=embed, view=self)
+            except discord.HTTPException:
+                pass
+        await interaction.response.send_message(
+            f"🔁 Loop: **{GuildPlayer.LOOP_LABEL[player.loop]}**", ephemeral=True
+        )
+
+    @discord.ui.button(label="🔀 Shuffle", style=discord.ButtonStyle.secondary,
+                       custom_id="np:shuffle", row=0)
+    async def btn_shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._vc_guard(interaction):
+            return
+        player = self._player()
+        if not player:
+            await interaction.response.send_message("Không có gì đang phát.", ephemeral=True)
+            return
+        q = list(player.queue)
+        random.shuffle(q)
+        player.queue = deque(q)
+        await interaction.response.send_message(f"🔀 Đã xáo trộn **{len(q)}** bài!", ephemeral=True)
+
+    @discord.ui.button(label="⏹ Stop", style=discord.ButtonStyle.danger,
+                       custom_id="np:stop", row=0)
+    async def btn_stop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._vc_guard(interaction):
+            return
+        await self.cog._destroy_player(self.guild_id)
+        await interaction.response.send_message("⏹️ Đã dừng và rời kênh.", ephemeral=True)
+
+    def disable_all(self):
+        """Disable every button (call when queue ends or bot leaves)."""
+        for item in self.children:
+            item.disabled = True  # type: ignore[attr-defined]
 
 
 # ── Main Cog ───────────────────────────────────────────────────────────────────
@@ -180,6 +323,9 @@ class StreamingCog(commands.Cog, name="Streaming"):
         player._stop_flag = True
         player._skip_flag = True
         player.cancel_tasks()
+        # Disable the persistent NP embed buttons
+        if player.np_message and player.np_view:
+            await self._disable_np_message(player, stopped=True)
         if player.vc:
             if player.vc.is_playing() or player.vc.is_paused():
                 player.vc.stop()
@@ -303,8 +449,54 @@ class StreamingCog(commands.Cog, name="Streaming"):
             logger.error("Playlist flat-extract failed: %s", exc)
             return []
 
-    # ── Playback engine ────────────────────────────────────────────────────────
+    # ── NP embed helpers ───────────────────────────────────────────────────────
 
+    async def _update_np_message(self, player: GuildPlayer) -> None:
+        """Send (first time) or edit (subsequent) the persistent NP embed."""
+        if not player.current:
+            return
+        embed = self._np_embed(player.current, player)
+        # Refresh view button states
+        if player.np_view:
+            player.np_view._refresh_pause_button()
+            player.np_view._refresh_loop_button()
+        if player.np_message is None:
+            # First track — send the message and keep the reference
+            player.np_view = NowPlayingView(self, player.vc.guild.id if player.vc else 0)
+            try:
+                player.np_message = await player.text_channel.send(embed=embed, view=player.np_view)
+            except Exception as exc:
+                logger.warning("NP message send failed: %s", exc)
+        else:
+            # Subsequent tracks — edit in place
+            try:
+                await player.np_message.edit(embed=embed, view=player.np_view)
+            except discord.NotFound:
+                # Message was deleted — send a fresh one
+                player.np_message = None
+                player.np_view = None
+                await self._update_np_message(player)
+            except Exception as exc:
+                logger.warning("NP message edit failed: %s", exc)
+
+    async def _disable_np_message(self, player: GuildPlayer, stopped: bool = False) -> None:
+        """Disable all buttons and optionally update the embed title."""
+        if not player.np_message or not player.np_view:
+            return
+        player.np_view.disable_all()
+        try:
+            embed = player.np_message.embeds[0] if player.np_message.embeds else None
+            if embed and stopped:
+                embed.title = "⏹ Đã dừng"
+            elif embed:
+                embed.title = "✅ Đã phát xong"
+            await player.np_message.edit(embed=embed, view=player.np_view)
+        except Exception:
+            pass
+        player.np_message = None
+        player.np_view = None
+
+    # ── Playback engine ────────────────────────────────────────────────────────
     async def _play_loop(self, guild_id: int):
         """
         Background task that drives playback for one guild.
@@ -327,6 +519,7 @@ class StreamingCog(commands.Cog, name="Streaming"):
                 if not player.queue:
                     # Queue exhausted
                     player.current = None
+                    await self._disable_np_message(player, stopped=False)
                     await self._safe_send(player, "Đã hết queue!")
                     player.restart_inactivity(self._inactivity_leave(guild_id, INACTIVITY_TIMEOUT))
                     return
@@ -372,7 +565,8 @@ class StreamingCog(commands.Cog, name="Streaming"):
                     return
 
                 player.vc.play(source, after=_after)
-                await self._safe_send(player, embed=self._np_embed(entry, player))
+                # Update (or send) the persistent NP embed
+                await self._update_np_message(player)
 
                 # Wait until track ends or skip/stop is signalled
                 while not done.is_set():
@@ -500,8 +694,14 @@ class StreamingCog(commands.Cog, name="Streaming"):
         if not player.is_active:
             player._stop_flag = False
             player.play_task = asyncio.create_task(self._play_loop(guild_id))
-        else:
+
+        # Always resolve the deferred interaction (prevents stuck "thinking" indicator).
+        # Prefix commands go through _safe_send only when already playing.
+        if is_ix:
+            await ctx_or_ix.followup.send(confirm, ephemeral=True)
+        elif player.is_active:
             await self._safe_send(player, confirm)
+
 
     # ── Shared skip / stop helpers ─────────────────────────────────────────────
 
