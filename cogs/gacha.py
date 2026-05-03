@@ -13,6 +13,7 @@ from io import BytesIO
 
 from utils.image_helper import get_card_image_path
 from utils.game_data import get_unit_color_hex
+from utils.card_data import card_data
 from config import (
     CARDS_FILE_JP, CARDS_FILE_EN, RARITY_ICONS, PITY_FILE,
     PITY_THRESHOLD, GACHA_RATES, SharedResources
@@ -24,45 +25,19 @@ logger = logging.getLogger(__name__)
 class GachaCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.cards = []
-        self.cards_en_by_id = {}  # EN cards for display names
-        self.load_data()
-        
-        self.cards_2 = [c for c in self.cards if c['cardRarityType'] == 'rarity_2' and c.get('prefix')]
-        self.cards_3 = [c for c in self.cards if c['cardRarityType'] == 'rarity_3' and c.get('prefix')]
-        self.cards_4 = [c for c in self.cards if c['cardRarityType'] == 'rarity_4' and c.get('prefix')]
+        # Rarity pools — references into the shared card_data singleton (no copies)
+        self.cards_2 = card_data.pool_2
+        self.cards_3 = card_data.pool_3
+        self.cards_4 = card_data.pool_4
 
     def load_data(self):
-        # Load JP cards for gacha pool
-        try:
-            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
-                self.cards = json.load(f)
-            logger.info("Gacha: Loaded %d JP cards.", len(self.cards))
-        except FileNotFoundError as e:
-            logger.error(f"Gacha: Missing JP data file: {e.filename}")
-        except Exception as e:
-            logger.error(f"Gacha: Failed to load JP data: {e}")
-        
-        # Load EN cards for display names
-        try:
-            with open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
-                cards_en = json.load(f)
-                self.cards_en_by_id = {c['id']: c for c in cards_en}
-            logger.info("Gacha: Loaded %d EN cards for display.", len(self.cards_en_by_id))
-        except FileNotFoundError as e:
-            logger.warning(f"Gacha: Missing EN data file: {e.filename}")
-            self.cards_en_by_id = {}
-        except Exception as e:
-            logger.error(f"Gacha: Failed to load EN data: {e}")
-            self.cards_en_by_id = {}
+        """Card data managed by utils.card_data singleton. Refresh pool refs."""
+        self.cards_2 = card_data.pool_2
+        self.cards_3 = card_data.pool_3
+        self.cards_4 = card_data.pool_4
 
     def get_display_prefix(self, card: dict) -> str:
-        """Get display prefix, using EN if available."""
-        card_id = card.get('id')
-        en_card = self.cards_en_by_id.get(card_id)
-        if en_card and en_card.get('prefix'):
-            return en_card['prefix']
-        return card.get('prefix', 'Unknown')
+        return card_data.get_display_prefix(card)
 
     async def get_user_pity(self, user_id: int) -> int:
         """Get user's current pity count with async file access."""

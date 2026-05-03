@@ -9,7 +9,9 @@ import logging
 from PIL import Image, ImageOps
 from io import BytesIO
 from utils.image_helper import get_card_image_path
-from config import CARDS_FILE_JP, CARDS_FILE_EN, CHARACTERS_FILE, NICKNAMES_FILE, SONG_GUESS_DURATION
+from config import SONG_GUESS_DURATION
+from utils.card_data import card_data
+from utils.game_data import game_data
 
 logger = logging.getLogger(__name__)
 
@@ -21,51 +23,26 @@ class GuessCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_channels = set()
-        self.cards = []
-        self.cards_en_by_id = {}  # EN cards for display names
-        self.chars = {}
-        self.nicknames = {}
-        self.load_data()
+        # References to shared singletons — no per-cog loading
+        self.cards = card_data.pool_3_4
 
     def load_data(self):
-        # Load JP cards for card pool
-        try:
-            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-                self.cards = [c for c in raw if c.get('prefix') and c['cardRarityType'] in ['rarity_3', 'rarity_4']]
-            with open(CHARACTERS_FILE, 'r', encoding='utf-8') as f:
-                self.chars = json.load(f)
-            if NICKNAMES_FILE.exists():
-                with open(NICKNAMES_FILE, 'r', encoding='utf-8') as f:
-                    self.nicknames = json.load(f)
-            logger.info("Guess: Loaded %d JP cards.", len(self.cards))
-        except FileNotFoundError as e:
-            logger.error(f"Guess: Missing data file: {e.filename}")
-        except json.JSONDecodeError as e:
-            logger.error(f"Guess: Invalid JSON: {e}")
-        except Exception as e:
-            logger.error(f"Guess: Failed to load data: {e}")
-        
-        # Load EN cards for display names
-        try:
-            with open(CARDS_FILE_EN, 'r', encoding='utf-8') as f:
-                cards_en = json.load(f)
-                self.cards_en_by_id = {c['id']: c for c in cards_en}
-            logger.info("Guess: Loaded %d EN cards for display.", len(self.cards_en_by_id))
-        except FileNotFoundError as e:
-            logger.warning(f"Guess: Missing EN data file: {e.filename}")
-            self.cards_en_by_id = {}
-        except Exception as e:
-            logger.error(f"Guess: Failed to load EN data: {e}")
-            self.cards_en_by_id = {}
+        """Card/character data managed by shared singletons."""
+        self.cards = card_data.pool_3_4
 
     def get_display_prefix(self, card: dict) -> str:
-        """Get display prefix, using EN if available."""
-        card_id = card.get('id')
-        en_card = self.cards_en_by_id.get(card_id)
-        if en_card and en_card.get('prefix'):
-            return en_card['prefix']
-        return card.get('prefix', 'Unknown')
+        return card_data.get_display_prefix(card)
+
+    def build_answer_list(self, char_id: int | str) -> list[str]:
+        char = game_data.get_character(char_id)
+        if not char:
+            return []
+        fn = char.get('firstName', '').lower()
+        gn = char.get('givenName', '').lower()
+        answers = {fn, gn, f"{fn} {gn}".strip(), f"{gn} {fn}".strip()}
+        for nick in game_data.nicknames.get(str(char_id), []):
+            answers.add(nick.lower())
+        return list(answers)
 
     async def process_game_image(self, asset_name: str, is_trained: bool, difficulty: str) -> tuple[BytesIO | None, BytesIO | None]:
         """Process card image for guessing game."""
@@ -133,7 +110,7 @@ class GuessCog(commands.Cog):
                 self.active_channels.discard(channel_id)
                 return
 
-            char_data = self.chars.get(str(card['characterId']))
+            char_data = game_data.characters.get(str(card['characterId']))
             if not char_data:
                 await interaction.followup.send("Lỗi dữ liệu nhân vật.", ephemeral=True)
                 self.active_channels.discard(channel_id)
@@ -145,8 +122,9 @@ class GuessCog(commands.Cog):
                 f"{char_data['firstName']} {char_data['givenName']}".lower(),
                 f"{char_data['givenName']} {char_data['firstName']}".lower()
             ]
-            if str(card['characterId']) in self.nicknames:
-                possible_answers.extend([n.lower() for n in self.nicknames[str(card['characterId'])]])
+            nicks = game_data.nicknames.get(str(card['characterId']), [])
+            if nicks:
+                possible_answers.extend([n.lower() for n in nicks])
 
             logger.debug(f"Guess answer: {possible_answers[2]}")
 
@@ -171,10 +149,10 @@ class GuessCog(commands.Cog):
             def check(m): 
                 return m.channel.id == channel_id and not m.author.bot and m.content.lower().startswith(GUESS_PREFIX)
             
-            end_time = asyncio.get_event_loop().time() + SONG_GUESS_DURATION
+            end_time = asyncio.get_running_loop().time() + SONG_GUESS_DURATION
             
-            while asyncio.get_event_loop().time() < end_time and not view.gave_up:
-                remaining = end_time - asyncio.get_event_loop().time()
+            while asyncio.get_running_loop().time() < end_time and not view.gave_up:
+                remaining = end_time - asyncio.get_running_loop().time()
                 try:
                     guess_msg = await self.bot.wait_for('message', check=check, timeout=min(remaining, 1.0))
                     guess = guess_msg.content[len(GUESS_PREFIX):].strip().lower()

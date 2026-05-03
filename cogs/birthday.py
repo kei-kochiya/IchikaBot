@@ -9,7 +9,8 @@ import logging
 import aiofiles
 from datetime import datetime, time, timezone, timedelta
 
-from config import CHARACTERS_FILE, BIRTHDAY_SETTINGS_FILE, CARDS_FILE_JP
+from config import BIRTHDAY_SETTINGS_FILE
+from utils.card_data import card_data
 from utils.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
 )
@@ -129,9 +130,9 @@ class BirthdayCardView(discord.ui.View):
 class BirthdayCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.characters = {}
+        self.characters = game_data.characters  # shared ref, no copy
+        self.cards = card_data.cards            # shared ref, no copy
         self.settings = {}
-        self.load_characters()
 
     async def cog_load(self):
         await self.load_settings()
@@ -141,16 +142,11 @@ class BirthdayCog(commands.Cog):
     async def cog_unload(self):
         self.birthday_check_task.cancel()
 
-    def load_characters(self):
-        try:
-            with open(CHARACTERS_FILE, 'r', encoding='utf-8') as f:
-                self.characters = json.load(f)
-            with open(CARDS_FILE_JP, 'r', encoding='utf-8') as f:
-                self.cards = json.load(f)
-            logger.info(f"Birthday: Loaded {len(self.characters)} characters, {len(self.cards)} cards.")
-        except Exception as e:
-            logger.error(f"Birthday: Failed to load data: {e}")
-            self.cards = []
+    def load_data(self):
+        """Refresh references after card_data/game_data reload."""
+        self.characters = game_data.characters
+        self.cards = card_data.cards
+        logger.info("Birthday: Refreshed shared singleton refs.")
 
     async def load_settings(self):
         if not BIRTHDAY_SETTINGS_FILE.exists():
@@ -282,14 +278,7 @@ class BirthdayCog(commands.Cog):
                 return (days_ahead, chars[0])
         return None
 
-    def get_random_character(self) -> dict | None:
-        """Get a random character from all characters."""
-        import random
-        if not self.characters:
-            return None
-        char_id = random.choice(list(self.characters.keys()))
-        char = self.characters[char_id]
-        return {**char, 'id': int(char_id)}
+
 
     def create_countdown_embed(self, days_until: int, character: dict, card: dict) -> discord.Embed:
         """Create a countdown embed for an upcoming birthday with card image."""
@@ -392,7 +381,6 @@ class BirthdayCog(commands.Cog):
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=JST))
     async def birthday_check_task(self):
         """Daily birthday and card announcement at 12:00 AM JST."""
-        import random
         now = datetime.now(JST)
         today = now.strftime('%m-%d')
         logger.info(f"Birthday: Daily check on {today}")
@@ -406,32 +394,21 @@ class BirthdayCog(commands.Cog):
                 if not channel:
                     continue
                 
-                # CASE 1: Birthday today - send birthday cards only (existing logic)
+                # CASE 1: Birthday today - send birthday cards only
                 if birthday_chars:
                     logger.info(f"Birthday: Sending {len(birthday_chars)} birthday announcement(s)")
                     for char in birthday_chars:
                         await self.send_birthday_message(channel, char)
                     continue  # Don't send daily card on birthday
                 
-                # CASE 2 & 3: No birthday today - send daily random card
-                upcoming = self.get_upcoming_birthdays(days=7)
+                # CASE 2: No birthday today - show card from nearest upcoming birthday character
+                next_bday = self.get_next_birthday()
+                if not next_bday:
+                    logger.warning("Birthday: No upcoming birthdays found")
+                    continue
                 
-                if upcoming:
-                    # CASE 2: Birthday within 7 days - use nearest birthday character
-                    # upcoming is sorted by days, so first one is nearest
-                    days_until, char = upcoming[0]
-                    logger.info(f"Birthday: Sending daily card for {char.get('id')} (birthday in {days_until} days)")
-                else:
-                    # CASE 3: No birthday within 7 days - use random character
-                    char = self.get_random_character()
-                    if not char:
-                        logger.warning("Birthday: No characters available")
-                        continue
-                    # Get days until next birthday for countdown
-                    next_bday = self.get_next_birthday()
-                    days_until = next_bday[0] if next_bday else 365
-                    logger.info(f"Birthday: Sending random daily card for {char.get('id')} (next birthday in {days_until} days)")
-                
+                days_until, char = next_bday
+                logger.info(f"Birthday: Sending daily card for {char.get('id')} (birthday in {days_until} days)")
                 await self.send_daily_card_message(channel, char, days_until)
                         
             except Exception as e:
@@ -450,6 +427,7 @@ class BirthdayCog(commands.Cog):
 
     @birthday_group.command(name="channel", description="Đặt kênh thông báo sinh nhật")
     @app_commands.describe(channel="Kênh để gửi thông báo sinh nhật")
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         self.settings[str(interaction.guild_id)] = channel.id
@@ -463,6 +441,7 @@ class BirthdayCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @birthday_group.command(name="test_daily", description="Test daily card announcement (Admin)")
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def test_daily(self, interaction: discord.Interaction):
         """Manually trigger the daily card logic for testing."""
@@ -481,26 +460,19 @@ class BirthdayCog(commands.Cog):
                 await self.send_birthday_message(interaction.channel, char)
             return
         
-        # No birthday - check upcoming
-        upcoming = self.get_upcoming_birthdays(days=7)
+        # No birthday today - show card from nearest upcoming birthday character
+        next_bday = self.get_next_birthday()
+        if not next_bday:
+            await interaction.followup.send("No upcoming birthdays found.")
+            return
         
-        if upcoming:
-            days_until, char = upcoming[0]
-            full_name = get_character_name(char['id'], full=True)
-            await interaction.followup.send(f"Birthday within 7 days: {full_name} in {days_until} day(s)")
-        else:
-            char = self.get_random_character()
-            if not char:
-                await interaction.followup.send("No characters available")
-                return
-            next_bday = self.get_next_birthday()
-            days_until = next_bday[0] if next_bday else 365
-            full_name = get_character_name(char['id'], full=True)
-            await interaction.followup.send(f"Random character: {full_name} (next bday in {days_until} days)")
-        
+        days_until, char = next_bday
+        full_name = get_character_name(char['id'], full=True)
+        await interaction.followup.send(f"Next birthday: {full_name} in {days_until} day(s)")
         await self.send_daily_card_message(interaction.channel, char, days_until)
 
     @birthday_group.command(name="disable", description="Tắt thông báo sinh nhật")
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     async def disable_birthday(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild_id)

@@ -58,6 +58,9 @@ RARITY_ICONS = {
 # Birthday Announcements
 BIRTHDAY_SETTINGS_FILE = GAME_DATA_PATH / 'birthdaySettings.json'
 
+# Card of the Day
+CARD_OF_DAY_SETTINGS_FILE = GAME_DATA_PATH / 'cardOfDaySettings.json'
+
 # --- Gacha Settings ---
 PITY_THRESHOLD = 50
 GACHA_RATES = {
@@ -74,8 +77,7 @@ SONG_CLIP_DURATION = 20 * 1000  # ms
 SONG_SAFE_ZONE = 15 * 1000  # ms
 
 # --- Cache Settings ---
-MAX_CACHE_SIZE_MB = 15000
-CACHE_CLEANUP_THRESHOLD = 0.9  # Clean when 90% full
+# Cache grows without bound; manage disk space manually.
 
 # --- Card Update Settings ---
 CARD_UPDATE_INTERVAL_HOURS = 6

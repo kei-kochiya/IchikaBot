@@ -8,6 +8,7 @@ from discord import app_commands
 import logging
 
 from utils.autoupdater import auto_updater, register_all_sources, run_all_updates
+from utils.card_data import card_data
 from config import CARD_UPDATE_INTERVAL_HOURS
 
 logger = logging.getLogger(__name__)
@@ -61,26 +62,34 @@ class DataUpdaterCog(commands.Cog):
     
     async def _notify_cogs_to_reload(self, results: dict):
         """Notify relevant cogs to reload their data after updates."""
-        # Map source names (JP/EN) to cog names
-        source_to_cog = {
-            'cards_jp': 'CardCog',
-            'cards_en': 'CardCog',
-            'musics_jp': 'SongsCog',
-            'musics_en': 'SongsCog',
-            'music_difficulties_jp': 'SongsCog',
-            'music_difficulties_en': 'SongsCog',
-            'stamps_jp': 'StampsCog',
-            'stamps_en': 'StampsCog',
-            'events_jp': 'EventsCog',
-            'events_en': 'EventsCog',
+        # Map source names to the set of cogs that depend on them
+        source_to_cogs = {
+            'cards_jp': {'CardCog', 'BirthdayCog', 'GuessCog', 'ProfileCog', 'GachaCog', 'CardOfDayCog', 'TournamentCog'},
+            'cards_en': {'CardCog', 'BirthdayCog', 'GuessCog', 'ProfileCog', 'GachaCog', 'CardOfDayCog', 'TournamentCog'},
+            'musics_jp': {'SongsCog'},
+            'musics_en': {'SongsCog'},
+            'music_difficulties_jp': {'SongsCog'},
+            'music_difficulties_en': {'SongsCog'},
+            'stamps_jp': {'StampsCog'},
+            'stamps_en': {'StampsCog'},
+            'events_jp': {'EventsCog'},
+            'events_en': {'EventsCog'},
         }
         
         cogs_to_reload = set()
         for source_name, (success, msg) in results.items():
             if success and "Updated" in msg:
-                cog_name = source_to_cog.get(source_name)
-                if cog_name:
-                    cogs_to_reload.add(cog_name)
+                cogs_to_reload.update(source_to_cogs.get(source_name, set()))
+
+        # If any card file changed, reload the singleton FIRST so pools are fresh
+        card_sources = {'cards_jp', 'cards_en'}
+        if any(source_name in card_sources and success and "Updated" in msg
+               for source_name, (success, msg) in results.items()):
+            try:
+                card_data.reload()
+                logger.info("DataUpdater: card_data singleton reloaded.")
+            except Exception as e:
+                logger.error("DataUpdater: Failed to reload card_data: %s", e)
         
         for cog_name in cogs_to_reload:
             cog = self.bot.get_cog(cog_name)
@@ -96,6 +105,7 @@ class DataUpdaterCog(commands.Cog):
                     logger.error("DataUpdater: Failed to reload %s: %s", cog_name, e)
     
     @app_commands.command(name="update_data", description="Kiểm tra và cập nhật dữ liệu game (Admin only)")
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def manual_update(self, interaction: discord.Interaction):
         """Manually trigger data update check."""

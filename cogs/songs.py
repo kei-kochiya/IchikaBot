@@ -8,7 +8,7 @@ from discord import app_commands
 import json
 import random
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import MUSICS_FILE_JP, MUSICS_FILE_EN, MUSIC_DIFFICULTIES_FILE_JP, MUSIC_DIFFICULTIES_FILE_EN
 from utils.romaji import matches_query, normalize_for_search
@@ -111,7 +111,7 @@ class SongsCog(commands.Cog):
                 diff_lines.append(f"{emoji} **{diff_name.title()}**: Lv.{level} ({notes} notes)")
         
         release_ts = song.get('publishedAt', 0) / 1000
-        release_date = datetime.fromtimestamp(release_ts).strftime('%Y-%m-%d') if release_ts > 0 else 'Unknown'
+        release_date = datetime.fromtimestamp(release_ts, tz=timezone.utc).strftime('%Y-%m-%d') if release_ts > 0 else 'Unknown'
         
         embed = discord.Embed(
             title=f"{title}",
@@ -256,13 +256,29 @@ class SongsCog(commands.Cog):
     @app_commands.describe(song_name="Chọn bài hát")
     async def song_info(self, interaction: discord.Interaction, song_name: str):
         await interaction.response.defer()
-        song_id = int(song_name)
-        song = self.get_song_by_id(song_id)
-        
+
+        song = None
+        try:
+            # Autocomplete always passes a numeric ID string; direct typing may not
+            song_id = int(song_name)
+            song = self.get_song_by_id(song_id)
+        except ValueError:
+            # Fall back to title search (EN first, then JP)
+            name_lower = song_name.lower()
+            for s in self.songs_en:
+                if s.get('title') and name_lower in s['title'].lower():
+                    song = s
+                    break
+            if not song:
+                for s in self.songs_jp:
+                    if s.get('title') and name_lower in s['title'].lower():
+                        song = s
+                        break
+
         if not song:
             await interaction.followup.send("Không tìm thấy bài hát.", ephemeral=True)
             return
-        
+
         await interaction.followup.send(embed=self.create_song_embed(song))
 
     @song_info.autocomplete('song_name')

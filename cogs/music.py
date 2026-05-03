@@ -167,6 +167,10 @@ class MusicGuess(commands.Cog):
             channel = interaction.channel
             await interaction.response.defer()
             async def send_msg(content, **kwargs):
+                # Webhook.send() doesn't support delete_after; use ephemeral instead
+                if 'delete_after' in kwargs:
+                    del kwargs['delete_after']
+                    kwargs.setdefault('ephemeral', True)
                 await interaction.followup.send(content, **kwargs)
         else:
             ctx = interaction_or_ctx

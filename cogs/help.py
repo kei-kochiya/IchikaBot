@@ -23,8 +23,8 @@ COMMAND_CATEGORIES = {
         "commands": [
             ("/song search <query>", "!song <query>", "Tìm bài hát"),
             ("/song random", "!songr", "Bài hát ngẫu nhiên"),
-            ("/music start", "!music", "Chơi đoán nhạc"),
-            ("/guess start", "!guess", "Chơi đoán nhân vật"),
+            ("/songguess", "!songguess", "Chơi đoán nhạc"),
+            ("/guess", "!guess", "Chơi đoán nhân vật"),
         ]
     },
     "Stamps & Profiles": {
@@ -60,6 +60,29 @@ COMMAND_CATEGORIES = {
             ("/help", "!help", "Hiển thị trợ giúp"),
             ("-", "!sync", "Đồng bộ slash commands"),
             ("/update_data", "-", "Cập nhật dữ liệu (Admin)"),
+        ]
+    },
+    "Card of the Day": {
+        "description": "Card ngẫu nhiên tự động",
+        "commands": [
+            ("/cotd channel", "-", "Đặt kênh gửi Card of the Day (Admin)"),
+            ("/cotd interval", "-", "Đặt tần suất gửi (Admin)"),
+            ("/cotd now", "-", "Gửi card ngay lập tức (Admin)"),
+            ("/cotd disable", "-", "Tắt Card of the Day (Admin)"),
+            ("/cotd status", "-", "Xem trạng thái hiện tại"),
+        ]
+    },
+    "Tournament": {
+        "description": "Tournament đoán card (5 vòng)",
+        "commands": [
+            ("/tournament", "!tournament", "Bắt đầu tournament"),
+            ("/tournament_stop", "!tourstop", "Dừng tournament (Admin)"),
+        ]
+    },
+    "Mercari": {
+        "description": "Tra cứu giá Mercari JP",
+        "commands": [
+            ("/mercari", "!mercari / !mer", "Tra cứu sản phẩm theo link hoặc ID"),
         ]
     }
 }
@@ -126,6 +149,9 @@ class HelpCog(commands.Cog):
         app_commands.Choice(name="Events", value="Events"),
         app_commands.Choice(name="Birthday", value="Birthday"),
         app_commands.Choice(name="Utility", value="Utility"),
+        app_commands.Choice(name="Card of the Day", value="Card of the Day"),
+        app_commands.Choice(name="Tournament", value="Tournament"),
+        app_commands.Choice(name="Mercari", value="Mercari"),
     ])
     async def help_slash(self, interaction: discord.Interaction, category: str = None):
         """Show help information via slash command."""

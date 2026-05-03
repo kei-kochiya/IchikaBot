@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import os
 import asyncio
@@ -22,12 +23,41 @@ if TOKEN is None:
     logger.error("DISCORD_TOKEN not found in .env file.")
     exit()
 
+# --- Default context/install tree -------------------------------------------
+# Applies allowed_contexts and allowed_installs to ALL commands by default,
+# enabling user-installed app support and group DM usage.
+# Commands decorated with @app_commands.guild_only() still override this.
+#
+# NOTE: also enable "User Install" in Discord Developer Portal →
+#       Your App → Installation → Installation Contexts
+class DefaultContextTree(app_commands.CommandTree):
+    def __init__(self, client, **kwargs):
+        super().__init__(
+            client,
+            allowed_contexts=app_commands.AppCommandContext(
+                guild=True,
+                dm_channel=True,       # 1:1 DMs
+                private_channel=True,  # Group DMs
+            ),
+            allowed_installs=app_commands.AppInstallationType(
+                guild=True,  # Traditional server bot
+                user=True,   # User-installable app
+            ),
+            **kwargs,
+        )
+
+
 # --- Bot Setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+bot = commands.Bot(
+    command_prefix='!',
+    intents=intents,
+    help_command=None,
+    tree_cls=DefaultContextTree,  # use our tree with default contexts
+)
 
 
 @bot.event

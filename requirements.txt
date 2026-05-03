@@ -5,3 +5,6 @@ Pillow
 python-dotenv
 pydub
 PyNaCl
+davey
+mercapi
+yt-dlp

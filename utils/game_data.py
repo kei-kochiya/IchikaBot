@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from discord import app_commands
 
-from config import CHARACTERS_FILE, UNIT_COLOR_FILE
+from config import CHARACTERS_FILE, UNIT_COLOR_FILE, NICKNAMES_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class GameDataManager:
         self.characters_by_int: dict[int, dict] = {}  # id (int) -> char data
         self.unit_colors: dict[str, str] = {}  # id (str) -> color hex
         self.unit_colors_by_int: dict[int, str] = {}  # id (int) -> color hex
+        self.nicknames: dict[str, list] = {}  # id (str) -> list of nickname strings
         
         self._load_data()
         GameDataManager._initialized = True
@@ -66,11 +67,21 @@ class GameDataManager:
             
             logger.info("GameDataManager: Loaded %d characters, %d unit colors",
                        len(self.characters), len(self.unit_colors))
-                       
+
         except FileNotFoundError as e:
             logger.error("GameDataManager: Missing file: %s", e.filename)
         except Exception as e:
             logger.error("GameDataManager: Failed to load data: %s", e)
+
+        # Nicknames (optional file)
+        try:
+            if NICKNAMES_FILE.exists():
+                with open(NICKNAMES_FILE, 'r', encoding='utf-8') as f:
+                    self.nicknames = json.load(f)
+                logger.info("GameDataManager: Loaded nicknames for %d characters", len(self.nicknames))
+        except Exception as e:
+            logger.warning("GameDataManager: Failed to load nicknames: %s", e)
+            self.nicknames = {}
     
     def reload(self):
         """Reload data from files (call after updates)."""

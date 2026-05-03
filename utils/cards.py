@@ -58,6 +58,7 @@ class CardToggleView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.embed = embed
         self.card = card
+        self.message = None  # Set by caller after sending: view.message = msg
         self.supports_trained = supports_trained_art(card)
         
         # Start with trained for 3/4 star, untrained otherwise
