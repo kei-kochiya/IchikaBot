@@ -12,26 +12,6 @@ Discord bot for Project Sekai: Colorful Stage.
 - YouTube music streaming with queue management
 - Card of the Day announcements
 
-## Recent Updates
-
-### SQLite Migration
-User data (gacha pity, guild settings) is now stored in `ichika.db` instead of flat JSON files.
-Existing data from `pityData.json`, `birthdaySettings.json`, and `cardOfDaySettings.json` is migrated automatically on first run.
-
-### Streaming Now-Playing Embed
-`/stream play` now posts a single persistent embed that updates in place as tracks change.
-The embed includes interactive buttons directly in the message:
-
-| Button | Action |
-|--------|--------|
-| ⏸ / ▶ | Pause / Resume |
-| ⏭ | Skip current track |
-| 🔁 | Cycle loop mode (Off → Track → Queue) |
-| 🔀 | Shuffle the queue |
-| ⏹ | Stop and leave voice channel |
-
-> Only users currently in the same voice channel as the bot can use the buttons.
-
 ## Setup
 
 1. Clone the repository
