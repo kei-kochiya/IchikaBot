@@ -30,6 +30,7 @@ gameData/EN_data/
 # Markdown files (documentation/notes)
 *.md
 !README.md
+!ARCHITECT.md
 
 # Logs
 *.log
