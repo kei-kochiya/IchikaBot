@@ -1,20 +1,19 @@
 <div align="center">
-  <img src="https://i.imgur.com/B9B5Fqz.png" alt="IchikaBot Logo" width="150" />
   <h1>IchikaBot</h1>
   <p><i>A feature-rich Discord bot dedicated to Project Sekai: Colorful Stage!</i></p>
 
   <p>
-    <a href="https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands">Invite Bot</a>
+    <a href="#permissions--invite">Invite Bot</a>
     ·
     <a href="#features">Features</a>
     ·
-    <a href="#setup">Setup</a>
+    <a href="#setup--installation">Setup</a>
   </p>
 </div>
 
 ---
 
-## ✨ Features
+<h2 id="features">✨ Features</h2>
 
 IchikaBot brings the world of Project Sekai directly to your Discord server with a suite of interactive, automated, and entertainment modules:
 
@@ -36,7 +35,21 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 
 ---
 
-## 🚀 Setup & Installation
+<h2 id="permissions--invite">🔑 Permissions & Invite</h2>
+
+Để bot hoạt động đầy đủ chức năng (đặc biệt là Minigame và Phát nhạc), bot cần các quyền cơ bản sau:
+- **Text:** `Send Messages`, `Embed Links`, `Attach Files`, `Add Reactions`, `Read Message History`.
+- **Voice:** `Connect`, `Speak` (Dành cho tính năng Streaming nhạc).
+- **Advanced:** `Use Application Commands` (Để dùng lệnh gạch chéo `/`).
+
+> 💡 **Mẹo:** Bạn có thể cấp quyền **Administrator (8)** cho nhanh nếu chỉ dùng trong server cá nhân của bạn.
+> 
+> **Link Invite mẫu:**  
+> `https://discord.com/oauth2/authorize?client_id=ID_CỦA_BOT&permissions=8&scope=bot%20applications.commands` (Nhớ thay `ID_CỦA_BOT` bằng Client ID thật của bạn).
+
+---
+
+<h2 id="setup--installation">🚀 Setup & Installation</h2>
 
 To host IchikaBot yourself, you'll need **Python 3.11+** and **FFmpeg** installed on your system.
 
