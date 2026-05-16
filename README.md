@@ -37,15 +37,12 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 
 <h2 id="permissions--invite">🔑 Permissions & Invite</h2>
 
-Để bot hoạt động đầy đủ chức năng (đặc biệt là Minigame và Phát nhạc), bot cần các quyền cơ bản sau:
 - **Text:** `Send Messages`, `Embed Links`, `Attach Files`, `Add Reactions`, `Read Message History`.
 - **Voice:** `Connect`, `Speak` (Dành cho tính năng Streaming nhạc).
 - **Advanced:** `Use Application Commands` (Để dùng lệnh gạch chéo `/`).
 
-> 💡 **Mẹo:** Bạn có thể cấp quyền **Administrator (8)** cho nhanh nếu chỉ dùng trong server cá nhân của bạn.
-> 
-> **Link Invite mẫu:**  
-> `https://discord.com/oauth2/authorize?client_id=ID_CỦA_BOT&permissions=8&scope=bot%20applications.commands` (Nhớ thay `ID_CỦA_BOT` bằng Client ID thật của bạn).
+> **Link Invite:**  
+> `[Invite](https://discord.com/oauth2/authorize?client_id=1416351312039383051&permissions=2150746176&integration_type=0&scope=bot)`.
 
 ---
 
