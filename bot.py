@@ -97,18 +97,23 @@ async def sync(ctx):
 
 
 async def load_cogs():
-    """Finds and loads all cog files in the 'cogs' directory."""
+    """Recursively finds and loads all cog files in the 'cogs' directory."""
     if not os.path.exists('./cogs'):
         logger.error("'cogs' directory not found.")
         return
 
-    for filename in os.listdir('./cogs'):
-        if filename.endswith('.py'):
-            try:
-                await bot.load_extension(f'cogs.{filename[:-3]}')
-                logger.info(f"Loaded extension: {filename}")
-            except Exception as e:
-                logger.error(f"Failed to load extension {filename}: {e}")
+    for root, dirs, files in os.walk('./cogs'):
+        for filename in files:
+            if filename.endswith('.py') and not filename.startswith('__'):
+                # Convert path to module notation: cogs/voice/streaming.py -> cogs.voice.streaming
+                relative_path = os.path.relpath(os.path.join(root, filename), '.')
+                module_name = relative_path.replace(os.path.sep, '.')[:-3]
+                
+                try:
+                    await bot.load_extension(module_name)
+                    logger.info(f"Loaded extension: {module_name}")
+                except Exception as e:
+                    logger.error(f"Failed to load extension {module_name}: {e}")
 
 
 async def main():
