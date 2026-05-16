@@ -3,7 +3,7 @@
   <p><i>A feature-rich Discord bot dedicated to Project Sekai: Colorful Stage!</i></p>
 
   <p>
-    <a href="#permissions--invite">Invite Bot</a>
+    <a href="https://discord.com/oauth2/authorize?client_id=1416351312039383051&permissions=2150746176&integration_type=0&scope=bot%20applications.commands">Invite Bot</a>
     ·
     <a href="#features">Features</a>
     ·
@@ -42,7 +42,7 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 - **Advanced:** `Use Application Commands` (Để dùng lệnh gạch chéo `/`).
 
 > **Link Invite:**  
-> `[Invite](https://discord.com/oauth2/authorize?client_id=1416351312039383051&permissions=2150746176&integration_type=0&scope=bot)`.
+> [Invite](https://discord.com/oauth2/authorize?client_id=1416351312039383051&permissions=2150746176&integration_type=0&scope=bot%20applications.commands).
 
 ---
 
