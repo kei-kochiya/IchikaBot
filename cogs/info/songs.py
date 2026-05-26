@@ -8,22 +8,13 @@ from discord import app_commands
 import json
 import random
 import logging
-from datetime import datetime, timezone
 
 from config import MUSICS_FILE_JP, MUSICS_FILE_EN, MUSIC_DIFFICULTIES_FILE_JP, MUSIC_DIFFICULTIES_FILE_EN
 from utils.romaji import matches_query, normalize_for_search
 
+from utils.info.songs_ui import create_song_embed, SearchPaginationView
+
 logger = logging.getLogger(__name__)
-
-DIFFICULTY_EMOJI = {
-    'easy': '🟢',
-    'normal': '🔵', 
-    'hard': '🟡',
-    'expert': '🔴',
-    'master': '🟣',
-    'append': '⚪'
-}
-
 
 class SongsCog(commands.Cog):
     def __init__(self, bot):
@@ -96,57 +87,8 @@ class SongsCog(commands.Cog):
             return en_song['title']
         return song.get('title', 'Unknown')
 
-    def create_song_embed(self, song: dict) -> discord.Embed:
-        song_id = song['id']
-        # Use EN title if available
-        title = self.get_display_title(song, song_id)
-        diff_info = self.difficulties.get(song_id, {})
-        
-        diff_lines = []
-        for diff_name in ['easy', 'normal', 'hard', 'expert', 'master', 'append']:
-            if diff_name in diff_info:
-                level = diff_info[diff_name]['playLevel']
-                notes = diff_info[diff_name]['noteCount']
-                emoji = DIFFICULTY_EMOJI.get(diff_name, '⚪')
-                diff_lines.append(f"{emoji} **{diff_name.title()}**: Lv.{level} ({notes} notes)")
-        
-        release_ts = song.get('publishedAt', 0) / 1000
-        release_date = datetime.fromtimestamp(release_ts, tz=timezone.utc).strftime('%Y-%m-%d') if release_ts > 0 else 'Unknown'
-        
-        embed = discord.Embed(
-            title=f"{title}",
-            color=discord.Color.from_str('#00BFFF')
-        )
-        
-        embed.add_field(
-            name="Credits",
-            value=f"**Composer**: {song.get('composer', '-')}\n"
-                  f"**Lyricist**: {song.get('lyricist', '-')}\n"
-                  f"**Arranger**: {song.get('arranger', '-')}",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Info",
-            value=f"**ID**: {song_id}\n"
-                  f"**Released**: {release_date}\n"
-                  f"**Has MV**: {'✅' if 'mv' in song.get('categories', []) else '❌'}",
-            inline=True
-        )
-        
-        if diff_lines:
-            embed.add_field(name="Difficulties", value='\n'.join(diff_lines), inline=False)
-        
-        # Asset URLs always use JP storage
-        jacket_name = song.get('assetbundleName', '')
-        if jacket_name:
-            embed.set_thumbnail(url=f"https://storage.sekai.best/sekai-jp-assets/music/jacket/{jacket_name}/{jacket_name}.png")
-        
-        return embed
-
-    def search_songs(self, query: str, limit: int = 25) -> list:
+    def search_songs(self, query: str, limit: int = 50) -> list:
         """Search songs by name, ID, or romaji in both JP and EN."""
-        query_lower = query.lower()
         query_normalized = normalize_for_search(query)
         
         # If query is a number, try ID-based search
@@ -201,28 +143,26 @@ class SongsCog(commands.Cog):
     @app_commands.describe(query="Tên bài hát cần tìm")
     async def song_search(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer()
-        results = self.search_songs(query, limit=10)
+        results = self.search_songs(query, limit=50)
         
         if not results:
             await interaction.followup.send(f"Không tìm thấy bài hát nào với từ khóa: **{query}**", ephemeral=True)
             return
         
         if len(results) == 1:
-            await interaction.followup.send(embed=self.create_song_embed(results[0]))
+            title = self.get_display_title(results[0], results[0]['id'])
+            await interaction.followup.send(embed=create_song_embed(results[0], title, self.difficulties))
         else:
-            embed = discord.Embed(
-                title=f"🔍 Kết quả tìm kiếm: {query}",
-                description=f"Tìm thấy {len(results)} bài hát. Sử dụng `/song info` để xem chi tiết.",
-                color=discord.Color.blue()
-            )
-            song_list = []
-            for song in results:
+            def formatter(song):
                 diff_info = self.difficulties.get(song['id'], {})
                 master_level = diff_info.get('master', {}).get('playLevel', '?')
                 title = self.get_display_title(song, song['id'])
-                song_list.append(f"• **{title}** (Master Lv.{master_level})")
-            embed.add_field(name="Bài hát", value='\n'.join(song_list), inline=False)
-            await interaction.followup.send(embed=embed)
+                return f"• **{title}** (Master Lv.{master_level})"
+            
+            view = SearchPaginationView(results, f"🔍 Kết quả tìm kiếm: {query}", formatter, items_per_page=10)
+            embed = view._create_embed()
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
 
     @song_group.command(name="random", description="Gợi ý bài hát ngẫu nhiên")
     @app_commands.describe(min_level="Level Master tối thiểu", max_level="Level Master tối đa")
@@ -248,8 +188,9 @@ class SongsCog(commands.Cog):
             return
         
         chosen = random.choice(valid_songs)
-        embed = self.create_song_embed(chosen)
-        embed.title = f"🎲 Bài hát ngẫu nhiên: {self.get_display_title(chosen, chosen['id'])}"
+        title = self.get_display_title(chosen, chosen['id'])
+        embed = create_song_embed(chosen, title, self.difficulties)
+        embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"
         await interaction.followup.send(embed=embed)
 
     @song_group.command(name="info", description="Xem chi tiết bài hát")
@@ -259,11 +200,9 @@ class SongsCog(commands.Cog):
 
         song = None
         try:
-            # Autocomplete always passes a numeric ID string; direct typing may not
             song_id = int(song_name)
             song = self.get_song_by_id(song_id)
         except ValueError:
-            # Fall back to title search (EN first, then JP)
             name_lower = song_name.lower()
             for s in self.songs_en:
                 if s.get('title') and name_lower in s['title'].lower():
@@ -279,15 +218,14 @@ class SongsCog(commands.Cog):
             await interaction.followup.send("Không tìm thấy bài hát.", ephemeral=True)
             return
 
-        await interaction.followup.send(embed=self.create_song_embed(song))
+        title = self.get_display_title(song, song['id'])
+        await interaction.followup.send(embed=create_song_embed(song, title, self.difficulties))
 
     @song_info.autocomplete('song_name')
     async def song_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        """Autocomplete searching both JP and EN songs."""
         choices = []
         seen_ids = set()
         
-        # Search EN songs first
         for song in self.songs_en:
             title = song.get('title', '')
             pronunciation = song.get('pronunciation', '')
@@ -304,7 +242,6 @@ class SongsCog(commands.Cog):
                 if len(choices) >= 25:
                     return choices
         
-        # Then search JP songs
         for song in self.songs_jp:
             song_id = song['id']
             if song_id in seen_ids:
@@ -315,7 +252,6 @@ class SongsCog(commands.Cog):
             if matches_query(current, title, pronunciation):
                 diff_info = self.difficulties.get(song_id, {})
                 master_level = diff_info.get('master', {}).get('playLevel', '?')
-                # Use EN title if available
                 display_title = self.songs_en_by_id.get(song_id, {}).get('title', title)
                 display = f"{display_title} (Master Lv.{master_level})"
                 choices.append(app_commands.Choice(name=display[:100], value=str(song_id)))
@@ -333,25 +269,26 @@ class SongsCog(commands.Cog):
             await ctx.send("Vui lòng nhập tên bài hát: `!song <name>`")
             return
         
-        results = self.search_songs(query, limit=5)
+        results = self.search_songs(query, limit=50)
         
         if not results:
             await ctx.send(f"Không tìm thấy bài hát nào với từ khóa: **{query}**")
             return
         
         if len(results) == 1:
-            await ctx.send(embed=self.create_song_embed(results[0]))
+            title = self.get_display_title(results[0], results[0]['id'])
+            await ctx.send(embed=create_song_embed(results[0], title, self.difficulties))
         else:
-            embed = discord.Embed(
-                title=f"Kết quả: {query}",
-                color=discord.Color.blue()
-            )
-            for song in results[:5]:
+            def formatter(song):
                 diff_info = self.difficulties.get(song['id'], {})
                 master_level = diff_info.get('master', {}).get('playLevel', '?')
                 title = self.get_display_title(song, song['id'])
-                embed.add_field(name=title, value=f"Master Lv.{master_level}", inline=False)
-            await ctx.send(embed=embed)
+                return f"• **{title}** (Master Lv.{master_level})"
+            
+            view = SearchPaginationView(results, f"🔍 Kết quả tìm kiếm: {query}", formatter, items_per_page=10)
+            embed = view._create_embed()
+            msg = await ctx.send(embed=embed, view=view)
+            view.message = msg
 
     @commands.command(name='songr', aliases=['randomsong'])
     async def song_random_prefix(self, ctx: commands.Context):
@@ -362,8 +299,9 @@ class SongsCog(commands.Cog):
             return
         
         chosen = random.choice(valid_songs)
-        embed = self.create_song_embed(chosen)
-        embed.title = f"🎲 Bài hát ngẫu nhiên: {self.get_display_title(chosen, chosen['id'])}"
+        title = self.get_display_title(chosen, chosen['id'])
+        embed = create_song_embed(chosen, title, self.difficulties)
+        embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"
         await ctx.send(embed=embed)
 
 
