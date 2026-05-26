@@ -10,7 +10,7 @@ import random
 import logging
 
 from config import MUSICS_FILE_JP, MUSICS_FILE_EN, MUSIC_DIFFICULTIES_FILE_JP, MUSIC_DIFFICULTIES_FILE_EN
-from utils.romaji import matches_query, normalize_for_search
+from utils.core.romaji import matches_query, normalize_for_search
 
 from utils.info.songs_ui import create_song_embed, SearchPaginationView
 

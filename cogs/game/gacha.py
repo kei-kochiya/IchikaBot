@@ -9,10 +9,10 @@ import random
 from PIL import Image, ImageDraw
 from io import BytesIO
 
-from utils.image_helper import get_card_image_path
-from utils.game_data import get_unit_color_hex
-from utils.card_data import card_data
-from utils import database
+from utils.media.image_helper import get_card_image_path
+from utils.data.game_data import get_unit_color_hex
+from utils.data.card_data import card_data
+from utils.core import database
 from config import (
     RARITY_ICONS,
     PITY_THRESHOLD, GACHA_RATES

@@ -7,8 +7,8 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import logging
 
-from utils.autoupdater import auto_updater, register_all_sources, run_all_updates
-from utils.card_data import card_data
+from utils.core.autoupdater import auto_updater, register_all_sources, run_all_updates
+from utils.data.card_data import card_data
 from config import CARD_UPDATE_INTERVAL_HOURS
 
 logger = logging.getLogger(__name__)

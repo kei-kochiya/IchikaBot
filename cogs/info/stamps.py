@@ -11,8 +11,8 @@ import aiofiles
 import random
 
 from config import STAMPS_FILE_JP, STAMPS_FILE_EN
-from utils.game_data import get_character_name, get_unit_color, character_autocomplete, game_data
-from utils.romaji import matches_query, normalize_for_search
+from utils.data.game_data import get_character_name, get_unit_color, character_autocomplete, game_data
+from utils.core.romaji import matches_query, normalize_for_search
 
 logger = logging.getLogger(__name__)
 

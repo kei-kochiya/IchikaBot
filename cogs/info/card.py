@@ -9,8 +9,8 @@ import json
 import logging
 
 from config import CARDS_FILE_JP, CARDS_FILE_EN, RARITY_ICONS, ASSETS_PATH
-from utils.game_data import game_data, get_character_name, get_unit_color_hex
-from utils.card_data import card_data
+from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
+from utils.data.card_data import card_data
 
 logger = logging.getLogger(__name__)
 

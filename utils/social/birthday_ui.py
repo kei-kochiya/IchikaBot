@@ -1,8 +1,8 @@
 import discord
 from datetime import datetime, timezone, timedelta
 
-from utils.game_data import get_character_name, get_unit_color
-from utils.cards import supports_trained_art, get_card_image_url
+from utils.data.game_data import get_character_name, get_unit_color
+from utils.game.cards import supports_trained_art, get_card_image_url
 from utils.social.birthday_helpers import get_birthday_card_for_character
 
 JST = timezone(timedelta(hours=9))

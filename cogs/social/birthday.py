@@ -7,9 +7,9 @@ from discord import app_commands
 import logging
 from datetime import datetime, time
 
-from utils.game_data import game_data, character_autocomplete
-from utils.cards import get_random_card, CardToggleView, supports_trained_art
-from utils import database
+from utils.data.game_data import game_data, character_autocomplete
+from utils.game.cards import get_random_card, CardToggleView, supports_trained_art
+from utils.core import database
 
 # Import our new helpers and UI components
 from utils.social.birthday_helpers import (
@@ -70,7 +70,7 @@ class BirthdayCog(commands.Cog):
 
     async def send_countdown_message(self, channel, days_until: int, character: dict):
         """Send countdown message with card and toggle button."""
-        from utils.card_data import card_data
+        from utils.data.card_data import card_data
         card = get_random_card(card_data.cards, character['id'], ['rarity_3', 'rarity_4'])
         
         if not card:
@@ -88,7 +88,7 @@ class BirthdayCog(commands.Cog):
 
     async def send_daily_card_message(self, channel, character: dict, days_until_bday: int):
         """Send daily card message with countdown and toggle button."""
-        from utils.card_data import card_data
+        from utils.data.card_data import card_data
         card = get_random_card(card_data.cards, character['id'], ['rarity_3', 'rarity_4'])
         
         if not card:
@@ -187,7 +187,7 @@ class BirthdayCog(commands.Cog):
             return
         
         days_until, char = next_bday
-        from utils.game_data import get_character_name
+        from utils.data.game_data import get_character_name
         full_name = get_character_name(char['id'], full=True)
         await interaction.followup.send(f"Next birthday: {full_name} in {days_until} day(s)")
         await self.send_daily_card_message(interaction.channel, char, days_until)

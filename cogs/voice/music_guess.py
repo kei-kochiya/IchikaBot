@@ -8,8 +8,8 @@ import logging
 import glob
 from config import AUDIO_DIR, TEMP_DIR, GUESS_TIME_LIMIT, MAX_GUESSES
 
-from utils.music_quiz_db import MusicQuizDB, is_correct_guess
-from utils.audio_fx import prepare_clip, TEMP_CLIP_PREFIX
+from utils.data.music_quiz_db import MusicQuizDB, is_correct_guess
+from utils.media.audio_fx import prepare_clip, TEMP_CLIP_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class MusicGuess(commands.Cog):
         norm_targets   = db.build_norm_targets(info)
 
         if not norm_targets:
-            from utils.music_quiz_db import normalize
+            from utils.data.music_quiz_db import normalize
             # No known title — fall back to filename stem so the game can still work
             stem = os.path.splitext(chosen_file)[0]
             norm_targets = [normalize(stem)]

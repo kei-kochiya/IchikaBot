@@ -10,11 +10,11 @@ import aiofiles
 import random
 
 from config import PROFILES_FILE
-from utils.card_data import card_data
-from utils.game_data import (
+from utils.data.card_data import card_data
+from utils.data.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
 )
-from utils.cards import get_card_image_url, get_random_card, CardToggleView
+from utils.game.cards import get_card_image_url, get_random_card, CardToggleView
 
 logger = logging.getLogger(__name__)
 

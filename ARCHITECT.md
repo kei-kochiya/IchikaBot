@@ -6,33 +6,34 @@ Welcome to the IchikaBot source code! This document provides an overview of the 
 
 IchikaBot is built using `discord.py` and follows a modular **Cog-based architecture**. Each major feature is encapsulated in its own class (a "Cog") within organized subdirectories under `cogs/`.
 
-To ensure performance and low RAM usage, the bot heavily utilizes the **Singleton pattern** for loading large game data files. Persistent data is stored via an async SQLite database.
+To ensure performance and low RAM usage, the bot heavily utilizes the **Singleton pattern** for loading large game data files. Persistent data is stored via an async SQLite database. Logic is cleanly separated between the presentation layer (`cogs/`) and the core logic/UI layer (`utils/`).
 
 ---
 
-## 📂 Core Components & Utilities (`utils/`)
+## 📂 Utilities & Core Logic (`utils/`)
 
-The `utils/` directory acts as the backbone of the bot. Cogs should rely on these utilities rather than loading raw JSON/data themselves.
+The `utils/` directory acts as the backbone of the bot. Cogs should rely on these utilities rather than implementing complex logic or loading raw JSON data themselves.
 
-### `utils/card_data.py` (CardDataManager)
-- **Role**: Singleton that parses and holds all card data (`cards.json`) in memory once.
-- **Depended on by**: `cogs/info/card.py`, `cogs/game/gacha.py`, `cogs/game/guess.py`, `cogs/social/birthday.py`, `cogs/info/profile.py`, `cogs/social/card_of_day.py`, `cogs/game/tournament.py`, `cogs/system/data_updater.py`.
+### `utils/data/` (Data Management)
+- **`game_data.py`**: Singleton that manages character and nickname data.
+- **`card_data.py`**: Singleton that parses and holds all card data (`cards.json`) in memory.
+- **`music_quiz_db.py`**: Database class for the `song.xlsx` used in the music guessing minigame.
+- **Depended on by**: Almost all game and info cogs (e.g., `birthday.py`, `tournament.py`, `profile.py`, `card.py`).
 
-### `utils/game_data.py` (GameDataManager)
-- **Role**: Singleton that manages character and nickname data.
-- **Depended on by**: `cogs/game/guess.py`, `cogs/social/birthday.py`, `cogs/game/tournament.py`.
+### `utils/core/` (System Core)
+- **`database.py`**: Handles all asynchronous interactions with `ichika.db`. Used heavily by `gacha.py` and `streaming.py`.
+- **`autoupdater.py`**: Fetches and syncs new assets/data from upstream sources.
+- **`romaji.py`**: Normalization and romaji conversion logic for search features.
 
-### `utils/database.py` (Async SQLite Layer)
-- **Role**: Handles all database interactions (`ichika.db`) asynchronously.
-- **Depended on by**: `cogs/game/gacha.py`, `cogs/voice/streaming.py`, `bot.py` (for initialization).
+### `utils/media/` (Media Processing)
+- **`image_helper.py`**: Asynchronous image caching and fetching.
+- **`audio_fx.py`**: Audio manipulation logic (FFmpeg/Pydub).
 
-### `utils/voice/`
-- **Role**: Contains streaming player models, UI (`NowPlayingView`), and YouTube downloader logic (`yt-dlp`).
-- **Depended on by**: `cogs/voice/streaming.py`.
-
-### `utils/music_quiz_db.py` & `utils/audio_fx.py`
-- **Role**: Singleton database for `song.xlsx` and pydub audio manipulation logic.
-- **Depended on by**: `cogs/voice/music_guess.py`.
+### Domain-Specific Helpers
+- **`utils/game/`**: Logic and UI components for minigames (`tournament_logic.py`, `tournament_ui.py`, `cards.py`).
+- **`utils/social/`**: Date calculations and Embed generation for social features (`birthday_helpers.py`, `birthday_ui.py`).
+- **`utils/info/`**: Shared Embed generation and Pagination Views (`songs_ui.py`, `events_ui.py`).
+- **`utils/voice/`**: Streaming player models, YouTube downloader logic (`yt-dlp`), and UI (`NowPlayingView`).
 
 ---
 
@@ -40,44 +41,29 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 
 Cogs are organized into subdirectories by category. The bot recursively loads all `.py` files in this tree.
 
-| Module Path | Feature Description | Key Dependencies |
+| Module Area | Feature Description | Key Dependencies |
 |:---|:---|:---|
-| **`voice/`** | | |
-| `streaming.py` | YouTube audio player with persistent UI. | `yt-dlp`, `utils.database`, `utils.voice.*` |
-| `music_guess.py` | Audio guessing minigame (song.xlsx). | `pydub`, FFmpeg, `utils.music_quiz_db`, `utils.audio_fx` |
-| **`game/`** | | |
-| `tournament.py` | 5-round progressive card tournament. | `utils.card_data` |
-| `guess.py` | Single-round card guessing game. | `utils.card_data` |
-| `gacha.py` | Gacha simulator with pity system. | `utils.database` |
-| **`info/`** | | |
-| `card.py` | High-res card artwork search. | `utils.card_data` |
-| `profile.py` | Character profile lookups. | `utils.card_data` |
-| `songs.py` | Song database lookup. | `utils.romaji` |
-| `events.py` | Event tracking. | Static JSONs |
-| `stamps.py` | Stamp search. | Static JSONs |
-| **`social/`** | | |
-| `birthday.py` | Birthday announcements. | `utils.game_data` |
-| `card_of_day.py` | Daily scheduled card posts. | `utils.card_data` |
-| **`system/`** | | |
-| `data_updater.py`| Scheduled game data refresh. | `utils.autoupdater` |
-| `help.py` | Help command. | - |
-| **`misc/`** | | |
-| `mercari.py` | Mercari JP lookup. | External API |
+| **`cogs/voice/`** | Music and audio streaming features. | `utils.voice.*`, `utils.media.audio_fx` |
+| **`cogs/game/`** | Minigames (Tournament, Guess, Gacha). | `utils.data.*`, `utils.game.*` |
+| **`cogs/info/`** | Database lookups (Cards, Profiles, Songs, Events). | `utils.info.*`, `utils.core.romaji` |
+| **`cogs/social/`** | Server engagement features (Birthdays, Card of the Day). | `utils.social.*`, `utils.data.*` |
+| **`cogs/system/`** | Bot administration (Data Auto-updater, Help). | `utils.core.autoupdater` |
+| **`cogs/misc/`** | Miscellaneous tools (Mercari JP search). | External APIs |
 
 ---
 
 ## 🔄 Data Flow Example: Updating Game Assets
 
 1. `cogs/system/data_updater.py` runs its scheduled task.
-2. It calls `utils/autoupdater.py` to fetch new assets.
-3. If `cards.json` changes, it calls `CardDataManager.reload()`.
-4. All cogs instantly access new data without a restart.
+2. It calls `utils/core/autoupdater.py` to fetch new assets.
+3. If `cards.json` changes, it calls `CardDataManager.reload()` via `utils/data/card_data.py`.
+4. All cogs instantly access the new data via the Singleton references without requiring a bot restart.
 
 ---
 
 ## 🛠️ Contribution Guidelines
 
-1. **Memory**: Use singletons from `utils.card_data` or `utils.game_data` instead of manual JSON loads.
-2. **Persistence**: Use `utils.database.py` schema for new user data.
-3. **Async**: Heavy tasks (Pillow/Pydub) must use `await bot.loop.run_in_executor()`.
-4. **Organization**: Place new cogs in the appropriate subdirectory within `cogs/`.
+1. **Memory**: Use singletons from `utils.data` instead of manually loading JSONs.
+2. **Separation of Concerns**: Keep Cogs small. Move Embed generation, Pagination UI, and complex calculations to the corresponding `utils/` subdirectory.
+3. **Persistence**: Use `utils.core.database.py` schema for new user data.
+4. **Async Execution**: Heavy tasks (Pillow/Pydub) must use `await bot.loop.run_in_executor()`.

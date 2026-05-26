@@ -9,10 +9,10 @@ import random
 import logging
 from datetime import datetime, timezone
 
-from utils.card_data import card_data
-from utils.game_data import get_character_name, get_unit_color
-from utils.cards import get_card_image_url, CardToggleView
-from utils import database
+from utils.data.card_data import card_data
+from utils.data.game_data import get_character_name, get_unit_color
+from utils.game.cards import get_card_image_url, CardToggleView
+from utils.core import database
 
 logger = logging.getLogger(__name__)
 

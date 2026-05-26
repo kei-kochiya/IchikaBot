@@ -8,9 +8,9 @@ import random
 import asyncio
 import logging
 
-from utils.image_helper import get_card_image_path
-from utils.card_data import card_data
-from utils.game_data import game_data
+from utils.media.image_helper import get_card_image_path
+from utils.data.card_data import card_data
+from utils.data.game_data import game_data
 
 # Import helpers and UI
 from utils.game.tournament_logic import make_phase_images

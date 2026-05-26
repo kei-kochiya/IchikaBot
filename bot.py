@@ -6,7 +6,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 from config import SharedResources
-from utils import database
+from utils.core import database
 
 # Configure logging
 logging.basicConfig(

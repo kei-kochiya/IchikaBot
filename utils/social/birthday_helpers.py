@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from utils.card_data import card_data
-from utils.game_data import game_data
+from utils.data.card_data import card_data
+from utils.data.game_data import game_data
 
 JST = timezone(timedelta(hours=9))
 
@@ -60,7 +60,7 @@ def build_birthday_calendar_embed(today: str, birthday_chars: list, upcoming: li
     """Helper logic to build the calendar embed content (to avoid duplicating code).
     Returns an embed to be sent by the cog.
     """
-    from utils.game_data import get_character_name
+    from utils.data.game_data import get_character_name
     import discord
 
     embed = discord.Embed(

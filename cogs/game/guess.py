@@ -8,10 +8,10 @@ import asyncio
 import logging
 from PIL import Image, ImageOps
 from io import BytesIO
-from utils.image_helper import get_card_image_path
+from utils.media.image_helper import get_card_image_path
 from config import SONG_GUESS_DURATION
-from utils.card_data import card_data
-from utils.game_data import game_data
+from utils.data.card_data import card_data
+from utils.data.game_data import game_data
 
 logger = logging.getLogger(__name__)
 

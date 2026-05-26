@@ -11,7 +11,7 @@ import aiofiles
 from datetime import datetime, timezone
 
 from config import EVENTS_FILE_JP, EVENTS_FILE_EN
-from utils.romaji import matches_query
+from utils.core.romaji import matches_query
 
 from utils.info.events_ui import create_event_embed, EVENT_TYPES, format_timestamp, get_event_status
 from utils.info.songs_ui import SearchPaginationView

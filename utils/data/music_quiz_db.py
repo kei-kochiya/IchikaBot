@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-SONG_DB_PATH = Path(__file__).parent.parent / "gameData" / "static" / "song.xlsx"
+SONG_DB_PATH = Path(__file__).parent.parent.parent / "gameData" / "static" / "song.xlsx"
 
 def normalize(text: str) -> str:
     """

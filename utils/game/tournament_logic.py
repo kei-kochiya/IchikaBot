@@ -3,7 +3,7 @@ import logging
 from PIL import Image, ImageOps
 from io import BytesIO
 
-from utils.image_helper import get_card_image_path
+from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
