@@ -86,7 +86,7 @@ class GuessCog(commands.Cog):
                     effect_used = "Pixelate"
                     
                 elif effect == 'blur':
-                    game_img = full_img.filter(ImageFilter.GaussianBlur(radius=15))
+                    game_img = full_img.filter(ImageFilter.GaussianBlur(radius=25))
                     effect_used = "Blur"
                     
                 elif effect == 'negative':
@@ -112,8 +112,8 @@ class GuessCog(commands.Cog):
 
     @app_commands.command(name="guess", description="Đoán nhân vật qua hình ảnh!")
     @app_commands.choices(mode=[
-        app_commands.Choice(name="Bình thường (Crop)", value="normal"),
-        app_commands.Choice(name="Ngẫu nhiên (Blur/Pixel/Negative)", value="random")
+        app_commands.Choice(name="Normal", value="normal"),
+        app_commands.Choice(name="Random", value="random")
     ])
     async def guess(self, interaction: discord.Interaction, mode: str = "normal"):
         channel_id = interaction.channel_id
@@ -155,7 +155,7 @@ class GuessCog(commands.Cog):
 
             file = discord.File(game_img, filename="guess.png")
             embed = discord.Embed(
-                title=f"🖼️ Đoán nhân vật ({effect_name})", 
+                title=f"Đoán nhân vật", 
                 description=f"Gõ `{GUESS_PREFIX}[name]` để đoán. Bạn có {SONG_GUESS_DURATION}s.", 
                 color=0xF1C40F if mode == 'normal' else 0x9B59B6
             )
