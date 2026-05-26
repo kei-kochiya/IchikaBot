@@ -6,49 +6,15 @@ import random
 import asyncio
 import logging
 import glob
-import re
-from pathlib import Path
-from pydub import AudioSegment
-from pydub.effects import speedup
-from config import AUDIO_DIR, TEMP_DIR, GUESS_TIME_LIMIT, MAX_GUESSES, SONG_CLIP_DURATION, SONG_SAFE_ZONE
+from config import AUDIO_DIR, TEMP_DIR, GUESS_TIME_LIMIT, MAX_GUESSES
+
+from utils.music_quiz_db import MusicQuizDB, is_correct_guess
+from utils.audio_fx import prepare_clip, TEMP_CLIP_PREFIX
 
 logger = logging.getLogger(__name__)
 
-TEMP_CLIP_PREFIX = "temp_guess_clip_"
 WRONG_EMOJI = '❌'
 CORRECT_EMOJI = '✅'
-
-# Path to the song database spreadsheet
-SONG_DB_PATH = Path(__file__).parent.parent / "gameData" / "static" / "song.xlsx"
-
-
-def normalize(text: str) -> str:
-    """
-    Keep only alphanumeric characters, strip everything else (including spaces),
-    and lowercase. Applied to both song titles and player guesses before comparison.
-    """
-    return re.sub(r'[^a-zA-Z0-9]', '', text).lower()
-
-
-def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
-    """
-    Check whether raw_guess matches any of the normalized target strings.
-
-    Rules:
-      - Normalize the guess the same way as the titles.
-      - Exact match  → correct.
-      - len(normalized_guess) >= 3 AND normalized_guess is a substring of any target → correct.
-    """
-    ng = normalize(raw_guess)
-    if not ng:
-        return False
-    for target in norm_targets:
-        if ng == target:
-            return True
-        if len(ng) >= 3 and ng in target:
-            return True
-    return False
-
 
 class MusicGuess(commands.Cog):
     def __init__(self, bot):
@@ -57,83 +23,6 @@ class MusicGuess(commands.Cog):
         # Per-session song tracking (two-set approach for efficient selection)
         self.played_songs: set = set()
         self.available_songs: set = set()
-        # song_db: str(index) -> {"title_en": str|None, "romaji_title": str|None, "title_jp": str|None}
-        self.song_db: dict[str, dict] = {}
-
-    # ── Song database ──────────────────────────────────────────────────────────
-
-    def load_song_db(self) -> None:
-        """Load song.xlsx into self.song_db keyed by song index (as string)."""
-        if not SONG_DB_PATH.exists():
-            logger.warning("Music: song.xlsx not found at %s", SONG_DB_PATH)
-            return
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(SONG_DB_PATH, read_only=True, data_only=True)
-            ws = wb.active
-            rows = list(ws.iter_rows(values_only=True))
-            wb.close()
-        except Exception as e:
-            logger.error("Music: Failed to load song.xlsx: %s", e)
-            return
-
-        if not rows:
-            return
-
-        # Detect header row: first row where column A looks like "index" (text)
-        # Skip if it is a header
-        start = 0
-        if rows[0][0] is not None and str(rows[0][0]).lower() == 'index':
-            start = 1
-
-        db: dict[str, dict] = {}
-        # Columns: 0=index, 1=title_jp, 2=title_en, 3=lyricist, 4=composer,
-        #           5=arranger, 6=link, 7=romaji_title
-        for row in rows[start:]:
-            if not row or row[0] is None:
-                continue
-            idx        = str(row[0]).strip()
-            title_jp   = str(row[1]).strip() if len(row) > 1 and row[1] else None
-            title_en   = str(row[2]).strip() if len(row) > 2 and row[2] else None
-            romaji     = str(row[7]).strip() if len(row) > 7 and row[7] else None
-            # Treat empty strings as None
-            title_jp   = title_jp   or None
-            title_en   = title_en   or None
-            romaji     = romaji     or None
-            db[idx] = {"title_en": title_en, "romaji_title": romaji, "title_jp": title_jp}
-
-        self.song_db = db
-        logger.info("Music: Loaded %d songs from song.xlsx", len(db))
-
-    def get_song_info(self, filename: str) -> dict:
-        """
-        Look up song info by filename.
-        filename e.g. '123.mp3' → index '123'.
-        Returns dict with title_en, romaji_title, title_jp (any may be None).
-        """
-        idx = os.path.splitext(filename)[0]
-        return self.song_db.get(idx, {"title_en": None, "romaji_title": None, "title_jp": idx})
-
-    def build_display_answer(self, info: dict) -> str:
-        """Build the human-readable answer string shown on reveal."""
-        parts = []
-        if info.get("title_en"):
-            parts.append(info["title_en"])
-        if info.get("romaji_title") and info["romaji_title"] != info.get("title_en"):
-            parts.append(info["romaji_title"])
-        if not parts:
-            # Fallback to jp title or raw index
-            parts.append(info.get("title_jp") or "???")
-        return " / ".join(parts)
-
-    def build_norm_targets(self, info: dict) -> list[str]:
-        """Return list of normalized strings the player may guess against."""
-        targets = []
-        if info.get("title_en"):
-            targets.append(normalize(info["title_en"]))
-        if info.get("romaji_title"):
-            targets.append(normalize(info["romaji_title"]))
-        return [t for t in targets if t]  # filter out empty strings
 
     # ── Pool management ────────────────────────────────────────────────────────
 
@@ -147,7 +36,8 @@ class MusicGuess(commands.Cog):
 
     async def cog_load(self):
         """Load song database and clean up leftover temp files."""
-        self.load_song_db()
+        # Initialize the song DB singleton
+        MusicQuizDB.get_instance()
 
         logger.info("Music: Checking for leftover temp files...")
         count = 0
@@ -165,38 +55,6 @@ class MusicGuess(commands.Cog):
                 logger.warning("Could not remove legacy temp file %s: %s", file, e)
         if count > 0:
             logger.info("Music: Cleaned up %d temp files.", count)
-
-    # ── Audio helpers ──────────────────────────────────────────────────────────
-
-    def prepare_clip(self, file_path: str, variant: str | None = None) -> tuple[str | None, str | None]:
-        """Prepare audio clip with optional effects."""
-        try:
-            song = AudioSegment.from_file(file_path)
-        except Exception as e:
-            logger.error("Failed to load audio file: %s", e)
-            return None, None
-
-        duration_ms = len(song)
-        min_start = SONG_SAFE_ZONE
-        max_start = duration_ms - SONG_SAFE_ZONE - SONG_CLIP_DURATION
-
-        start_time = random.randint(min_start, max_start) if min_start < max_start else 0
-        clip = song[start_time:start_time + SONG_CLIP_DURATION]
-
-        effect_name = "Bình thường"
-        if variant == 'fast':
-            clip = speedup(clip, playback_speed=1.5)
-            effect_name = "Tua nhanh 1.5x ⏩"
-        elif variant == 'slow':
-            clip = clip._spawn(clip.raw_data, overrides={"frame_rate": int(clip.frame_rate * 0.75)})
-            effect_name = "Tua chậm 0.75x ⏪"
-        elif variant == 'reverse':
-            clip = clip.reverse()
-            effect_name = "Phát ngược 🔄"
-
-        temp_filename = TEMP_DIR / f"{TEMP_CLIP_PREFIX}{random.randint(1000, 9999)}.mp3"
-        clip.export(str(temp_filename), format="mp3")
-        return str(temp_filename), effect_name
 
     # ── Game lifecycle ─────────────────────────────────────────────────────────
 
@@ -302,7 +160,7 @@ class MusicGuess(commands.Cog):
             chosen_file = random.choice(list(self.available_songs))
             full_path   = os.path.join(audio_dir, chosen_file)
             clip_path, effect_name = await self.bot.loop.run_in_executor(
-                None, self.prepare_clip, full_path, variant
+                None, prepare_clip, full_path, variant
             )
             if clip_path is not None:
                 break
@@ -319,11 +177,13 @@ class MusicGuess(commands.Cog):
             return
 
         # ── Look up song titles ─────────────────────────────────────────────
-        info           = self.get_song_info(chosen_file)
-        display_answer = self.build_display_answer(info)
-        norm_targets   = self.build_norm_targets(info)
+        db = MusicQuizDB.get_instance()
+        info           = db.get_song_info(chosen_file)
+        display_answer = db.build_display_answer(info)
+        norm_targets   = db.build_norm_targets(info)
 
         if not norm_targets:
+            from utils.music_quiz_db import normalize
             # No known title — fall back to filename stem so the game can still work
             stem = os.path.splitext(chosen_file)[0]
             norm_targets = [normalize(stem)]
@@ -416,7 +276,7 @@ class MusicGuess(commands.Cog):
             await message.add_reaction(CORRECT_EMOJI)
 
             info   = game['info']
-            reveal = self._build_reveal(info)
+            reveal = MusicQuizDB.build_reveal(info)
             await message.reply(
                 f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}"
             )
@@ -428,20 +288,6 @@ class MusicGuess(commands.Cog):
 
             if game['guesses'][user_id] >= MAX_GUESSES:
                 await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
-
-    # ── Helpers ────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_reveal(info: dict) -> str:
-        """Build the reveal string shown when someone wins or time runs out."""
-        lines = []
-        if info.get("title_en"):
-            lines.append(f"🎵 **{info['title_en']}**")
-        if info.get("romaji_title") and info["romaji_title"] != info.get("title_en"):
-            lines.append(f"🔤 *{info['romaji_title']}*")
-        if not lines and info.get("title_jp"):
-            lines.append(f"🎵 **{info['title_jp']}**")
-        return "\n".join(lines) if lines else "???"
 
     # ── Error handlers ─────────────────────────────────────────────────────────
 

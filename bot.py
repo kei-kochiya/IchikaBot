@@ -116,8 +116,26 @@ async def load_cogs():
                     logger.error(f"Failed to load extension {module_name}: {e}")
 
 
+async def update_yt_dlp():
+    """Auto-update yt-dlp on startup to prevent YouTube streaming issues."""
+    logger.info("Checking for yt-dlp updates...")
+    try:
+        process = await asyncio.create_subprocess_shell(
+            "pip install -U yt-dlp",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode == 0:
+            logger.info(f"yt-dlp update successful:\n{stdout.decode().strip()}")
+        else:
+            logger.error(f"yt-dlp update failed:\n{stderr.decode().strip()}")
+    except Exception as e:
+        logger.error(f"Error during yt-dlp update: {e}")
+
 async def main():
     async with bot:
+        await update_yt_dlp()
         await database.init_db()
         await load_cogs()
         try:
