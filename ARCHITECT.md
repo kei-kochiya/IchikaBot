@@ -26,6 +26,14 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 - **Role**: Handles all database interactions (`ichika.db`) asynchronously.
 - **Depended on by**: `cogs/game/gacha.py`, `cogs/voice/streaming.py`, `bot.py` (for initialization).
 
+### `utils/voice/`
+- **Role**: Contains streaming player models, UI (`NowPlayingView`), and YouTube downloader logic (`yt-dlp`).
+- **Depended on by**: `cogs/voice/streaming.py`.
+
+### `utils/music_quiz_db.py` & `utils/audio_fx.py`
+- **Role**: Singleton database for `song.xlsx` and pydub audio manipulation logic.
+- **Depended on by**: `cogs/voice/music_guess.py`.
+
 ---
 
 ## 🧩 Features & Modules (`cogs/`)
@@ -35,8 +43,8 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 | Module Path | Feature Description | Key Dependencies |
 |:---|:---|:---|
 | **`voice/`** | | |
-| `streaming.py` | YouTube audio player with persistent UI. | `yt-dlp`, `utils.database` |
-| `music.py` | Audio guessing minigame (song.xlsx). | `pydub`, FFmpeg |
+| `streaming.py` | YouTube audio player with persistent UI. | `yt-dlp`, `utils.database`, `utils.voice.*` |
+| `music_guess.py` | Audio guessing minigame (song.xlsx). | `pydub`, FFmpeg, `utils.music_quiz_db`, `utils.audio_fx` |
 | **`game/`** | | |
 | `tournament.py` | 5-round progressive card tournament. | `utils.card_data` |
 | `guess.py` | Single-round card guessing game. | `utils.card_data` |

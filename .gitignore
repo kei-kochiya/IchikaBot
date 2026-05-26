@@ -46,4 +46,6 @@ Thumbs.db
 # Cache
 *.tmp
 ~$*.xlsx
-~$*.xls
+~$*.xls
+*.db
+ichika.db

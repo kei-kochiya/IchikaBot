@@ -34,8 +34,6 @@ COMMAND_CATEGORIES = {
             ("/stamp character <name>", "!stampc <name>", "Stamp của nhân vật"),
             ("/stamp random", "!stampr", "Stamp ngẫu nhiên"),
             ("/profile info <name>", "!profile <name>", "Thông tin nhân vật"),
-            ("/profile voice <name>", "!voice <name>", "Thông tin seiyuu"),
-            ("/profile random_fact", "!fact", "Sự thật ngẫu nhiên"),
         ]
     },
     "Events": {
