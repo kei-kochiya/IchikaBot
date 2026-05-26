@@ -6,7 +6,7 @@ import os
 import random
 import asyncio
 import logging
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 from io import BytesIO
 from utils.media.image_helper import get_card_image_path
 from config import SONG_GUESS_DURATION
@@ -44,15 +44,14 @@ class GuessCog(commands.Cog):
             answers.add(nick.lower())
         return list(answers)
 
-    async def process_game_image(self, asset_name: str, is_trained: bool, difficulty: str) -> tuple[BytesIO | None, BytesIO | None]:
-        """Process card image for guessing game."""
+    async def process_game_image(self, asset_name: str, is_trained: bool, mode: str) -> tuple[BytesIO | None, BytesIO | None, str]:
+        """Process card image for guessing game. Returns (game_img_io, full_img_io, effect_name)."""
         local_path = await get_card_image_path(asset_name, is_trained)
         if not local_path:
-            return None, None
+            return None, None, ""
         
         CROP_SIZE = 250
         
-        # Use context manager to properly close the image file
         try:
             with Image.open(local_path) as full_img:
                 full_img = full_img.convert("RGBA")
@@ -61,36 +60,62 @@ class GuessCog(commands.Cog):
                 if w < CROP_SIZE or h < CROP_SIZE:
                     full_img = full_img.resize((max(w, CROP_SIZE), max(h, CROP_SIZE)))
                     w, h = full_img.size
-
-                x = random.randint(0, w - CROP_SIZE)
-                y = random.randint(0, h - CROP_SIZE)
                 
-                cropped = full_img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
+                effect_used = "Normal"
+                game_img = None
                 
-                if difficulty == 'hard':
-                    cropped = ImageOps.grayscale(cropped)
+                if mode == 'random':
+                    effect = random.choice(['crop_bw', 'pixelate', 'blur', 'negative'])
+                else:
+                    effect = 'crop'
                     
-                crop_io = BytesIO()
-                cropped.save(crop_io, format='PNG')
-                crop_io.seek(0)
+                if effect == 'crop' or effect == 'crop_bw':
+                    x = random.randint(0, w - CROP_SIZE)
+                    y = random.randint(0, h - CROP_SIZE)
+                    game_img = full_img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
+                    if effect == 'crop_bw':
+                        game_img = ImageOps.grayscale(game_img)
+                        effect_used = "Trắng đen"
+                    else:
+                        effect_used = "Crop"
+                        
+                elif effect == 'pixelate':
+                    # Scale down then up to create pixelation effect
+                    small = full_img.resize((48, 48), Image.NEAREST)
+                    game_img = small.resize((w, h), Image.NEAREST)
+                    effect_used = "Pixelate"
+                    
+                elif effect == 'blur':
+                    game_img = full_img.filter(ImageFilter.GaussianBlur(radius=15))
+                    effect_used = "Blur"
+                    
+                elif effect == 'negative':
+                    # Invert requires RGB
+                    rgb_img = full_img.convert("RGB")
+                    game_img = ImageOps.invert(rgb_img)
+                    effect_used = "Âm bản"
+
+                game_io = BytesIO()
+                game_img.save(game_io, format='PNG')
+                game_io.seek(0)
                 
                 # Save full image to buffer
                 full_io = BytesIO()
                 full_img.save(full_io, format='PNG')
                 full_io.seek(0)
             
-            return crop_io, full_io
+            return game_io, full_io, effect_used
             
         except OSError as e:
             logger.error(f"Failed to process image {asset_name}: {e}")
-            return None, None
+            return None, None, ""
 
-    @app_commands.command(name="guess", description="Đoán nhân vật!")
-    @app_commands.choices(difficulty=[
-        app_commands.Choice(name="Dễ", value="easy"),
-        app_commands.Choice(name="Khó", value="hard")
+    @app_commands.command(name="guess", description="Đoán nhân vật qua hình ảnh!")
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="Bình thường (Crop)", value="normal"),
+        app_commands.Choice(name="Ngẫu nhiên (Blur/Pixel/Negative)", value="random")
     ])
-    async def guess(self, interaction: discord.Interaction, difficulty: str = "easy"):
+    async def guess(self, interaction: discord.Interaction, mode: str = "normal"):
         channel_id = interaction.channel_id
         if channel_id in self.active_channels:
             await interaction.response.send_message("Ai đó đang thử tài rồi, hãy chơi cùng họ nhé!", ephemeral=True)
@@ -103,9 +128,9 @@ class GuessCog(commands.Cog):
             card = random.choice(self.cards)
             is_trained = random.choice([True, False])
             
-            crop_img, full_img = await self.process_game_image(card['assetbundleName'], is_trained, difficulty)
+            game_img, full_img, effect_name = await self.process_game_image(card['assetbundleName'], is_trained, mode)
             
-            if not crop_img:
+            if not game_img:
                 await interaction.followup.send("Lỗi load hình. Vui lòng thử lại sau.", ephemeral=True)
                 self.active_channels.discard(channel_id)
                 return
@@ -128,12 +153,11 @@ class GuessCog(commands.Cog):
 
             logger.debug(f"Guess answer: {possible_answers[2]}")
 
-            file = discord.File(crop_img, filename="guess.png")
-            color = 0x808080 if difficulty == 'hard' else 0xF1C40F
+            file = discord.File(game_img, filename="guess.png")
             embed = discord.Embed(
-                title=f"🖼️ ({difficulty.title()})", 
+                title=f"🖼️ Đoán nhân vật ({effect_name})", 
                 description=f"Gõ `{GUESS_PREFIX}[name]` để đoán. Bạn có {SONG_GUESS_DURATION}s.", 
-                color=color
+                color=0xF1C40F if mode == 'normal' else 0x9B59B6
             )
             embed.set_image(url="attachment://guess.png")
             
