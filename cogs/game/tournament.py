@@ -115,11 +115,11 @@ class TournamentCog(commands.Cog):
                     if self.is_correct(guess, answers):
                         winner        = msg.author
                         winning_phase = phase_num
-                        await msg.add_reaction("✅")
+                        asyncio.create_task(msg.add_reaction("✅"))
                         break
                     else:
                         phase_wrong += 1
-                        await msg.add_reaction("❌")
+                        asyncio.create_task(msg.add_reaction("❌"))
                         if phase_wrong >= PHASE_WRONG_MAX:
                             break
                 except asyncio.TimeoutError:

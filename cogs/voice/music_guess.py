@@ -273,7 +273,7 @@ class MusicGuess(commands.Cog):
             return
 
         if is_correct_guess(guess_input, game['norm_targets']):
-            await message.add_reaction(CORRECT_EMOJI)
+            asyncio.create_task(message.add_reaction(CORRECT_EMOJI))
 
             info   = game['info']
             reveal = MusicQuizDB.build_reveal(info)
@@ -283,7 +283,7 @@ class MusicGuess(commands.Cog):
             await self.cleanup_game(channel_id)
         else:
             game['guesses'][user_id] = game['guesses'].get(user_id, 0) + 1
-            await message.add_reaction(WRONG_EMOJI)
+            asyncio.create_task(message.add_reaction(WRONG_EMOJI))
             game['wrong_reactions'].append(message)
 
             if game['guesses'][user_id] >= MAX_GUESSES:

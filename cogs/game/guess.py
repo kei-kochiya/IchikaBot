@@ -184,11 +184,11 @@ class GuessCog(commands.Cog):
                     if guess in possible_answers or (len(guess) > 2 and any(guess in ans for ans in possible_answers)):
                         winner = guess_msg.author
                         reason = "win"
-                        await guess_msg.add_reaction("✅")
+                        asyncio.create_task(guess_msg.add_reaction("✅"))
                         break
                     else:
                         fails += 1
-                        await guess_msg.add_reaction("❌")
+                        asyncio.create_task(guess_msg.add_reaction("❌"))
                         if fails >= MAX_FAILS:
                             reason = "failed"
                             break
