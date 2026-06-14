@@ -38,8 +38,8 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 <h2 id="permissions--invite">🔑 Permissions & Invite</h2>
 
 - **Text:** `Send Messages`, `Embed Links`, `Attach Files`, `Add Reactions`, `Read Message History`.
-- **Voice:** `Connect`, `Speak` (Dành cho tính năng Streaming nhạc).
-- **Advanced:** `Use Application Commands` (Để dùng lệnh gạch chéo `/`).
+- **Voice:** `Connect`, `Speak` (For Music streaming).
+- **Advanced:** `Use Application Commands` (To use slash command `/`).
 
 > **Link Invite:**  
 > [Invite](https://discord.com/oauth2/authorize?client_id=1416351312039383051&permissions=2150746176&integration_type=0&scope=bot%20applications.commands).
