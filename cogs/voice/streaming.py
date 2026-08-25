@@ -519,12 +519,16 @@ class StreamingCog(commands.Cog, name="Streaming"):
                     self._inactivity_leave(member.guild.id, ALONE_TIMEOUT)
                 )
 
-        # If someone joined and bot was alone, cancel the leave timer
+        # If someone joined and bot was alone, cancel or reset the leave timer
         if after.channel == vc.channel and len(non_bot_members) > 0:
             player = self._players.get(member.guild.id)
-            if player and player.inactivity_task:
-                if player.vc and (player.vc.is_playing() or player.vc.is_paused()):
+            if player and player.inactivity_task and not player.inactivity_task.done():
+                if player.is_active:
                     player.inactivity_task.cancel()
+                else:
+                    player.restart_inactivity(
+                        self._inactivity_leave(member.guild.id, INACTIVITY_TIMEOUT)
+                    )
 
 
 async def setup(bot):

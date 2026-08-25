@@ -9,6 +9,9 @@ import logging
 
 from utils.core.autoupdater import auto_updater, register_all_sources, run_all_updates
 from utils.data.card_data import card_data
+from utils.data.event_data import event_data
+from utils.data.song_data import song_data
+from utils.data.stamp_data import stamp_data
 from config import CARD_UPDATE_INTERVAL_HOURS
 
 logger = logging.getLogger(__name__)
@@ -61,7 +64,7 @@ class DataUpdaterCog(commands.Cog):
         await self.bot.wait_until_ready()
     
     async def _notify_cogs_to_reload(self, results: dict):
-        """Notify relevant cogs to reload their data after updates."""
+        """Notify relevant cogs and reload singletons after updates."""
         # Map source names to the set of cogs that depend on them
         source_to_cogs = {
             'cards_jp': {'CardCog', 'BirthdayCog', 'GuessCog', 'ProfileCog', 'GachaCog', 'CardOfDayCog', 'TournamentCog'},
@@ -77,19 +80,39 @@ class DataUpdaterCog(commands.Cog):
         }
         
         cogs_to_reload = set()
-        for source_name, (success, msg) in results.items():
-            if success and "Updated" in msg:
-                cogs_to_reload.update(source_to_cogs.get(source_name, set()))
+        updated_sources = {s for s, (success, msg) in results.items() if success and "Updated" in msg}
 
-        # If any card file changed, reload the singleton FIRST so pools are fresh
-        card_sources = {'cards_jp', 'cards_en'}
-        if any(source_name in card_sources and success and "Updated" in msg
-               for source_name, (success, msg) in results.items()):
+        for source_name in updated_sources:
+            cogs_to_reload.update(source_to_cogs.get(source_name, set()))
+
+        # Reload singletons
+        if updated_sources & {'cards_jp', 'cards_en'}:
             try:
                 card_data.reload()
                 logger.info("DataUpdater: card_data singleton reloaded.")
             except Exception as e:
                 logger.error("DataUpdater: Failed to reload card_data: %s", e)
+
+        if updated_sources & {'musics_jp', 'musics_en', 'music_difficulties_jp', 'music_difficulties_en'}:
+            try:
+                song_data.reload()
+                logger.info("DataUpdater: song_data singleton reloaded.")
+            except Exception as e:
+                logger.error("DataUpdater: Failed to reload song_data: %s", e)
+
+        if updated_sources & {'events_jp', 'events_en'}:
+            try:
+                event_data.reload()
+                logger.info("DataUpdater: event_data singleton reloaded.")
+            except Exception as e:
+                logger.error("DataUpdater: Failed to reload event_data: %s", e)
+
+        if updated_sources & {'stamps_jp', 'stamps_en'}:
+            try:
+                stamp_data.reload()
+                logger.info("DataUpdater: stamp_data singleton reloaded.")
+            except Exception as e:
+                logger.error("DataUpdater: Failed to reload stamp_data: %s", e)
         
         for cog_name in cogs_to_reload:
             cog = self.bot.get_cog(cog_name)

@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
-import os
 import random
 import asyncio
 import logging
@@ -17,6 +15,65 @@ logger = logging.getLogger(__name__)
 
 GUESS_PREFIX = "-g "
 MAX_FAILS = 4
+
+
+def _process_game_image_sync(local_path: str, mode: str) -> tuple[BytesIO | None, BytesIO | None, str]:
+    """Synchronous helper for image processing with effects."""
+    CROP_SIZE = 250
+    try:
+        with Image.open(local_path) as full_img:
+            full_img = full_img.convert("RGBA")
+            w, h = full_img.size
+            
+            if w < CROP_SIZE or h < CROP_SIZE:
+                full_img = full_img.resize((max(w, CROP_SIZE), max(h, CROP_SIZE)))
+                w, h = full_img.size
+            
+            effect_used = "Normal"
+            game_img = None
+            
+            if mode == 'random':
+                effect = random.choice(['crop_bw', 'pixelate', 'blur', 'negative'])
+            else:
+                effect = 'crop'
+                
+            if effect == 'crop' or effect == 'crop_bw':
+                x = random.randint(0, w - CROP_SIZE)
+                y = random.randint(0, h - CROP_SIZE)
+                game_img = full_img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
+                if effect == 'crop_bw':
+                    game_img = ImageOps.grayscale(game_img)
+                    effect_used = "Trắng đen"
+                else:
+                    effect_used = "Crop"
+                    
+            elif effect == 'pixelate':
+                small = full_img.resize((48, 48), Image.NEAREST)
+                game_img = small.resize((w, h), Image.NEAREST)
+                effect_used = "Pixelate"
+                
+            elif effect == 'blur':
+                game_img = full_img.filter(ImageFilter.GaussianBlur(radius=25))
+                effect_used = "Blur"
+                
+            elif effect == 'negative':
+                rgb_img = full_img.convert("RGB")
+                game_img = ImageOps.invert(rgb_img)
+                effect_used = "Âm bản"
+
+            game_io = BytesIO()
+            game_img.save(game_io, format='PNG')
+            game_io.seek(0)
+            
+            full_io = BytesIO()
+            full_img.save(full_io, format='PNG')
+            full_io.seek(0)
+        
+        return game_io, full_io, effect_used
+        
+    except OSError as e:
+        logger.error(f"Failed to process image: {e}")
+        return None, None, ""
 
 
 class GuessCog(commands.Cog):
@@ -45,70 +102,14 @@ class GuessCog(commands.Cog):
         return list(answers)
 
     async def process_game_image(self, asset_name: str, is_trained: bool, mode: str) -> tuple[BytesIO | None, BytesIO | None, str]:
-        """Process card image for guessing game. Returns (game_img_io, full_img_io, effect_name)."""
+        """Process card image for guessing game in executor. Returns (game_img_io, full_img_io, effect_name)."""
         local_path = await get_card_image_path(asset_name, is_trained)
         if not local_path:
             return None, None, ""
         
-        CROP_SIZE = 250
-        
-        try:
-            with Image.open(local_path) as full_img:
-                full_img = full_img.convert("RGBA")
-                w, h = full_img.size
-                
-                if w < CROP_SIZE or h < CROP_SIZE:
-                    full_img = full_img.resize((max(w, CROP_SIZE), max(h, CROP_SIZE)))
-                    w, h = full_img.size
-                
-                effect_used = "Normal"
-                game_img = None
-                
-                if mode == 'random':
-                    effect = random.choice(['crop_bw', 'pixelate', 'blur', 'negative'])
-                else:
-                    effect = 'crop'
-                    
-                if effect == 'crop' or effect == 'crop_bw':
-                    x = random.randint(0, w - CROP_SIZE)
-                    y = random.randint(0, h - CROP_SIZE)
-                    game_img = full_img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
-                    if effect == 'crop_bw':
-                        game_img = ImageOps.grayscale(game_img)
-                        effect_used = "Trắng đen"
-                    else:
-                        effect_used = "Crop"
-                        
-                elif effect == 'pixelate':
-                    # Scale down then up to create pixelation effect
-                    small = full_img.resize((48, 48), Image.NEAREST)
-                    game_img = small.resize((w, h), Image.NEAREST)
-                    effect_used = "Pixelate"
-                    
-                elif effect == 'blur':
-                    game_img = full_img.filter(ImageFilter.GaussianBlur(radius=25))
-                    effect_used = "Blur"
-                    
-                elif effect == 'negative':
-                    # Invert requires RGB
-                    rgb_img = full_img.convert("RGB")
-                    game_img = ImageOps.invert(rgb_img)
-                    effect_used = "Âm bản"
-
-                game_io = BytesIO()
-                game_img.save(game_io, format='PNG')
-                game_io.seek(0)
-                
-                # Save full image to buffer
-                full_io = BytesIO()
-                full_img.save(full_io, format='PNG')
-                full_io.seek(0)
-            
-            return game_io, full_io, effect_used
-            
-        except OSError as e:
-            logger.error(f"Failed to process image {asset_name}: {e}")
-            return None, None, ""
+        return await self.bot.loop.run_in_executor(
+            None, _process_game_image_sync, local_path, mode
+        )
 
     @app_commands.command(name="guess", description="Đoán nhân vật qua hình ảnh!")
     @app_commands.choices(mode=[

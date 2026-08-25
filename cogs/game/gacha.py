@@ -21,6 +21,48 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+def _compose_10pull_image(results: list[dict], image_paths: list[str | None]) -> BytesIO:
+    """Synchronous helper for composing the 10-pull grid image."""
+    THUMB_W, THUMB_H = 192, 110
+    PADDING, BORDER, COLS = 20, 5, 5
+    canvas_w = (THUMB_W * COLS) + (PADDING * (COLS + 1))
+    canvas_h = (THUMB_H * 2) + (PADDING * 3)
+
+    bg = Image.new('RGBA', (canvas_w, canvas_h), (44, 47, 51, 255))
+    draw = ImageDraw.Draw(bg)
+
+    def get_border_color(rarity):
+        if rarity == 'rarity_4':
+            return '#9B59B6'
+        if rarity == 'rarity_3':
+            return '#F1C40F'
+        return '#3498DB'
+
+    for i, card in enumerate(results):
+        row, col = i // COLS, i % COLS
+        x = PADDING + col * (THUMB_W + PADDING)
+        y = PADDING + row * (THUMB_H + PADDING)
+
+        draw.rectangle(
+            [x - BORDER, y - BORDER, x + THUMB_W + BORDER, y + THUMB_H + BORDER],
+            fill=get_border_color(card['cardRarityType'])
+        )
+
+        path = image_paths[i]
+        if path:
+            try:
+                with Image.open(path) as thumb:
+                    thumb = thumb.resize((THUMB_W, THUMB_H))
+                    bg.paste(thumb, (x, y))
+            except OSError as e:
+                logger.warning(f"Failed to open thumbnail: {e}")
+
+    out_buffer = BytesIO()
+    bg.save(out_buffer, format='PNG')
+    out_buffer.seek(0)
+    return out_buffer
+
+
 class GachaCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -46,39 +88,33 @@ class GachaCog(commands.Cog):
         """Update user's pity count in the database."""
         await database.set_pity(user_id, count)
 
+    def _simulate_single_pull(self, current_pity: int, is_guaranteed_slot: bool = False) -> tuple[dict, int]:
+        """Simulate a single card pull in memory and return (card, new_pity)."""
+        current_pity += 1
+        if current_pity >= PITY_THRESHOLD:
+            return random.choice(self.cards_4), 0
 
-    async def pull_one_card(self, user_id: int, is_guaranteed_slot: bool = False):
+        rand = random.random()
+        if is_guaranteed_slot:
+            total_rate = GACHA_RATES['rarity_4'] + GACHA_RATES['rarity_3']
+            rate_4_norm = GACHA_RATES['rarity_4'] / total_rate
+            if rand < rate_4_norm:
+                return random.choice(self.cards_4), 0
+            else:
+                return random.choice(self.cards_3), current_pity
+        else:
+            if rand < GACHA_RATES['rarity_4']:
+                return random.choice(self.cards_4), 0
+            elif rand < (GACHA_RATES['rarity_4'] + GACHA_RATES['rarity_3']):
+                return random.choice(self.cards_3), current_pity
+            else:
+                return random.choice(self.cards_2), current_pity
+
+    async def pull_one_card(self, user_id: int, is_guaranteed_slot: bool = False) -> dict:
         """Pull a single card with pity system."""
         current_pity = await self.get_user_pity(user_id)
-        current_pity += 1 
-        
-        card = None
-        
-        if current_pity >= PITY_THRESHOLD:
-            card = random.choice(self.cards_4)
-            current_pity = 0 
-        else:
-            rand = random.random()
-            
-            if is_guaranteed_slot:
-                total_rate = GACHA_RATES['rarity_4'] + GACHA_RATES['rarity_3']
-                rate_4_norm = GACHA_RATES['rarity_4'] / total_rate
-                
-                if rand < rate_4_norm:
-                    card = random.choice(self.cards_4)
-                    current_pity = 0
-                else:
-                    card = random.choice(self.cards_3)
-            else:
-                if rand < GACHA_RATES['rarity_4']:
-                    card = random.choice(self.cards_4)
-                    current_pity = 0
-                elif rand < (GACHA_RATES['rarity_4'] + GACHA_RATES['rarity_3']):
-                    card = random.choice(self.cards_3)
-                else:
-                    card = random.choice(self.cards_2)
-
-        await self.update_user_pity(user_id, current_pity)
+        card, new_pity = self._simulate_single_pull(current_pity, is_guaranteed_slot)
+        await self.update_user_pity(user_id, new_pity)
         return card
 
     gacha_group = app_commands.Group(name="gacha", description="Mô phỏng Gacha Project Sekai")
@@ -92,16 +128,22 @@ class GachaCog(commands.Cog):
         await interaction.response.defer()
         user_id = interaction.user.id
         
+        current_pity = await self.get_user_pity(user_id)
         results = []
         
         if amount == 1:
-            results.append(await self.pull_one_card(user_id))
+            card, final_pity = self._simulate_single_pull(current_pity)
+            results.append(card)
+            await self.update_user_pity(user_id, final_pity)
         else:
             for _ in range(9):
-                results.append(await self.pull_one_card(user_id))
-            results.append(await self.pull_one_card(user_id, is_guaranteed_slot=True))
+                card, current_pity = self._simulate_single_pull(current_pity)
+                results.append(card)
+            card, current_pity = self._simulate_single_pull(current_pity, is_guaranteed_slot=True)
+            results.append(card)
+            final_pity = current_pity
+            await self.update_user_pity(user_id, final_pity)
 
-        final_pity = await self.get_user_pity(user_id)
         best_card = max(results, key=lambda x: x['cardRarityType'])
 
         if amount == 1:
@@ -128,39 +170,14 @@ class GachaCog(commands.Cog):
             await interaction.followup.send(embed=embed, file=f)
             
         else:
-            THUMB_W, THUMB_H = 192, 110
-            PADDING, BORDER, COLS = 20, 5, 5
-            canvas_w = (THUMB_W * COLS) + (PADDING * (COLS + 1))
-            canvas_h = (THUMB_H * 2) + (PADDING * 3)
-            
-            bg = Image.new('RGBA', (canvas_w, canvas_h), (44, 47, 51, 255))
-            draw = ImageDraw.Draw(bg)
-            
-            def get_border_color(rarity):
-                if rarity == 'rarity_4': return '#9B59B6'
-                if rarity == 'rarity_3': return '#F1C40F'
-                return '#3498DB'
-
-            for i, card in enumerate(results):
-                row, col = i // COLS, i % COLS
-                x = PADDING + col * (THUMB_W + PADDING)
-                y = PADDING + row * (THUMB_H + PADDING)
-                
-                draw.rectangle([x - BORDER, y - BORDER, x + THUMB_W + BORDER, y + THUMB_H + BORDER], 
-                              fill=get_border_color(card['cardRarityType']))
-                
+            image_paths = []
+            for card in results:
                 path = await get_card_image_path(card['assetbundleName'])
-                if path:
-                    try:
-                        with Image.open(path) as thumb:
-                            thumb = thumb.resize((THUMB_W, THUMB_H))
-                            bg.paste(thumb, (x, y))
-                    except OSError as e:
-                        logger.warning(f"Failed to open thumbnail: {e}")
+                image_paths.append(path)
 
-            out_buffer = BytesIO()
-            bg.save(out_buffer, format='PNG')
-            out_buffer.seek(0)
+            out_buffer = await self.bot.loop.run_in_executor(
+                None, _compose_10pull_image, results, image_paths
+            )
             f = discord.File(out_buffer, filename="gacha_10.png")
             
             c4 = len([c for c in results if c['cardRarityType'] == 'rarity_4'])

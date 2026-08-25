@@ -5,136 +5,38 @@ Supports both JP and EN song data with English search.
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
 import random
 import logging
 
-from config import MUSICS_FILE_JP, MUSICS_FILE_EN, MUSIC_DIFFICULTIES_FILE_JP, MUSIC_DIFFICULTIES_FILE_EN
-from utils.core.romaji import matches_query, normalize_for_search
-
+from utils.data.song_data import song_data
 from utils.info.songs_ui import create_song_embed, SearchPaginationView
 
 logger = logging.getLogger(__name__)
 
+
 class SongsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.songs_jp = []
-        self.songs_en = []
-        self.songs_en_by_id = {}
-        self.difficulties = {}
-        self.load_data()
 
     def load_data(self):
-        """Load both JP and EN song data."""
-        # Load JP songs
-        try:
-            with open(MUSICS_FILE_JP, 'r', encoding='utf-8') as f:
-                self.songs_jp = json.load(f)
-            logger.info(f"Songs: Loaded {len(self.songs_jp)} JP songs.")
-        except FileNotFoundError as e:
-            logger.error(f"Songs: Missing JP file: {e.filename}")
-            self.songs_jp = []
-        except Exception as e:
-            logger.error(f"Songs: Failed to load JP data: {e}")
-            self.songs_jp = []
-        
-        # Load EN songs
-        try:
-            with open(MUSICS_FILE_EN, 'r', encoding='utf-8') as f:
-                self.songs_en = json.load(f)
-            self.songs_en_by_id = {s['id']: s for s in self.songs_en}
-            logger.info(f"Songs: Loaded {len(self.songs_en)} EN songs.")
-        except FileNotFoundError as e:
-            logger.warning(f"Songs: Missing EN file: {e.filename}")
-            self.songs_en = []
-            self.songs_en_by_id = {}
-        except Exception as e:
-            logger.error(f"Songs: Failed to load EN data: {e}")
-            self.songs_en = []
-            self.songs_en_by_id = {}
-        
-        # Load difficulties (JP has more data usually)
-        try:
-            with open(MUSIC_DIFFICULTIES_FILE_JP, 'r', encoding='utf-8') as f:
-                raw_difficulties = json.load(f)
-                self.difficulties = {}
-                for diff in raw_difficulties:
-                    music_id = diff['musicId']
-                    if music_id not in self.difficulties:
-                        self.difficulties[music_id] = {}
-                    self.difficulties[music_id][diff['musicDifficulty']] = {
-                        'playLevel': diff['playLevel'],
-                        'noteCount': diff['totalNoteCount']
-                    }
-        except Exception as e:
-            logger.error(f"Songs: Failed to load difficulty data: {e}")
-            self.difficulties = {}
+        """Song data is managed by utils.song_data singleton."""
+        pass
+
+    @property
+    def difficulties(self):
+        return song_data.difficulties
 
     def get_song_by_id(self, song_id: int) -> dict | None:
-        """Get song by ID, prioritizing EN data, fallback to JP."""
-        if song_id in self.songs_en_by_id:
-            return self.songs_en_by_id[song_id]
-        for song in self.songs_jp:
-            if song['id'] == song_id:
-                return song
-        return None
+        """Get song by ID."""
+        return song_data.get_song_by_id(song_id)
 
     def get_display_title(self, song: dict, song_id: int) -> str:
         """Get display title, using EN if available."""
-        en_song = self.songs_en_by_id.get(song_id)
-        if en_song and en_song.get('title'):
-            return en_song['title']
-        return song.get('title', 'Unknown')
+        return song_data.get_display_title(song, song_id)
 
-    def search_songs(self, query: str, limit: int = 50) -> list:
+    def search_songs(self, query: str, limit: int = 50) -> list[dict]:
         """Search songs by name, ID, or romaji in both JP and EN."""
-        query_normalized = normalize_for_search(query)
-        
-        # If query is a number, try ID-based search
-        if query.isdigit():
-            target_id = int(query)
-            song = self.get_song_by_id(target_id)
-            if song:
-                return [song]
-            # Find nearest ID
-            all_songs = self.songs_jp if self.songs_jp else self.songs_en
-            sorted_songs = sorted(all_songs, key=lambda s: (abs(s['id'] - target_id), -s['id']))
-            if sorted_songs:
-                return [sorted_songs[0]]
-            return []
-        
-        results = []
-        seen_ids = set()
-        
-        # Search EN songs first
-        for song in self.songs_en:
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
-            composer = song.get('composer', '')
-            
-            if matches_query(query, title, pronunciation, composer):
-                if song['id'] not in seen_ids:
-                    results.append(song)
-                    seen_ids.add(song['id'])
-                    if len(results) >= limit:
-                        return results
-        
-        # Then search JP songs
-        for song in self.songs_jp:
-            if song['id'] in seen_ids:
-                continue
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
-            composer = song.get('composer', '')
-            
-            if matches_query(query, title, pronunciation, composer):
-                results.append(song)
-                seen_ids.add(song['id'])
-                if len(results) >= limit:
-                    break
-        
-        return results
+        return song_data.search_songs(query, limit)
 
     # ===== SLASH COMMANDS =====
     song_group = app_commands.Group(name="song", description="Tra cứu thông tin bài hát Project Sekai")
@@ -169,25 +71,11 @@ class SongsCog(commands.Cog):
     async def song_random(self, interaction: discord.Interaction, min_level: int = None, max_level: int = None):
         await interaction.response.defer()
         
-        # Use JP songs as base (more complete)
-        valid_songs = []
-        for song in self.songs_jp:
-            diff_info = self.difficulties.get(song['id'], {})
-            master = diff_info.get('master', {})
-            if not master:
-                continue
-            level = master.get('playLevel', 0)
-            if min_level is not None and level < min_level:
-                continue
-            if max_level is not None and level > max_level:
-                continue
-            valid_songs.append(song)
-        
-        if not valid_songs:
+        chosen = song_data.get_random_song(min_level, max_level)
+        if not chosen:
             await interaction.followup.send(f"Không tìm thấy bài hát nào trong khoảng level {min_level or 1}-{max_level or 37}.", ephemeral=True)
             return
         
-        chosen = random.choice(valid_songs)
         title = self.get_display_title(chosen, chosen['id'])
         embed = create_song_embed(chosen, title, self.difficulties)
         embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"
@@ -204,12 +92,12 @@ class SongsCog(commands.Cog):
             song = self.get_song_by_id(song_id)
         except ValueError:
             name_lower = song_name.lower()
-            for s in self.songs_en:
-                if s.get('title') and name_lower in s['title'].lower():
-                    song = s
+            for s_id, meta in song_data.songs_en_meta.items():
+                if name_lower in meta['title'].lower():
+                    song = song_data.get_song_by_id(s_id)
                     break
             if not song:
-                for s in self.songs_jp:
+                for s in song_data.songs_jp:
                     if s.get('title') and name_lower in s['title'].lower():
                         song = s
                         break
@@ -223,43 +111,7 @@ class SongsCog(commands.Cog):
 
     @song_info.autocomplete('song_name')
     async def song_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        choices = []
-        seen_ids = set()
-        
-        for song in self.songs_en:
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
-            
-            if matches_query(current, title, pronunciation):
-                song_id = song['id']
-                if song_id in seen_ids:
-                    continue
-                diff_info = self.difficulties.get(song_id, {})
-                master_level = diff_info.get('master', {}).get('playLevel', '?')
-                display = f"{title} (Master Lv.{master_level})"
-                choices.append(app_commands.Choice(name=display[:100], value=str(song_id)))
-                seen_ids.add(song_id)
-                if len(choices) >= 25:
-                    return choices
-        
-        for song in self.songs_jp:
-            song_id = song['id']
-            if song_id in seen_ids:
-                continue
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
-            
-            if matches_query(current, title, pronunciation):
-                diff_info = self.difficulties.get(song_id, {})
-                master_level = diff_info.get('master', {}).get('playLevel', '?')
-                display_title = self.songs_en_by_id.get(song_id, {}).get('title', title)
-                display = f"{display_title} (Master Lv.{master_level})"
-                choices.append(app_commands.Choice(name=display[:100], value=str(song_id)))
-                seen_ids.add(song_id)
-                if len(choices) >= 25:
-                    break
-        
-        return choices
+        return song_data.get_autocomplete_choices(current)
 
     # ===== PREFIX COMMANDS =====
     @commands.command(name='song', aliases=['music', 's'])
@@ -293,12 +145,11 @@ class SongsCog(commands.Cog):
     @commands.command(name='songr', aliases=['randomsong'])
     async def song_random_prefix(self, ctx: commands.Context):
         """Get a random song: !songr"""
-        valid_songs = [s for s in self.songs_jp if self.difficulties.get(s['id'], {}).get('master')]
-        if not valid_songs:
+        chosen = song_data.get_random_song()
+        if not chosen:
             await ctx.send("Không có dữ liệu bài hát!")
             return
         
-        chosen = random.choice(valid_songs)
         title = self.get_display_title(chosen, chosen['id'])
         embed = create_song_embed(chosen, title, self.difficulties)
         embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"

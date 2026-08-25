@@ -126,14 +126,10 @@ class CardOfDayCog(commands.Cog):
                 view.message = msg
 
                 cfg['last_post_ts'] = now_ts
-                changed = True
+                await database.set_setting(int(guild_id_str), 'cotd_last_post_ts', str(now_ts))
                 logger.info("CardOfDay: Posted card %d in guild %s", card['id'], guild_id_str)
             except Exception as e:
                 logger.error("CardOfDay: Failed to post in guild %s: %s", guild_id_str, e)
-
-        if changed:
-            for guild_id_str, cfg in self.settings.items():
-                await self._save_guild_cfg(int(guild_id_str), cfg)
 
     @card_loop.before_loop
     async def before_card_loop(self):

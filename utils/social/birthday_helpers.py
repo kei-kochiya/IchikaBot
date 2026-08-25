@@ -56,7 +56,7 @@ def get_next_birthday() -> tuple[int, dict] | None:
             return (days_ahead, chars[0])
     return None
 
-def build_birthday_calendar_embed(today: str, birthday_chars: list, upcoming: list, discord_Color_class) -> dict:
+def build_birthday_calendar_embed(today: str, birthday_chars: list, upcoming: list, discord_Color_class) -> "discord.Embed":
     """Helper logic to build the calendar embed content (to avoid duplicating code).
     Returns an embed to be sent by the cog.
     """

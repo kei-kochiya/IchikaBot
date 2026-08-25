@@ -50,15 +50,29 @@ class CardDataManager:
 
     def _load(self):
         # ── JP cards ────────────────────────────────────────────────────────
+        new_cards = []
+        new_cards_by_id = {}
+        new_pool_2 = []
+        new_pool_3 = []
+        new_pool_4 = []
+        new_pool_3_4 = []
         try:
             with open(CARDS_FILE_JP, "r", encoding="utf-8") as f:
-                self.cards = json.load(f)
+                new_cards = json.load(f)
 
-            self.cards_by_id = {c["id"]: c for c in self.cards}
-            self.pool_2   = [c for c in self.cards if c["cardRarityType"] == "rarity_2" and c.get("prefix")]
-            self.pool_3   = [c for c in self.cards if c["cardRarityType"] == "rarity_3" and c.get("prefix")]
-            self.pool_4   = [c for c in self.cards if c["cardRarityType"] == "rarity_4" and c.get("prefix")]
-            self.pool_3_4 = self.pool_3 + self.pool_4
+            new_cards_by_id = {c["id"]: c for c in new_cards}
+            new_pool_2   = [c for c in new_cards if c["cardRarityType"] == "rarity_2" and c.get("prefix")]
+            new_pool_3   = [c for c in new_cards if c["cardRarityType"] == "rarity_3" and c.get("prefix")]
+            new_pool_4   = [c for c in new_cards if c["cardRarityType"] == "rarity_4" and c.get("prefix")]
+            new_pool_3_4 = new_pool_3 + new_pool_4
+
+            # Atomically update JP data
+            self.cards = new_cards
+            self.cards_by_id = new_cards_by_id
+            self.pool_2 = new_pool_2
+            self.pool_3 = new_pool_3
+            self.pool_4 = new_pool_4
+            self.pool_3_4 = new_pool_3_4
 
             logger.info(
                 "CardData: %d JP cards  (pool: %d★2 / %d★3 / %d★4)",
@@ -86,8 +100,7 @@ class CardDataManager:
 
     def reload(self):
         """Reload from disk. Called by DataUpdater after file updates."""
-        CardDataManager._initialized = False
-        self.__init__()
+        self._load()
         logger.info("CardData: Reloaded.")
 
     # ── Helpers ──────────────────────────────────────────────────────────────

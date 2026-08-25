@@ -124,6 +124,14 @@ class MercariCog(commands.Cog):
             )
         else:
             logger.error("Mercari slash error: %s", error)
+            msg = "Đã xảy ra lỗi khi tra cứu sản phẩm."
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await interaction.response.send_message(msg, ephemeral=True)
+            except Exception:
+                pass
 
     # ── Prefix command ─────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import random
+import uuid
 import logging
 from pydub import AudioSegment
 from pydub.effects import speedup
@@ -34,6 +35,6 @@ def prepare_clip(file_path: str, variant: str | None = None) -> tuple[str | None
         clip = clip.reverse()
         effect_name = "Phát ngược 🔄"
 
-    temp_filename = TEMP_DIR / f"{TEMP_CLIP_PREFIX}{random.randint(1000, 9999)}.mp3"
+    temp_filename = TEMP_DIR / f"{TEMP_CLIP_PREFIX}{uuid.uuid4().hex}.mp3"
     clip.export(str(temp_filename), format="mp3")
     return str(temp_filename), effect_name

@@ -1,4 +1,5 @@
 import random
+import asyncio
 import logging
 from PIL import Image, ImageOps
 from io import BytesIO
@@ -11,28 +12,9 @@ CROP_BASE = 400   # base crop size (also phase 3)
 CROP_P2   = 300   # phase 2 crop (colour, centred in base)
 CROP_P1   = 250   # phase 1 crop (grayscale, centred in base)
 
-async def make_phase_images(
-    asset_name: str,
-) -> tuple[BytesIO | None, BytesIO | None, BytesIO | None]:
-    """
-    Generate the three progressive hint images for a card.
 
-    Strategy:
-      1. Pick a random 400×400 base crop from the card.
-      2. Phase 1 (250×250): centre of base, grayscale.
-      3. Phase 2 (300×300): centre of base, colour.
-      4. Phase 3 (400×400): the full base crop, colour.
-
-    All three share the same centre point so later phases always reveal
-    more context around the same spot seen in phase 1.
-    """
-    # Try trained art first, fall back to normal
-    path = await get_card_image_path(asset_name, is_trained=True)
-    if not path:
-        path = await get_card_image_path(asset_name, is_trained=False)
-    if not path:
-        return None, None, None
-
+def _create_phase_images_sync(path: str) -> tuple[BytesIO | None, BytesIO | None, BytesIO | None]:
+    """Synchronous helper for generating progressive hint images."""
     try:
         with Image.open(path) as img:
             img = img.convert("RGBA")
@@ -67,5 +49,31 @@ async def make_phase_images(
             return to_buf(p1), to_buf(p2), to_buf(p3)
 
     except Exception as e:
-        logger.error("Tournament: Image generation failed for %s: %s", asset_name, e)
+        logger.error("Tournament: Image generation failed for %s: %s", path, e)
         return None, None, None
+
+
+async def make_phase_images(
+    asset_name: str,
+) -> tuple[BytesIO | None, BytesIO | None, BytesIO | None]:
+    """
+    Generate the three progressive hint images for a card.
+
+    Strategy:
+      1. Pick a random 400×400 base crop from the card.
+      2. Phase 1 (250×250): centre of base, grayscale.
+      3. Phase 2 (300×300): centre of base, colour.
+      4. Phase 3 (400×400): the full base crop, colour.
+
+    All three share the same centre point so later phases always reveal
+    more context around the same spot seen in phase 1.
+    """
+    # Try trained art first, fall back to normal
+    path = await get_card_image_path(asset_name, is_trained=True)
+    if not path:
+        path = await get_card_image_path(asset_name, is_trained=False)
+    if not path:
+        return None, None, None
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _create_phase_images_sync, path)

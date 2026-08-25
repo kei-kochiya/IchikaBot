@@ -4,12 +4,8 @@ Character Profile Cog - Detailed character information from Project Sekai.
 import discord
 from discord import app_commands
 from discord.ext import commands
-import json
 import logging
-import aiofiles
-import random
 
-from config import PROFILES_FILE
 from utils.data.card_data import card_data
 from utils.data.game_data import (
     game_data, get_character_name, get_unit_color, character_autocomplete
@@ -19,27 +15,19 @@ from utils.game.cards import get_card_image_url, get_random_card, CardToggleView
 logger = logging.getLogger(__name__)
 
 
-
 class ProfileCog(commands.Cog):
     """Cog for displaying detailed character profiles."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.profiles = {}
 
     async def cog_load(self):
-        await self.load_data()
-        logger.info("ProfileCog loaded with %d profiles, %d cards (shared singleton)",
-                    len(self.profiles), len(card_data.cards))
+        logger.info("ProfileCog loaded with %d profiles, %d cards (shared singletons)",
+                    len(game_data.profiles), len(card_data.cards))
 
-    async def load_data(self):
-        """Load character profiles. Cards come from shared card_data singleton."""
-        try:
-            async with aiofiles.open(PROFILES_FILE, 'r', encoding='utf-8') as f:
-                profiles = json.loads(await f.read())
-                self.profiles = {p['characterId']: p for p in profiles}
-        except Exception as e:
-            logger.error("Failed to load profile data: %s", e)
+    def load_data(self):
+        """Profile and card data are managed by shared singletons."""
+        pass
 
     def get_display_prefix(self, card: dict) -> str:
         return card_data.get_display_prefix(card)
@@ -55,7 +43,7 @@ class ProfileCog(commands.Cog):
         return get_random_card(card_data.cards, char_id, ['rarity_birthday'])
     
     def create_profile_embed(self, char_id: int, card: dict = None) -> discord.Embed | None:
-        profile = self.profiles.get(char_id)
+        profile = game_data.get_profile(char_id)
         if not profile:
             return None
         
@@ -124,10 +112,9 @@ class ProfileCog(commands.Cog):
         if card:
             view = CardToggleView(embed, card)
             msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
         else:
             await interaction.followup.send(embed=embed)
-    
-
     
     # ===== PREFIX COMMANDS =====
     @commands.command(name='profile', aliases=['char', 'character'])
@@ -154,8 +141,6 @@ class ProfileCog(commands.Cog):
             await ctx.send(embed=embed, view=view)
         else:
             await ctx.send(embed=embed)
-    
-
 
 
 async def setup(bot: commands.Bot):

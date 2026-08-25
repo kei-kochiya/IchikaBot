@@ -19,19 +19,21 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 
 ### 🎮 Minigames & Entertainment
 - **Card Tournament**: A multi-round guessing game with progressive visual hints (grayscale -> colour -> full art).
+- **Character Guess**: Guess the character from cropped, blurred, pixelated, or inverted card images.
 - **Music Quiz**: Test your knowledge with audio snippets of game songs, featuring modifiers like 1.5x speed, 0.75x slow, and reverse playback!
 - **Gacha Simulator**: Pull for cards with realistic rates and an integrated pity system that saves to your profile.
 - **YouTube Streaming**: High-quality music streaming with playlist support, looping, volume control, and a persistent interactive Now-Playing UI.
 
-### 📚 Game Data Lookup
-- **Character Profiles & Cards**: Detailed lookups for character lore, stats, and high-resolution card artwork.
-- **Song Database**: Browse the game's discography including BPM, difficulties, and duration.
-- **Event Tracker**: Stay updated with current and upcoming in-game events.
-- **Stamps**: Quickly search and use in-game stamps in chat.
+### 📚 Game Data & Market Lookup
+- **Character Profiles & Cards**: Detailed lookups for character lore, stats, and high-resolution card artwork with normal/trained toggle.
+- **Song Database**: Browse the game's discography including BPM, difficulties, notes, and duration with interactive pagination.
+- **Event Tracker**: Stay updated with current, upcoming, and historical in-game events.
+- **Stamps**: Search and browse in-game stamps by keyword or character.
+- **Mercari Lookup**: Real-time product search and details from Mercari Japan.
 
 ### 🔔 Automated Announcements
-- **Card of the Day**: Receive a randomly selected beautiful card every day in your server.
-- **Birthday Notifications**: Never miss a character's birthday with automated announcements and countdowns.
+- **Card of the Day**: Automated periodic card showcase with interactive trained/normal art toggle for your server.
+- **Birthday Notifications**: Never miss a character's birthday with automated announcements, calendar schedules, and countdowns.
 
 ---
 

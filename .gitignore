@@ -31,6 +31,8 @@ gameData/EN_data/
 *.md
 !README.md
 !ARCHITECT.md
+AGENTS.md
+agent.md
 
 # Logs
 *.log

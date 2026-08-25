@@ -111,7 +111,6 @@ class SharedResources:
     """Singleton for shared resources like aiohttp session."""
     _instance = None
     _session: aiohttp.ClientSession = None
-    _pity_lock: asyncio.Lock = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -133,13 +132,6 @@ class SharedResources:
         if cls._session and not cls._session.closed:
             await cls._session.close()
             cls._session = None
-    
-    @classmethod
-    def get_pity_lock(cls) -> asyncio.Lock:
-        """Get or create the pity file lock."""
-        if cls._pity_lock is None:
-            cls._pity_lock = asyncio.Lock()
-        return cls._pity_lock
 
 
 # Ensure directories exist

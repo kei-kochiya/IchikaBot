@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 from discord import app_commands
 
-from config import CHARACTERS_FILE, UNIT_COLOR_FILE, NICKNAMES_FILE
+from config import CHARACTERS_FILE, UNIT_COLOR_FILE, NICKNAMES_FILE, PROFILES_FILE
 
 logger = logging.getLogger(__name__)
 
 
 class GameDataManager:
     """
-    Singleton manager for game data (characters, units).
+    Singleton manager for game data (characters, units, profiles).
     Provides shared access and helper methods used across multiple cogs.
     """
     _instance = None
@@ -35,38 +35,42 @@ class GameDataManager:
         self.unit_colors: dict[str, str] = {}  # id (str) -> color hex
         self.unit_colors_by_int: dict[int, str] = {}  # id (int) -> color hex
         self.nicknames: dict[str, list] = {}  # id (str) -> list of nickname strings
+        self.profiles: dict[int, dict] = {}  # id (int) -> profile data
         
         self._load_data()
         GameDataManager._initialized = True
     
     def _load_data(self):
-        """Load character and unit data from JSON files."""
+        """Load character, unit, and profile data from JSON files atomically."""
+        new_characters = {}
+        new_characters_by_int = {}
+        new_unit_colors = {}
+        new_unit_colors_by_int = {}
+        new_nicknames = {}
+        new_profiles = {}
         try:
             with open(CHARACTERS_FILE, 'r', encoding='utf-8') as f:
                 chars = json.load(f)
                 
             # Handle both dict and list formats
             if isinstance(chars, dict):
-                self.characters = chars
-                self.characters_by_int = {int(k): v for k, v in chars.items()}
+                new_characters = chars
+                new_characters_by_int = {int(k): v for k, v in chars.items()}
             else:
                 # List format - index by 'id' field
-                self.characters = {str(c['id']): c for c in chars}
-                self.characters_by_int = {c['id']: c for c in chars}
+                new_characters = {str(c['id']): c for c in chars}
+                new_characters_by_int = {c['id']: c for c in chars}
             
             with open(UNIT_COLOR_FILE, 'r', encoding='utf-8') as f:
                 units = json.load(f)
             
             # Handle both dict and list formats
             if isinstance(units, dict):
-                self.unit_colors = {k: v.get('colorCode', '#5865F2') for k, v in units.items()}
-                self.unit_colors_by_int = {int(k): v.get('colorCode', '#5865F2') for k, v in units.items()}
+                new_unit_colors = {k: v.get('colorCode', '#5865F2') for k, v in units.items()}
+                new_unit_colors_by_int = {int(k): v.get('colorCode', '#5865F2') for k, v in units.items()}
             else:
-                self.unit_colors = {str(u['id']): u.get('colorCode', '#5865F2') for u in units}
-                self.unit_colors_by_int = {u['id']: u.get('colorCode', '#5865F2') for u in units}
-            
-            logger.info("GameDataManager: Loaded %d characters, %d unit colors",
-                       len(self.characters), len(self.unit_colors))
+                new_unit_colors = {str(u['id']): u.get('colorCode', '#5865F2') for u in units}
+                new_unit_colors_by_int = {u['id']: u.get('colorCode', '#5865F2') for u in units}
 
         except FileNotFoundError as e:
             logger.error("GameDataManager: Missing file: %s", e.filename)
@@ -77,15 +81,44 @@ class GameDataManager:
         try:
             if NICKNAMES_FILE.exists():
                 with open(NICKNAMES_FILE, 'r', encoding='utf-8') as f:
-                    self.nicknames = json.load(f)
-                logger.info("GameDataManager: Loaded nicknames for %d characters", len(self.nicknames))
+                    new_nicknames = json.load(f)
         except Exception as e:
             logger.warning("GameDataManager: Failed to load nicknames: %s", e)
-            self.nicknames = {}
+            new_nicknames = {}
+
+        # Profiles (optional file)
+        try:
+            if PROFILES_FILE.exists():
+                with open(PROFILES_FILE, 'r', encoding='utf-8') as f:
+                    raw_profiles = json.load(f)
+                    new_profiles = {p['characterId']: p for p in raw_profiles}
+        except Exception as e:
+            logger.warning("GameDataManager: Failed to load profiles: %s", e)
+            new_profiles = {}
+
+        # Atomic assignment
+        self.characters = new_characters
+        self.characters_by_int = new_characters_by_int
+        self.unit_colors = new_unit_colors
+        self.unit_colors_by_int = new_unit_colors_by_int
+        self.nicknames = new_nicknames
+        self.profiles = new_profiles
+
+        logger.info(
+            "GameDataManager: Loaded %d characters, %d unit colors, %d profiles, nicknames for %d chars",
+            len(self.characters), len(self.unit_colors), len(self.profiles), len(self.nicknames)
+        )
     
     def reload(self):
         """Reload data from files (call after updates)."""
         self._load_data()
+
+    def get_profile(self, char_id: int | str) -> dict | None:
+        """Get character profile by ID."""
+        char_id_int = int(char_id) if isinstance(char_id, str) and char_id.isdigit() else char_id
+        if isinstance(char_id_int, int):
+            return self.profiles.get(char_id_int)
+        return None
     
     # --- Character Helpers ---
     
