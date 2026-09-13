@@ -4,7 +4,7 @@ discord.py>=2.4.0,<3.0.0
 # Async I/O & Networking
 aiohttp>=3.10.0,<4.0.0
 aiofiles>=24.1.0,<26.0.0
-aiosqlite>=0.20.0,<1.0.0
+aiosqlite>=0.22.1,<1.0.0
 
 # Image & Audio Processing
 Pillow>=10.4.0,<13.0.0
