@@ -1,6 +1,6 @@
 # Test Suite
 pytest>=8.3.0
-pytest-asyncio>=0.24.0
+pytest-asyncio>=1.4.0
 pytest-cov>=5.0.0
 
 # Linting & Formatting
