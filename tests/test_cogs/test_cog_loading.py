@@ -1,6 +1,7 @@
 import os
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -11,7 +12,7 @@ async def test_all_cogs_load(mock_bot):
     loaded_cogs = []
     failed_cogs = []
 
-    for root, dirs, files in os.walk(cogs_dir):
+    for root, _dirs, files in os.walk(cogs_dir):
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("__"):
                 relative_path = os.path.relpath(os.path.join(root, filename), ".")

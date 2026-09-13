@@ -3,11 +3,12 @@ Shared stamp data singleton.
 
 Loads JP stamp data ONCE and keeps only lightweight EN name strings to minimize RAM.
 """
+
 import json
 import logging
 import random
 
-from config import STAMPS_FILE_JP, STAMPS_FILE_EN
+from config import STAMPS_FILE_EN, STAMPS_FILE_JP
 from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ class StampDataManager:
     Singleton for managing Project Sekai stamps data.
     Provides memory-efficient access and helper methods used by StampsCog and others.
     """
+
     _instance = None
     _initialized = False
 
@@ -43,9 +45,9 @@ class StampDataManager:
 
         # ── JP Stamps ────────────────────────────────────────────────────────
         try:
-            with open(STAMPS_FILE_JP, 'r', encoding='utf-8') as f:
+            with open(STAMPS_FILE_JP, encoding="utf-8") as f:
                 new_stamps_jp = json.load(f)
-            new_stamps_jp_by_id = {s['id']: s for s in new_stamps_jp}
+            new_stamps_jp_by_id = {s["id"]: s for s in new_stamps_jp}
             logger.info("StampData: %d JP stamps loaded", len(new_stamps_jp))
         except FileNotFoundError as e:
             logger.error("StampData: Missing JP file: %s", e.filename)
@@ -55,10 +57,12 @@ class StampDataManager:
         # ── EN Stamps (names only to save RAM) ──────────────────────────────
         stamps_en_raw = None
         try:
-            with open(STAMPS_FILE_EN, 'r', encoding='utf-8') as f:
+            with open(STAMPS_FILE_EN, encoding="utf-8") as f:
                 stamps_en_raw = json.load(f)
-            new_stamps_en_names = {s['id']: s['name'] for s in stamps_en_raw if s.get('name')}
-            logger.info("StampData: %d EN stamp names loaded (lightweight)", len(new_stamps_en_names))
+            new_stamps_en_names = {s["id"]: s["name"] for s in stamps_en_raw if s.get("name")}
+            logger.info(
+                "StampData: %d EN stamp names loaded (lightweight)", len(new_stamps_en_names)
+            )
         except FileNotFoundError as e:
             logger.warning("StampData: Missing EN file: %s", e.filename)
         except Exception as e:
@@ -84,11 +88,11 @@ class StampDataManager:
 
     def get_display_name(self, stamp: dict, stamp_id: int) -> str:
         """Get display name, using EN name if available."""
-        name = self.stamps_en_names.get(stamp_id) or stamp.get('name', 'Unknown')
+        name = self.stamps_en_names.get(stamp_id) or stamp.get("name", "Unknown")
         # Strip prefix tag
-        if name.startswith('[スタンプ]'):
+        if name.startswith("[スタンプ]"):
             name = name[6:]
-        if name.startswith('[Stamp]'):
+        if name.startswith("[Stamp]"):
             name = name[7:]
         return name
 
@@ -100,7 +104,9 @@ class StampDataManager:
             if stamp:
                 return [stamp]
             if self.stamps_jp:
-                sorted_stamps = sorted(self.stamps_jp, key=lambda s: (abs(s['id'] - target_id), -s['id']))
+                sorted_stamps = sorted(
+                    self.stamps_jp, key=lambda s: (abs(s["id"] - target_id), -s["id"])
+                )
                 if sorted_stamps:
                     return [sorted_stamps[0]]
             return []
@@ -120,10 +126,10 @@ class StampDataManager:
 
         # 2. Then search JP stamps
         for stamp in self.stamps_jp:
-            stamp_id = stamp['id']
+            stamp_id = stamp["id"]
             if stamp_id in seen_ids:
                 continue
-            name = stamp.get('name', '')
+            name = stamp.get("name", "")
             if matches_query(keyword, name):
                 results.append(stamp)
                 seen_ids.add(stamp_id)
@@ -135,8 +141,9 @@ class StampDataManager:
     def get_stamps_by_character(self, char_id: int) -> list[dict]:
         """Get all stamps for a character."""
         return [
-            s for s in self.stamps_jp
-            if s.get('characterId1') == char_id or s.get('gameCharacterUnitId') == char_id
+            s
+            for s in self.stamps_jp
+            if s.get("characterId1") == char_id or s.get("gameCharacterUnitId") == char_id
         ]
 
     def get_random_stamp(self) -> dict | None:

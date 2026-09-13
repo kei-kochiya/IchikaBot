@@ -1,20 +1,23 @@
-import discord
-from discord.ext import commands
-from discord import app_commands
+import asyncio
+import contextlib
+import glob
+import logging
 import os
 import random
-import asyncio
-import logging
-import glob
-from config import AUDIO_DIR, TEMP_DIR, GUESS_TIME_LIMIT, MAX_GUESSES
 
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from config import AUDIO_DIR, GUESS_TIME_LIMIT, MAX_GUESSES, TEMP_DIR
 from utils.data.music_quiz_db import MusicQuizDB, is_correct_guess
-from utils.media.audio_fx import prepare_clip, TEMP_CLIP_PREFIX
+from utils.media.audio_fx import TEMP_CLIP_PREFIX, prepare_clip
 
 logger = logging.getLogger(__name__)
 
-WRONG_EMOJI = '❌'
-CORRECT_EMOJI = '✅'
+WRONG_EMOJI = "❌"
+CORRECT_EMOJI = "✅"
+
 
 class MusicGuess(commands.Cog):
     def __init__(self, bot):
@@ -64,34 +67,30 @@ class MusicGuess(commands.Cog):
         game = self.active_games.pop(channel_id)
 
         current_task = asyncio.current_task()
-        if game['timer_task'] and game['timer_task'] != current_task:
-            game['timer_task'].cancel()
+        if game["timer_task"] and game["timer_task"] != current_task:
+            game["timer_task"].cancel()
 
-        if game['voice_client'] and game['voice_client'].is_connected():
-            game['voice_client'].stop()
-            await game['voice_client'].disconnect()
+        if game["voice_client"] and game["voice_client"].is_connected():
+            game["voice_client"].stop()
+            await game["voice_client"].disconnect()
 
         await asyncio.sleep(0.5)
 
         try:
-            if game['clip_path'] and os.path.exists(game['clip_path']):
-                os.remove(game['clip_path'])
+            if game["clip_path"] and os.path.exists(game["clip_path"]):
+                os.remove(game["clip_path"])
         except OSError as e:
-            logger.warning("Failed to remove temp file %s: %s", game['clip_path'], e)
+            logger.warning("Failed to remove temp file %s: %s", game["clip_path"], e)
 
-        for msg in game['wrong_reactions']:
-            try:
+        for msg in game["wrong_reactions"]:
+            with contextlib.suppress(discord.HTTPException):
                 await msg.remove_reaction(WRONG_EMOJI, self.bot.user)
-            except discord.HTTPException:
-                pass
 
     async def end_game_timer(self, channel, channel_id: int):
         await asyncio.sleep(GUESS_TIME_LIMIT)
         if channel_id in self.active_games:
             game = self.active_games[channel_id]
-            await channel.send(
-                f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**"
-            )
+            await channel.send(f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**")
             await self.cleanup_game(channel_id)
 
     # ── Core game logic ────────────────────────────────────────────────────────
@@ -105,9 +104,9 @@ class MusicGuess(commands.Cog):
             await interaction.response.defer()
 
             async def send_msg(content, **kwargs):
-                if 'delete_after' in kwargs:
-                    del kwargs['delete_after']
-                    kwargs.setdefault('ephemeral', True)
+                if "delete_after" in kwargs:
+                    del kwargs["delete_after"]
+                    kwargs.setdefault("ephemeral", True)
                 await interaction.followup.send(content, **kwargs)
         else:
             ctx = interaction_or_ctx
@@ -118,7 +117,9 @@ class MusicGuess(commands.Cog):
                 await ctx.send(content, **kwargs)
 
         if channel.id in self.active_games:
-            await send_msg("Kênh này đang có người thử tài rồi. Vào chơi cùng họ đi!", delete_after=10)
+            await send_msg(
+                "Kênh này đang có người thử tài rồi. Vào chơi cùng họ đi!", delete_after=10
+            )
             return
 
         if not user.voice:
@@ -130,7 +131,9 @@ class MusicGuess(commands.Cog):
             audio_dir = str(AUDIO_DIR)
             if not os.path.exists(audio_dir):
                 os.makedirs(audio_dir)
-            song_files = [f for f in os.listdir(audio_dir) if f.endswith(('.mp3', '.wav', '.m4a', '.ogg'))]
+            song_files = [
+                f for f in os.listdir(audio_dir) if f.endswith((".mp3", ".wav", ".m4a", ".ogg"))
+            ]
             if not song_files:
                 await send_msg(f"Không tìm thấy bài hát nào trong thư mục `{audio_dir}`.")
                 return
@@ -139,18 +142,18 @@ class MusicGuess(commands.Cog):
             await send_msg(f"Lỗi đọc thư mục nhạc: {e}")
             return
 
-        variant = random.choice(['fast', 'slow', 'reverse']) if variant_mode else None
+        variant = random.choice(["fast", "slow", "reverse"]) if variant_mode else None
 
         # Sync pool with current files
         song_files_set = set(song_files)
         self.available_songs &= song_files_set
-        self.played_songs    &= song_files_set
+        self.played_songs &= song_files_set
         if not self.available_songs:
             self._refresh_available_songs(song_files)
 
         # ── Pick a song ─────────────────────────────────────────────────────
         chosen_file = None
-        clip_path   = None
+        clip_path = None
         effect_name = None
 
         for _ in range(5):
@@ -158,7 +161,7 @@ class MusicGuess(commands.Cog):
                 await send_msg("Không có bài hát nào có thể phát được.")
                 return
             chosen_file = random.choice(list(self.available_songs))
-            full_path   = os.path.join(audio_dir, chosen_file)
+            full_path = os.path.join(audio_dir, chosen_file)
             clip_path, effect_name = await self.bot.loop.run_in_executor(
                 None, prepare_clip, full_path, variant
             )
@@ -178,16 +181,19 @@ class MusicGuess(commands.Cog):
 
         # ── Look up song titles ─────────────────────────────────────────────
         db = MusicQuizDB.get_instance()
-        info           = db.get_song_info(chosen_file)
+        info = db.get_song_info(chosen_file)
         display_answer = db.build_display_answer(info)
-        norm_targets   = db.build_norm_targets(info)
+        norm_targets = db.build_norm_targets(info)
 
         if not norm_targets:
             from utils.data.music_quiz_db import normalize
+
             # No known title — fall back to filename stem so the game can still work
             stem = os.path.splitext(chosen_file)[0]
             norm_targets = [normalize(stem)]
-            logger.warning("Music: No title found for song index %s; using filename as answer.", stem)
+            logger.warning(
+                "Music: No title found for song index %s; using filename as answer.", stem
+            )
 
         # ── Connect to voice ────────────────────────────────────────────────
         try:
@@ -209,14 +215,14 @@ class MusicGuess(commands.Cog):
         timer_task = self.bot.loop.create_task(self.end_game_timer(channel, channel.id))
 
         self.active_games[channel.id] = {
-            'norm_targets':   norm_targets,    # normalized strings to match against
-            'display_answer': display_answer,  # shown on reveal
-            'info':           info,            # full title dict for rich embeds
-            'guesses':        {},
-            'wrong_reactions': [],
-            'voice_client':   voice_client,
-            'clip_path':      clip_path,
-            'timer_task':     timer_task,
+            "norm_targets": norm_targets,  # normalized strings to match against
+            "display_answer": display_answer,  # shown on reveal
+            "info": info,  # full title dict for rich embeds
+            "guesses": {},
+            "wrong_reactions": [],
+            "voice_client": voice_client,
+            "clip_path": clip_path,
+            "timer_task": timer_task,
         }
 
         mode_text = f"\n(Chế độ: {effect_name})" if variant_mode else ""
@@ -235,19 +241,21 @@ class MusicGuess(commands.Cog):
 
     # ── Commands ───────────────────────────────────────────────────────────────
 
-    @commands.command(name='songguess', aliases=['sg'])
+    @commands.command(name="songguess", aliases=["sg"])
     async def guess_music(self, ctx):
         await self.start_game_logic(ctx, variant_mode=False)
 
-    @commands.command(name='songguessv', aliases=['sgv'])
+    @commands.command(name="songguessv", aliases=["sgv"])
     async def guess_music_variant(self, ctx):
         await self.start_game_logic(ctx, variant_mode=True)
 
     @app_commands.command(name="songguess", description="Bắt đầu game đoán bài hát!")
-    @app_commands.choices(mode=[
-        app_commands.Choice(name="Bình thường", value="normal"),
-        app_commands.Choice(name="Khó (Hiệu ứng)", value="hard"),
-    ])
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="Bình thường", value="normal"),
+            app_commands.Choice(name="Khó (Hiệu ứng)", value="hard"),
+        ]
+    )
     async def slash_songguess(self, interaction: discord.Interaction, mode: str = "normal"):
         await self.start_game_logic(interaction, variant_mode=(mode == "hard"))
 
@@ -255,38 +263,36 @@ class MusicGuess(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author.bot or not message.content.lower().startswith('-g '):
+        if message.author.bot or not message.content.lower().startswith("-g "):
             return
 
         channel_id = message.channel.id
         if channel_id not in self.active_games:
             return
 
-        game    = self.active_games[channel_id]
+        game = self.active_games[channel_id]
         user_id = message.author.id
 
-        if game['guesses'].get(user_id, 0) >= MAX_GUESSES:
+        if game["guesses"].get(user_id, 0) >= MAX_GUESSES:
             return
 
         guess_input = message.content[3:].strip()
         if not guess_input:
             return
 
-        if is_correct_guess(guess_input, game['norm_targets']):
+        if is_correct_guess(guess_input, game["norm_targets"]):
             asyncio.create_task(message.add_reaction(CORRECT_EMOJI))
 
-            info   = game['info']
+            info = game["info"]
             reveal = MusicQuizDB.build_reveal(info)
-            await message.reply(
-                f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}"
-            )
+            await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}")
             await self.cleanup_game(channel_id)
         else:
-            game['guesses'][user_id] = game['guesses'].get(user_id, 0) + 1
+            game["guesses"][user_id] = game["guesses"].get(user_id, 0) + 1
             asyncio.create_task(message.add_reaction(WRONG_EMOJI))
-            game['wrong_reactions'].append(message)
+            game["wrong_reactions"].append(message)
 
-            if game['guesses'][user_id] >= MAX_GUESSES:
+            if game["guesses"][user_id] >= MAX_GUESSES:
                 await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
 
     # ── Error handlers ─────────────────────────────────────────────────────────

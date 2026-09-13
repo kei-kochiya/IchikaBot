@@ -30,12 +30,13 @@ import logging
 
 import aiosqlite
 
-from config import DB_FILE, PITY_FILE, BIRTHDAY_SETTINGS_FILE, CARD_OF_DAY_SETTINGS_FILE
+from config import BIRTHDAY_SETTINGS_FILE, CARD_OF_DAY_SETTINGS_FILE, DB_FILE, PITY_FILE
 
 logger = logging.getLogger(__name__)
 
 
 # ── Internal: table creation ───────────────────────────────────────────────────
+
 
 async def _create_tables(conn: aiosqlite.Connection) -> None:
     await conn.executescript("""
@@ -116,6 +117,7 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
 
 # ── Public API — lifecycle ─────────────────────────────────────────────────────
 
+
 async def init_db() -> None:
     """Create tables and run one-time JSON migration.  Call before loading cogs."""
     async with aiosqlite.connect(DB_FILE) as conn:
@@ -128,13 +130,12 @@ async def init_db() -> None:
 
 # ── Public API — pity ──────────────────────────────────────────────────────────
 
+
 async def get_pity(user_id: int) -> int:
     """Return the user's current pity count (0 if not found)."""
     async with aiosqlite.connect(DB_FILE) as conn:
         conn.row_factory = aiosqlite.Row
-        async with conn.execute(
-            "SELECT count FROM pity WHERE user_id = ?", (user_id,)
-        ) as cur:
+        async with conn.execute("SELECT count FROM pity WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
             return int(row["count"]) if row else 0
 
@@ -151,6 +152,7 @@ async def set_pity(user_id: int, count: int) -> None:
 
 
 # ── Public API — guild settings ────────────────────────────────────────────────
+
 
 async def get_setting(guild_id: int, setting: str) -> str | None:
     """Return the value for (guild_id, setting), or None if absent."""
@@ -216,6 +218,6 @@ async def get_all_settings_prefix(prefix: str) -> dict[int, dict[str, str]]:
     p_len = len(prefix)
     for row in rows:
         gid = int(row["guild_id"])
-        key = row["setting"][p_len:]   # strip prefix: "cotd_channel_id" → "channel_id"
+        key = row["setting"][p_len:]  # strip prefix: "cotd_channel_id" → "channel_id"
         result.setdefault(gid, {})[key] = row["value"]
     return result

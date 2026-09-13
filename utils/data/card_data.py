@@ -7,9 +7,11 @@ Memory comparison (cards.json is 32MB raw, ~100-250MB as Python objects):
   OLD: 7 cogs × JP copy + 6 cogs × EN copy  ≈ 400-600 MB
   NEW: 1 × JP data (shared) + dict[int,str] prefixes ≈ 60-100 MB
 """
+
 import json
 import logging
-from config import CARDS_FILE_JP, CARDS_FILE_EN
+
+from config import CARDS_FILE_EN, CARDS_FILE_JP
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +59,19 @@ class CardDataManager:
         new_pool_4 = []
         new_pool_3_4 = []
         try:
-            with open(CARDS_FILE_JP, "r", encoding="utf-8") as f:
+            with open(CARDS_FILE_JP, encoding="utf-8") as f:
                 new_cards = json.load(f)
 
             new_cards_by_id = {c["id"]: c for c in new_cards}
-            new_pool_2   = [c for c in new_cards if c["cardRarityType"] == "rarity_2" and c.get("prefix")]
-            new_pool_3   = [c for c in new_cards if c["cardRarityType"] == "rarity_3" and c.get("prefix")]
-            new_pool_4   = [c for c in new_cards if c["cardRarityType"] == "rarity_4" and c.get("prefix")]
+            new_pool_2 = [
+                c for c in new_cards if c["cardRarityType"] == "rarity_2" and c.get("prefix")
+            ]
+            new_pool_3 = [
+                c for c in new_cards if c["cardRarityType"] == "rarity_3" and c.get("prefix")
+            ]
+            new_pool_4 = [
+                c for c in new_cards if c["cardRarityType"] == "rarity_4" and c.get("prefix")
+            ]
             new_pool_3_4 = new_pool_3 + new_pool_4
 
             # Atomically update JP data
@@ -76,7 +84,10 @@ class CardDataManager:
 
             logger.info(
                 "CardData: %d JP cards  (pool: %d★2 / %d★3 / %d★4)",
-                len(self.cards), len(self.pool_2), len(self.pool_3), len(self.pool_4),
+                len(self.cards),
+                len(self.pool_2),
+                len(self.pool_3),
+                len(self.pool_4),
             )
         except Exception as e:
             logger.error("CardData: Failed to load JP cards: %s", e)
@@ -86,7 +97,7 @@ class CardDataManager:
         # flat dict[int, str] of prefix strings is retained.
         cards_en_raw = None
         try:
-            with open(CARDS_FILE_EN, "r", encoding="utf-8") as f:
+            with open(CARDS_FILE_EN, encoding="utf-8") as f:
                 cards_en_raw = json.load(f)
             self.en_prefix = {c["id"]: c["prefix"] for c in cards_en_raw if c.get("prefix")}
             logger.info("CardData: %d EN prefix strings (lightweight)", len(self.en_prefix))

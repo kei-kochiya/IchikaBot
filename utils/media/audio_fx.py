@@ -1,13 +1,16 @@
+import logging
 import random
 import uuid
-import logging
+
 from pydub import AudioSegment
 from pydub.effects import speedup
-from config import TEMP_DIR, SONG_CLIP_DURATION, SONG_SAFE_ZONE
+
+from config import SONG_CLIP_DURATION, SONG_SAFE_ZONE, TEMP_DIR
 
 logger = logging.getLogger(__name__)
 
 TEMP_CLIP_PREFIX = "temp_guess_clip_"
+
 
 def prepare_clip(file_path: str, variant: str | None = None) -> tuple[str | None, str | None]:
     """Prepare audio clip with optional effects."""
@@ -22,16 +25,16 @@ def prepare_clip(file_path: str, variant: str | None = None) -> tuple[str | None
     max_start = duration_ms - SONG_SAFE_ZONE - SONG_CLIP_DURATION
 
     start_time = random.randint(min_start, max_start) if min_start < max_start else 0
-    clip = song[start_time:start_time + SONG_CLIP_DURATION]
+    clip = song[start_time : start_time + SONG_CLIP_DURATION]
 
     effect_name = "Bình thường"
-    if variant == 'fast':
+    if variant == "fast":
         clip = speedup(clip, playback_speed=1.5)
         effect_name = "Tua nhanh 1.5x ⏩"
-    elif variant == 'slow':
+    elif variant == "slow":
         clip = clip._spawn(clip.raw_data, overrides={"frame_rate": int(clip.frame_rate * 0.75)})
         effect_name = "Tua chậm 0.75x ⏪"
-    elif variant == 'reverse':
+    elif variant == "reverse":
         clip = clip.reverse()
         effect_name = "Phát ngược 🔄"
 

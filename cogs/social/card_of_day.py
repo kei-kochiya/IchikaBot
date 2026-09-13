@@ -2,17 +2,19 @@
 Card of the Day Cog - Posts a random 3/4★ trained card at a configurable interval.
 Admins can set the channel and interval (in hours) per guild.
 """
-import discord
-from discord.ext import commands, tasks
-from discord import app_commands
-import random
-import logging
-from datetime import datetime, timezone
 
+import logging
+import random
+from datetime import UTC, datetime
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+
+from utils.core import database
 from utils.data.card_data import card_data
 from utils.data.game_data import get_character_name, get_unit_color
-from utils.game.cards import get_card_image_url, CardToggleView
-from utils.core import database
+from utils.game.cards import CardToggleView, get_card_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +49,17 @@ class CardOfDayCog(commands.Cog):
     async def load_settings(self):
         """Load all cotd guild configs from the database into memory."""
         try:
-            rows = await database.get_all_settings_prefix('cotd_')
+            rows = await database.get_all_settings_prefix("cotd_")
             # Rebuild the in-memory dict: {guild_id_str: {channel_id, interval_hours, last_post_ts}}
             self.settings = {}
             for gid, kv in rows.items():
                 cfg: dict = {}
-                if 'channel_id' in kv:
-                    cfg['channel_id'] = int(kv['channel_id'])
-                if 'interval_hours' in kv:
-                    cfg['interval_hours'] = float(kv['interval_hours'])
-                if 'last_post_ts' in kv:
-                    cfg['last_post_ts'] = float(kv['last_post_ts'])
+                if "channel_id" in kv:
+                    cfg["channel_id"] = int(kv["channel_id"])
+                if "interval_hours" in kv:
+                    cfg["interval_hours"] = float(kv["interval_hours"])
+                if "last_post_ts" in kv:
+                    cfg["last_post_ts"] = float(kv["last_post_ts"])
                 if cfg:
                     self.settings[str(gid)] = cfg
         except Exception as e:
@@ -71,7 +73,7 @@ class CardOfDayCog(commands.Cog):
     async def _save_guild_cfg(self, guild_id: int, cfg: dict) -> None:
         """Persist a single guild's cotd config to the DB."""
         for key, val in cfg.items():
-            await database.set_setting(guild_id, f'cotd_{key}', str(val))
+            await database.set_setting(guild_id, f"cotd_{key}", str(val))
 
     # --- Helpers ---
 
@@ -80,7 +82,7 @@ class CardOfDayCog(commands.Cog):
 
     def create_card_embed(self, card: dict) -> discord.Embed:
         """Create a Card of the Day embed (trained art by default)."""
-        char_id = card['characterId']
+        char_id = card["characterId"]
         char_name = get_character_name(char_id, full=True)
         rarity = f"{card['cardRarityType'][-1]}⭐"
         display_name = self.get_display_prefix(card)
@@ -90,9 +92,9 @@ class CardOfDayCog(commands.Cog):
             description=f"**{display_name}**\n{rarity} — {char_name}",
             color=get_unit_color(char_id),
         )
-        embed.set_image(url=get_card_image_url(card['assetbundleName'], trained=True))
+        embed.set_image(url=get_card_image_url(card["assetbundleName"], trained=True))
         embed.set_footer(text=f"ID: {card['id']}")
-        embed.timestamp = datetime.now(timezone.utc)
+        embed.timestamp = datetime.now(UTC)
         return embed
 
     # --- Loop ---
@@ -103,13 +105,12 @@ class CardOfDayCog(commands.Cog):
         if not card_data.pool_3_4:
             return
 
-        now_ts = datetime.now(timezone.utc).timestamp()
-        changed = False
+        now_ts = datetime.now(UTC).timestamp()
 
         for guild_id_str, cfg in list(self.settings.items()):
-            channel_id = cfg.get('channel_id')
-            interval_hours = cfg.get('interval_hours', DEFAULT_INTERVAL_HOURS)
-            last_post = cfg.get('last_post_ts', 0)
+            channel_id = cfg.get("channel_id")
+            interval_hours = cfg.get("interval_hours", DEFAULT_INTERVAL_HOURS)
+            last_post = cfg.get("last_post_ts", 0)
 
             if now_ts - last_post < interval_hours * 3600:
                 continue  # Not time yet
@@ -125,9 +126,9 @@ class CardOfDayCog(commands.Cog):
                 msg = await channel.send(embed=embed, view=view)
                 view.message = msg
 
-                cfg['last_post_ts'] = now_ts
-                await database.set_setting(int(guild_id_str), 'cotd_last_post_ts', str(now_ts))
-                logger.info("CardOfDay: Posted card %d in guild %s", card['id'], guild_id_str)
+                cfg["last_post_ts"] = now_ts
+                await database.set_setting(int(guild_id_str), "cotd_last_post_ts", str(now_ts))
+                logger.info("CardOfDay: Posted card %d in guild %s", card["id"], guild_id_str)
             except Exception as e:
                 logger.error("CardOfDay: Failed to post in guild %s: %s", guild_id_str, e)
 
@@ -144,7 +145,7 @@ class CardOfDayCog(commands.Cog):
     cotd_group = app_commands.Group(
         name="cotd",
         description="Card of the Day",
-        guild_only=True,       # requires a guild: uses guild_id and manage_guild perms
+        guild_only=True,  # requires a guild: uses guild_id and manage_guild perms
     )
 
     @cotd_group.command(name="channel", description="Đặt kênh gửi Card of the Day")
@@ -154,15 +155,15 @@ class CardOfDayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id not in self.settings:
             self.settings[guild_id] = {
-                'channel_id': channel.id,
-                'interval_hours': DEFAULT_INTERVAL_HOURS,
-                'last_post_ts': 0,
+                "channel_id": channel.id,
+                "interval_hours": DEFAULT_INTERVAL_HOURS,
+                "last_post_ts": 0,
             }
         else:
-            self.settings[guild_id]['channel_id'] = channel.id
+            self.settings[guild_id]["channel_id"] = channel.id
 
         await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
-        interval = self.settings[guild_id]['interval_hours']
+        interval = self.settings[guild_id]["interval_hours"]
 
         embed = discord.Embed(
             title="Card of the Day đã được cài đặt!",
@@ -194,7 +195,7 @@ class CardOfDayCog(commands.Cog):
             )
             return
 
-        self.settings[guild_id]['interval_hours'] = hours
+        self.settings[guild_id]["interval_hours"] = hours
         await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
 
         await interaction.response.send_message(
@@ -220,7 +221,7 @@ class CardOfDayCog(commands.Cog):
         # Reset timer so the next automatic post is a full interval away
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
-            self.settings[guild_id]['last_post_ts'] = datetime.now(timezone.utc).timestamp()
+            self.settings[guild_id]["last_post_ts"] = datetime.now(UTC).timestamp()
             await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
 
     @cotd_group.command(name="disable", description="Tắt Card of the Day")
@@ -229,8 +230,8 @@ class CardOfDayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
             del self.settings[guild_id]
-            for key in ('channel_id', 'interval_hours', 'last_post_ts'):
-                await database.delete_setting(interaction.guild_id, f'cotd_{key}')
+            for key in ("channel_id", "interval_hours", "last_post_ts"):
+                await database.delete_setting(interaction.guild_id, f"cotd_{key}")
             await interaction.response.send_message("Đã tắt Card of the Day.", ephemeral=True)
         else:
             await interaction.response.send_message("Chưa bật Card of the Day.", ephemeral=True)
@@ -241,13 +242,15 @@ class CardOfDayCog(commands.Cog):
         cfg = self.settings.get(guild_id)
 
         if not cfg:
-            await interaction.response.send_message("Card of the Day chưa được bật.", ephemeral=True)
+            await interaction.response.send_message(
+                "Card of the Day chưa được bật.", ephemeral=True
+            )
             return
 
-        channel = self.bot.get_channel(int(cfg['channel_id']))
+        channel = self.bot.get_channel(int(cfg["channel_id"]))
         channel_mention = channel.mention if channel else f"ID: {cfg['channel_id']}"
-        interval = cfg.get('interval_hours', DEFAULT_INTERVAL_HOURS)
-        last_ts = cfg.get('last_post_ts', 0)
+        interval = cfg.get("interval_hours", DEFAULT_INTERVAL_HOURS)
+        last_ts = cfg.get("last_post_ts", 0)
 
         if last_ts > 0:
             next_ts = int(last_ts + interval * 3600)

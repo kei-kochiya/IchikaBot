@@ -1,10 +1,9 @@
-import pytest
 from utils.core.romaji import (
     hiragana_to_romaji,
     katakana_to_romaji,
-    to_romaji,
-    normalize_for_search,
     matches_query,
+    normalize_for_search,
+    to_romaji,
 )
 
 

@@ -1,11 +1,11 @@
-import pytest
 import discord
+
 from utils.social.birthday_helpers import (
-    get_characters_with_birthday,
-    get_birthday_cards_for_character,
-    get_upcoming_birthdays,
-    get_next_birthday,
     build_birthday_calendar_embed,
+    get_birthday_cards_for_character,
+    get_characters_with_birthday,
+    get_next_birthday,
+    get_upcoming_birthdays,
 )
 
 
@@ -44,7 +44,7 @@ def test_build_birthday_calendar_embed():
         today="08-11",
         birthday_chars=[{"id": 1, "givenName": "Ichika"}],
         upcoming=[(5, {"id": 2, "givenName": "Saki", "birthday": "08-16"})],
-        discord_Color_class=discord.Color
+        discord_Color_class=discord.Color,
     )
     assert isinstance(embed, discord.Embed)
     assert len(embed.fields) >= 2

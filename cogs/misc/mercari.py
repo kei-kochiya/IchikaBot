@@ -3,16 +3,19 @@ Mercari Cog - Look up Mercari item info from a URL or item ID.
 Shows item name, price (raw JPY + two VND estimates), status, and cover photo.
 Global cooldown: 5 seconds per user.
 """
-import discord
-from discord.ext import commands
-from discord import app_commands
+
 import logging
 from math import ceil
+
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 logger = logging.getLogger(__name__)
 
 try:
     from mercapi import Mercapi
+
     MERCAPI_AVAILABLE = True
 except ImportError:
     MERCAPI_AVAILABLE = False
@@ -20,24 +23,21 @@ except ImportError:
 
 
 def extract_item_id(text: str) -> str:
-    """Extract the Mercari item ID from a full URL or bare ID string."""
-    # Strip query params then grab the last path segment
+    # Extract the Mercari item ID from a full URL or bare ID string
     return text.strip().split("?")[0].rstrip("/").split("/")[-1]
 
 
 class MercariCog(commands.Cog):
-    """Fetch Mercari item info by URL or item ID."""
+    # Fetch Mercari item info by URL or item ID
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._mercapi = Mercapi() if MERCAPI_AVAILABLE else None
 
-    # ── Shared lookup logic ────────────────────────────────────────────────────
+    # Shared lookup logic
 
     async def _lookup(self, item_id: str) -> discord.Embed | str:
-        """
-        Fetch the item and return a ready-made Embed, or an error string.
-        """
+        # Fetch the item and return a ready-made Embed, or an error string
         if not MERCAPI_AVAILABLE or self._mercapi is None:
             return "❌ Dependency `mercapi` chưa được cài. Chạy `pip install mercapi`."
 
@@ -50,21 +50,21 @@ class MercariCog(commands.Cog):
         if not item:
             return "Không tìm thấy sản phẩm hoặc bị Mercari chặn."
 
-        # ── Price calculations (mirror mer.py logic) ─────────────────────
-        jpy        = item.price
-        vnd_vanh   = ceil(0.185 * jpy)          # Nguyễn Vanh rate
-        vnd_kho    = ceil(0.17 * (jpy + 100))   # Kho mới rate
+        # Price calculations
+        jpy = item.price
+        vnd_phuong = ceil(0.176 * jpy)
+        vnd_linh = ceil(0.175 * (jpy + 100))
 
-        # ── Status ───────────────────────────────────────────────────────
+        # Status
         status_raw = getattr(item, "status", "")
         if status_raw == "on_sale":
-            status_text  = "🟢 Còn hàng"
-            embed_color  = discord.Color.green()
+            status_text = "🟢 Còn hàng"
+            embed_color = discord.Color.green()
         else:
-            status_text  = "🔴 Đã Sold"
-            embed_color  = discord.Color.red()
+            status_text = "🔴 Sold"
+            embed_color = discord.Color.red()
 
-        # ── Build embed ───────────────────────────────────────────────────
+        # The actual message
         embed = discord.Embed(
             title=item.name or "Không có tên",
             url=f"https://jp.mercari.com/item/{item_id}",
@@ -76,13 +76,13 @@ class MercariCog(commands.Cog):
             inline=True,
         )
         embed.add_field(
-            name="Nguyễn Vanh",
-            value=f"{vnd_vanh:,}k VND",
+            name="Phượng",
+            value=f"{vnd_phuong:,}k VND",
             inline=True,
         )
         embed.add_field(
-            name="Kho mới",
-            value=f"{vnd_kho:,}k VND",
+            name="Linh",
+            value=f"{vnd_linh:,}k VND",
             inline=True,
         )
         embed.add_field(name="Trạng thái", value=status_text, inline=True)
@@ -97,7 +97,7 @@ class MercariCog(commands.Cog):
 
         return embed
 
-    # ── Slash command ──────────────────────────────────────────────────────────
+    # Slash command
 
     @app_commands.command(
         name="mercari",
@@ -108,7 +108,7 @@ class MercariCog(commands.Cog):
     async def slash_mercari(self, interaction: discord.Interaction, link: str):
         await interaction.response.defer()
         item_id = extract_item_id(link)
-        result  = await self._lookup(item_id)
+        result = await self._lookup(item_id)
 
         if isinstance(result, str):
             await interaction.followup.send(result, ephemeral=True)
@@ -133,19 +133,18 @@ class MercariCog(commands.Cog):
             except Exception:
                 pass
 
-    # ── Prefix command ─────────────────────────────────────────────────────────
+    # Prefix
 
     @commands.command(name="mercari", aliases=["mer", "merca"])
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def prefix_mercari(self, ctx: commands.Context, *, link: str = None):
-        """Look up a Mercari item: !mercari <url or ID>"""
         if not link:
             await ctx.send("Vui lòng cung cấp link hoặc ID sản phẩm: `!mercari <link>`")
             return
 
         async with ctx.typing():
             item_id = extract_item_id(link)
-            result  = await self._lookup(item_id)
+            result = await self._lookup(item_id)
 
         if isinstance(result, str):
             await ctx.send(result)

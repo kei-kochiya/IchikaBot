@@ -1,16 +1,17 @@
-import random
 import asyncio
 import logging
-from PIL import Image, ImageOps
+import random
 from io import BytesIO
+
+from PIL import Image, ImageOps
 
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
-CROP_BASE = 400   # base crop size (also phase 3)
-CROP_P2   = 300   # phase 2 crop (colour, centred in base)
-CROP_P1   = 250   # phase 1 crop (grayscale, centred in base)
+CROP_BASE = 400  # base crop size (also phase 3)
+CROP_P2 = 300  # phase 2 crop (colour, centred in base)
+CROP_P1 = 250  # phase 1 crop (grayscale, centred in base)
 
 
 def _create_phase_images_sync(path: str) -> tuple[BytesIO | None, BytesIO | None, BytesIO | None]:

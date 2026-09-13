@@ -3,10 +3,12 @@ Shared event data singleton.
 
 Loads JP event data ONCE and keeps only lightweight EN name strings to minimize RAM.
 """
+
 import json
 import logging
-from datetime import datetime, timezone
-from config import EVENTS_FILE_JP, EVENTS_FILE_EN
+from datetime import UTC, datetime
+
+from config import EVENTS_FILE_EN, EVENTS_FILE_JP
 from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,7 @@ class EventDataManager:
     Singleton for managing Project Sekai event data.
     Provides memory-efficient access and helper methods used by EventsCog and others.
     """
+
     _instance = None
     _initialized = False
 
@@ -42,10 +45,10 @@ class EventDataManager:
 
         # ── JP Events ───────────────────────────────────────────────────────
         try:
-            with open(EVENTS_FILE_JP, 'r', encoding='utf-8') as f:
+            with open(EVENTS_FILE_JP, encoding="utf-8") as f:
                 new_events_jp = json.load(f)
-            new_events_jp.sort(key=lambda e: e.get('startAt', 0), reverse=True)
-            new_events_jp_by_id = {e['id']: e for e in new_events_jp}
+            new_events_jp.sort(key=lambda e: e.get("startAt", 0), reverse=True)
+            new_events_jp_by_id = {e["id"]: e for e in new_events_jp}
             logger.info("EventData: %d JP events loaded", len(new_events_jp))
         except FileNotFoundError as e:
             logger.error("EventData: Missing JP file: %s", e.filename)
@@ -55,10 +58,12 @@ class EventDataManager:
         # ── EN Events (names only to save RAM) ──────────────────────────────
         events_en_raw = None
         try:
-            with open(EVENTS_FILE_EN, 'r', encoding='utf-8') as f:
+            with open(EVENTS_FILE_EN, encoding="utf-8") as f:
                 events_en_raw = json.load(f)
-            new_events_en_names = {e['id']: e['name'] for e in events_en_raw if e.get('name')}
-            logger.info("EventData: %d EN event names loaded (lightweight)", len(new_events_en_names))
+            new_events_en_names = {e["id"]: e["name"] for e in events_en_raw if e.get("name")}
+            logger.info(
+                "EventData: %d EN event names loaded (lightweight)", len(new_events_en_names)
+            )
         except FileNotFoundError as e:
             logger.warning("EventData: Missing EN file: %s", e.filename)
         except Exception as e:
@@ -87,14 +92,14 @@ class EventDataManager:
         en_name = self.events_en_names.get(event_id)
         if en_name:
             return en_name
-        return event.get('name', 'Unknown Event')
+        return event.get("name", "Unknown Event")
 
     def get_current_event(self) -> dict | None:
         """Get current event from JP data."""
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
         for event in self.events_jp:
-            start = event.get('startAt', 0)
-            end = event.get('closedAt', 0)
+            start = event.get("startAt", 0)
+            end = event.get("closedAt", 0)
             if start <= now_ms <= end:
                 return event
             elif now_ms < start:
@@ -103,8 +108,8 @@ class EventDataManager:
 
     def get_past_events(self, count: int = 5) -> list[dict]:
         """Get past closed events."""
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        return [e for e in self.events_jp if e.get('closedAt', 0) < now_ms][:count]
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        return [e for e in self.events_jp if e.get("closedAt", 0) < now_ms][:count]
 
     def search_events(self, query: str, limit: int = 50) -> list[dict]:
         """Search events by name, ID, or romaji. Returns JP events for correct timing."""
@@ -114,7 +119,9 @@ class EventDataManager:
             if event:
                 return [event]
             if self.events_jp:
-                sorted_events = sorted(self.events_jp, key=lambda e: (abs(e['id'] - target_id), -e['id']))
+                sorted_events = sorted(
+                    self.events_jp, key=lambda e: (abs(e["id"] - target_id), -e["id"])
+                )
                 if sorted_events:
                     return [sorted_events[0]]
             return []
@@ -134,10 +141,10 @@ class EventDataManager:
 
         # 2. Then search JP event names
         for event in self.events_jp:
-            event_id = event['id']
+            event_id = event["id"]
             if event_id in seen_ids:
                 continue
-            name = event.get('name', '')
+            name = event.get("name", "")
             if matches_query(query, name):
                 results.append(event)
                 seen_ids.add(event_id)

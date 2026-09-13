@@ -1,5 +1,6 @@
-import pytest
 import discord
+import pytest
+
 from cogs.system.health import HealthCog, format_uptime, get_memory_usage_mb
 
 

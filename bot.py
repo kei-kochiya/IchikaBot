@@ -1,28 +1,31 @@
+import asyncio
+import logging
+import os
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-import os
-import asyncio
-import logging
 from dotenv import load_dotenv
+
 from config import SharedResources
 from utils.core import database
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 # Load the .env file
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN is None:
     logger.error("DISCORD_TOKEN not found in .env file.")
     exit()
+
 
 # --- Default context/install tree -------------------------------------------
 # Applies allowed_contexts and allowed_installs to ALL commands by default,
@@ -37,12 +40,12 @@ class DefaultContextTree(app_commands.CommandTree):
             client,
             allowed_contexts=app_commands.AppCommandContext(
                 guild=True,
-                dm_channel=True,       # 1:1 DMs
+                dm_channel=True,  # 1:1 DMs
                 private_channel=True,  # Group DMs
             ),
             allowed_installs=app_commands.AppInstallationType(
                 guild=True,  # Traditional server bot
-                user=True,   # User-installable app
+                user=True,  # User-installable app
             ),
             **kwargs,
         )
@@ -54,7 +57,7 @@ intents.message_content = True
 intents.voice_states = True
 
 bot = commands.Bot(
-    command_prefix='!',
+    command_prefix="!",
     intents=intents,
     help_command=None,
     tree_cls=DefaultContextTree,  # use our tree with default contexts
@@ -63,17 +66,17 @@ bot = commands.Bot(
 
 @bot.event
 async def on_ready():
-    logger.info(f'Logged in as {bot.user.name}!')
-    logger.info('--------------------------------')
-    
+    logger.info(f"Logged in as {bot.user.name}!")
+    logger.info("--------------------------------")
+
     # Auto-sync slash commands on startup
     try:
         synced = await bot.tree.sync()
-        logger.info(f'Auto-synced {len(synced)} slash command(s).')
+        logger.info(f"Auto-synced {len(synced)} slash command(s).")
     except Exception as e:
-        logger.error(f'Failed to auto-sync commands: {e}')
-    
-    logger.info('Bot is ready.')
+        logger.error(f"Failed to auto-sync commands: {e}")
+
+    logger.info("Bot is ready.")
 
 
 @bot.event
@@ -98,17 +101,17 @@ async def sync(ctx):
 
 async def load_cogs():
     """Recursively finds and loads all cog files in the 'cogs' directory."""
-    if not os.path.exists('./cogs'):
+    if not os.path.exists("./cogs"):
         logger.error("'cogs' directory not found.")
         return
 
-    for root, dirs, files in os.walk('./cogs'):
+    for root, _dirs, files in os.walk("./cogs"):
         for filename in files:
-            if filename.endswith('.py') and not filename.startswith('__'):
+            if filename.endswith(".py") and not filename.startswith("__"):
                 # Convert path to module notation: cogs/voice/streaming.py -> cogs.voice.streaming
-                relative_path = os.path.relpath(os.path.join(root, filename), '.')
-                module_name = relative_path.replace(os.path.sep, '.')[:-3]
-                
+                relative_path = os.path.relpath(os.path.join(root, filename), ".")
+                module_name = relative_path.replace(os.path.sep, ".")[:-3]
+
                 try:
                     await bot.load_extension(module_name)
                     logger.info(f"Loaded extension: {module_name}")
@@ -121,9 +124,7 @@ async def update_yt_dlp():
     logger.info("Checking for yt-dlp updates...")
     try:
         process = await asyncio.create_subprocess_shell(
-            "pip install -U yt-dlp",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "pip install -U yt-dlp", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await process.communicate()
         if process.returncode == 0:
@@ -132,6 +133,7 @@ async def update_yt_dlp():
             logger.error(f"yt-dlp update failed:\n{stderr.decode().strip()}")
     except Exception as e:
         logger.error(f"Error during yt-dlp update: {e}")
+
 
 async def main():
     async with bot:

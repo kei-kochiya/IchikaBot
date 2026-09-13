@@ -1,33 +1,36 @@
 """
 Card Tournament Cog - 5-round channel-wide card guessing tournament.
 """
-import discord
-from discord.ext import commands
-from discord import app_commands
-import random
+
 import asyncio
 import logging
+import random
 
-from utils.media.image_helper import get_card_image_path
+import discord
+from discord import app_commands
+from discord.ext import commands
+
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
 
 # Import helpers and UI
 from utils.game.tournament_logic import make_phase_images
 from utils.game.tournament_ui import (
-    TOTAL_ROUNDS,
     GUESS_PREFIX,
+    PHASE_META,
+    PHASE_POINTS,
     PHASE_TIMEOUT,
     PHASE_WRONG_MAX,
-    PHASE_POINTS,
-    PHASE_META,
-    create_start_embed,
-    create_round_embed,
+    TOTAL_ROUNDS,
+    create_leaderboard_embed,
     create_result_embed,
-    create_leaderboard_embed
+    create_round_embed,
+    create_start_embed,
 )
+from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
+
 
 class TournamentCog(commands.Cog):
     """5-round card-guessing tournament for a single channel."""
@@ -47,7 +50,8 @@ class TournamentCog(commands.Cog):
             return []
         fn, gn = char.get("firstName", ""), char.get("givenName", "")
         answers = {
-            fn.lower(), gn.lower(),
+            fn.lower(),
+            gn.lower(),
             f"{fn} {gn}".strip().lower(),
             f"{gn} {fn}".strip().lower(),
         }
@@ -70,8 +74,8 @@ class TournamentCog(commands.Cog):
             await channel.send(f"Vòng {round_num}: Lỗi dữ liệu, bỏ qua vòng này.")
             return
 
-        full_name    = f"{char.get('firstName', '')} {char.get('givenName', '')}".strip()
-        card_prefix  = self.get_display_prefix(card)
+        full_name = f"{char.get('firstName', '')} {char.get('givenName', '')}".strip()
+        card_prefix = self.get_display_prefix(card)
 
         p1, p2, p3 = await make_phase_images(card["assetbundleName"])
         if not p1:
@@ -79,7 +83,7 @@ class TournamentCog(commands.Cog):
             return
 
         phase_bufs = {1: p1, 2: p2, 3: p3}
-        winner       = None
+        winner = None
         winning_phase = None
 
         for phase_num in (1, 2, 3):
@@ -110,10 +114,10 @@ class TournamentCog(commands.Cog):
                     msg = await self.bot.wait_for(
                         "message", check=check, timeout=min(remaining, 1.0)
                     )
-                    guess = msg.content[len(GUESS_PREFIX):].strip()
+                    guess = msg.content[len(GUESS_PREFIX) :].strip()
 
                     if self.is_correct(guess, answers):
-                        winner        = msg.author
+                        winner = msg.author
                         winning_phase = phase_num
                         asyncio.create_task(msg.add_reaction("✅"))
                         break
@@ -122,7 +126,7 @@ class TournamentCog(commands.Cog):
                         asyncio.create_task(msg.add_reaction("❌"))
                         if phase_wrong >= PHASE_WRONG_MAX:
                             break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
 
             if not state["active"]:
@@ -142,7 +146,7 @@ class TournamentCog(commands.Cog):
         pts = PHASE_POINTS[winning_phase] if winner else 0
         if winner:
             state["scores"][winner.id] = state["scores"].get(winner.id, 0) + pts
-        
+
         result_embed = create_result_embed(winner, pts, full_name, card_prefix, round_num)
 
         # Reveal: use the full-resolution card image (already cached from make_phase_images)
@@ -203,9 +207,7 @@ class TournamentCog(commands.Cog):
         state = {"active": True, "scores": {}}
         self.active[cid] = state
         await interaction.response.send_message(embed=create_start_embed())
-        state["task"] = asyncio.create_task(
-            self.run_tournament(interaction.channel, state)
-        )
+        state["task"] = asyncio.create_task(self.run_tournament(interaction.channel, state))
 
     @app_commands.command(name="tournament_stop", description="Dừng tournament đang chạy (Admin)")
     @app_commands.guild_only()
@@ -213,7 +215,9 @@ class TournamentCog(commands.Cog):
     async def slash_stop(self, interaction: discord.Interaction):
         cid = interaction.channel_id
         if cid not in self.active:
-            await interaction.response.send_message("Không có tournament nào đang chạy.", ephemeral=True)
+            await interaction.response.send_message(
+                "Không có tournament nào đang chạy.", ephemeral=True
+            )
             return
         state = self.active.pop(cid)
         state["active"] = False
@@ -257,6 +261,7 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message(
                 "Bạn cần quyền **Manage Server**.", ephemeral=True
             )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TournamentCog(bot))

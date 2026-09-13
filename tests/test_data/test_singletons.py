@@ -1,7 +1,11 @@
-import pytest
-from utils.data.game_data import game_data, get_character_name, get_unit_color, character_autocomplete
 from utils.data.card_data import card_data
 from utils.data.event_data import event_data
+from utils.data.game_data import (
+    character_autocomplete,
+    game_data,
+    get_character_name,
+    get_unit_color,
+)
 from utils.data.song_data import song_data
 from utils.data.stamp_data import stamp_data
 

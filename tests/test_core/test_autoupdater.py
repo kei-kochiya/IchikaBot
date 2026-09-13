@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import pytest
-from utils.core.autoupdater import AutoUpdater, DataSource, register_all_sources, auto_updater
+
+from utils.core.autoupdater import AutoUpdater, DataSource, auto_updater, register_all_sources
 
 
 def test_datasource_registration_whitelist():
@@ -8,12 +10,12 @@ def test_datasource_registration_whitelist():
     valid_source = DataSource(
         name="test_valid",
         url="https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/master/cards.json",
-        local_path=Path("dummy.json")
+        local_path=Path("dummy.json"),
     )
     invalid_source = DataSource(
         name="test_invalid",
         url="https://malicious.example.com/cards.json",
-        local_path=Path("dummy.json")
+        local_path=Path("dummy.json"),
     )
 
     assert updater.register(valid_source) is True

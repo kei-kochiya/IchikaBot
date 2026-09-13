@@ -2,14 +2,16 @@
 Health & Diagnostics Cog for IchikaBot.
 Provides runtime status, latency, uptime, memory, database, and background task metrics.
 """
-import time
+
+import logging
 import math
 import sys
-import logging
+import time
+
+import aiosqlite
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiosqlite
 
 from config import DB_FILE
 
@@ -39,6 +41,7 @@ def get_memory_usage_mb() -> float:
     """Get current process memory usage in MB."""
     try:
         import psutil
+
         process = psutil.Process()
         return process.memory_info().rss / (1024 * 1024)
     except Exception:
@@ -55,9 +58,11 @@ class HealthCog(commands.Cog):
         """Measure SQLite ping response time in milliseconds."""
         t0 = time.perf_counter()
         try:
-            async with aiosqlite.connect(DB_FILE) as conn:
-                async with conn.execute("SELECT 1") as cur:
-                    await cur.fetchone()
+            async with (
+                aiosqlite.connect(DB_FILE) as conn,
+                conn.execute("SELECT 1") as cur,
+            ):
+                await cur.fetchone()
             return (time.perf_counter() - t0) * 1000
         except Exception as e:
             logger.error("Health check: DB ping failed: %s", e)
@@ -70,21 +75,27 @@ class HealthCog(commands.Cog):
         # Birthday check task
         bday_cog = self.bot.get_cog("BirthdayCog")
         if bday_cog and hasattr(bday_cog, "birthday_check_task"):
-            tasks_status["Birthdays"] = "🟢 Running" if bday_cog.birthday_check_task.is_running() else "🔴 Stopped"
+            tasks_status["Birthdays"] = (
+                "🟢 Running" if bday_cog.birthday_check_task.is_running() else "🔴 Stopped"
+            )
         else:
             tasks_status["Birthdays"] = "⚪ N/A"
 
         # Card of Day task
         cotd_cog = self.bot.get_cog("CardOfDayCog")
         if cotd_cog and hasattr(cotd_cog, "card_loop"):
-            tasks_status["Card of Day"] = "🟢 Running" if cotd_cog.card_loop.is_running() else "🔴 Stopped"
+            tasks_status["Card of Day"] = (
+                "🟢 Running" if cotd_cog.card_loop.is_running() else "🔴 Stopped"
+            )
         else:
             tasks_status["Card of Day"] = "⚪ N/A"
 
         # Data updater task
         updater_cog = self.bot.get_cog("DataUpdaterCog")
         if updater_cog and hasattr(updater_cog, "scheduled_update"):
-            tasks_status["Auto-Updater"] = "🟢 Running" if updater_cog.scheduled_update.is_running() else "🔴 Stopped"
+            tasks_status["Auto-Updater"] = (
+                "🟢 Running" if updater_cog.scheduled_update.is_running() else "🔴 Stopped"
+            )
         else:
             tasks_status["Auto-Updater"] = "⚪ N/A"
 
@@ -94,7 +105,11 @@ class HealthCog(commands.Cog):
         """Generate a structured diagnostic embed."""
         uptime_str = format_uptime(time.time() - BOT_START_TIME)
         latency = self.bot.latency
-        ws_latency = round(latency * 1000) if (latency is not None and not math.isnan(latency) and not math.isinf(latency)) else 0
+        ws_latency = (
+            round(latency * 1000)
+            if (latency is not None and not math.isnan(latency) and not math.isinf(latency))
+            else 0
+        )
         mem_mb = get_memory_usage_mb()
         tasks = self._get_background_tasks_status()
 
@@ -104,20 +119,32 @@ class HealthCog(commands.Cog):
         embed = discord.Embed(
             title="🩺 IchikaBot System Health & Diagnostics",
             color=embed_color,
-            timestamp=discord.utils.utcnow()
+            timestamp=discord.utils.utcnow(),
         )
 
         embed.add_field(name="📶 WebSocket Latency", value=f"{ws_latency} ms", inline=True)
-        embed.add_field(name="💾 Database Ping", value=f"{db_latency_ms:.1f} ms" if db_latency_ms >= 0 else "❌ Error", inline=True)
+        embed.add_field(
+            name="💾 Database Ping",
+            value=f"{db_latency_ms:.1f} ms" if db_latency_ms >= 0 else "❌ Error",
+            inline=True,
+        )
         embed.add_field(name="⏱️ Uptime", value=uptime_str, inline=True)
 
         mem_display = f"{mem_mb:.1f} MB" if mem_mb > 0 else "N/A"
         embed.add_field(name="🧠 Process RAM", value=mem_display, inline=True)
         embed.add_field(name="🧩 Loaded Cogs", value=f"{len(self.bot.cogs)} cogs", inline=True)
-        embed.add_field(name="🐍 Runtime", value=f"Python {sys.version.split()[0]} | d.py {discord.__version__}", inline=True)
+        embed.add_field(
+            name="🐍 Runtime",
+            value=f"Python {sys.version.split()[0]} | d.py {discord.__version__}",
+            inline=True,
+        )
 
         task_lines = [f"• **{name}**: {status}" for name, status in tasks.items()]
-        embed.add_field(name="🔄 Background Tasks", value="\n".join(task_lines) if task_lines else "None", inline=False)
+        embed.add_field(
+            name="🔄 Background Tasks",
+            value="\n".join(task_lines) if task_lines else "None",
+            inline=False,
+        )
 
         embed.set_footer(text="IchikaBot Health Monitor")
         return embed

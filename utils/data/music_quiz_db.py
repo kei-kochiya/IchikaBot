@@ -1,17 +1,19 @@
+import logging
 import os
 import re
-import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 SONG_DB_PATH = Path(__file__).parent.parent.parent / "gameData" / "static" / "song.xlsx"
+
 
 def normalize(text: str) -> str:
     """
     Keep only alphanumeric characters, strip everything else (including spaces),
     and lowercase. Applied to both song titles and player guesses before comparison.
     """
-    return re.sub(r'[^a-zA-Z0-9]', '', text).lower()
+    return re.sub(r"[^a-zA-Z0-9]", "", text).lower()
+
 
 def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
     """
@@ -26,6 +28,7 @@ def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
         if len(ng) >= 3 and ng in target:
             return True
     return False
+
 
 class MusicQuizDB:
     _instance = None
@@ -45,6 +48,7 @@ class MusicQuizDB:
             return
         try:
             import openpyxl
+
             wb = openpyxl.load_workbook(SONG_DB_PATH, read_only=True, data_only=True)
             ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
@@ -57,17 +61,17 @@ class MusicQuizDB:
             return
 
         start = 0
-        if rows[0][0] is not None and str(rows[0][0]).lower() == 'index':
+        if rows[0][0] is not None and str(rows[0][0]).lower() == "index":
             start = 1
 
         db = {}
         for row in rows[start:]:
             if not row or row[0] is None:
                 continue
-            idx        = str(row[0]).strip()
-            title_jp   = str(row[1]).strip() if len(row) > 1 and row[1] else None
-            title_en   = str(row[2]).strip() if len(row) > 2 and row[2] else None
-            romaji     = str(row[7]).strip() if len(row) > 7 and row[7] else None
+            idx = str(row[0]).strip()
+            title_jp = str(row[1]).strip() if len(row) > 1 and row[1] else None
+            title_en = str(row[2]).strip() if len(row) > 2 and row[2] else None
+            romaji = str(row[7]).strip() if len(row) > 7 and row[7] else None
             db[idx] = {"title_en": title_en, "romaji_title": romaji, "title_jp": title_jp}
 
         self._db = db

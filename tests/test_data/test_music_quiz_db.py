@@ -1,5 +1,4 @@
-import pytest
-from utils.data.music_quiz_db import MusicQuizDB, normalize, is_correct_guess
+from utils.data.music_quiz_db import MusicQuizDB, is_correct_guess, normalize
 
 
 def test_normalize_function():

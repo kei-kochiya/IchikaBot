@@ -2,14 +2,17 @@
 Card Cog - Display Project Sekai card information.
 Supports both JP and EN card data with English search.
 """
-import discord
-from discord.ext import commands
-from discord import app_commands
+
+import contextlib
 import logging
 
-from config import RARITY_ICONS, ASSETS_PATH
-from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from config import ASSETS_PATH, RARITY_ICONS
 from utils.data.card_data import card_data
+from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
 
 logger = logging.getLogger(__name__)
 
@@ -21,42 +24,42 @@ class CardView(discord.ui.View):
         self.char_data = char_data
         self.base_image_url = base_image_url
         self.is_normal = True
-        
+
         self.switch_button = discord.ui.Button(
-            label='Trained',
+            label="Trained",
             style=discord.ButtonStyle.primary,
-            custom_id=f"switch_{card_data['id']}_type"
+            custom_id=f"switch_{card_data['id']}_type",
         )
-        
-        if card_data['cardRarityType'] in ['rarity_birthday', 'rarity_1']:
+
+        if card_data["cardRarityType"] in ["rarity_birthday", "rarity_1"]:
             self.switch_button.disabled = True
             self.switch_button.label = "No Trained Art"
             self.switch_button.style = discord.ButtonStyle.secondary
-        
+
         self.switch_button.callback = self.switch_callback
         self.add_item(self.switch_button)
 
     async def switch_callback(self, interaction: discord.Interaction):
         self.is_normal = not self.is_normal
         self.switch_button.label = "Trained" if self.is_normal else "Normal"
-        self.switch_button.style = discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
-        
-        suffix = 'card_normal.png' if self.is_normal else 'card_after_training.png'
+        self.switch_button.style = (
+            discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
+        )
+
+        suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
         new_image_url = f"{self.base_image_url}/{suffix}"
-        
+
         embed = interaction.message.embeds[0]
         embed.set_image(url=new_image_url)
-        
+
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
+        if hasattr(self, "message") and self.message:
+            with contextlib.suppress(discord.HTTPException):
                 await self.message.edit(view=self)
-            except discord.HTTPException:
-                pass
 
 
 class CardCog(commands.Cog):
@@ -94,7 +97,7 @@ class CardCog(commands.Cog):
             # Fall back to JP
             if not selected_card:
                 for card in card_data.cards:
-                    if card.get('prefix') and name_lower in card['prefix'].lower():
+                    if card.get("prefix") and name_lower in card["prefix"].lower():
                         selected_card = card
                         break
 
@@ -102,9 +105,9 @@ class CardCog(commands.Cog):
             await interaction.followup.send("Card not found.", ephemeral=True)
             return
 
-        card_id = selected_card['id']
+        card_id = selected_card["id"]
 
-        char_id = selected_card['characterId']
+        char_id = selected_card["characterId"]
         char_info = game_data.get_character(char_id)
 
         if not char_info:
@@ -115,13 +118,15 @@ class CardCog(commands.Cog):
         base_url = f"https://storage.sekai.best/sekai-jp-assets/character/member/{selected_card['assetbundleName']}"
         image_url = f"{base_url}/card_normal.png"
 
-        unit_img_path = ASSETS_PATH / 'common' / 'logo_mini' / f"{char_info.get('unit', 'unknown')}.png"
-        
-        clean_name = char_info.get('givenName', '').lower().replace(' ', '')
-        icon_img_path = ASSETS_PATH / 'chara_icons' / f"{clean_name}.png"
+        unit_img_path = (
+            ASSETS_PATH / "common" / "logo_mini" / f"{char_info.get('unit', 'unknown')}.png"
+        )
+
+        clean_name = char_info.get("givenName", "").lower().replace(" ", "")
+        icon_img_path = ASSETS_PATH / "chara_icons" / f"{clean_name}.png"
 
         files_to_send = []
-        
+
         author_icon_url = None
         if icon_img_path.exists():
             files_to_send.append(discord.File(str(icon_img_path), filename="icon.png"))
@@ -140,20 +145,22 @@ class CardCog(commands.Cog):
         embed = discord.Embed(
             title=display_title,
             description=f"**Rarity:** {RARITY_ICONS.get(selected_card['cardRarityType'], selected_card['cardRarityType'])}",
-            color=discord.Color.from_str(color_hex)
+            color=discord.Color.from_str(color_hex),
         )
-        
+
         embed.set_author(name=get_character_name(char_id, full=True), icon_url=author_icon_url)
         embed.set_image(url=image_url)
-        embed.set_footer(text=char_info.get('fullUnit', 'Unknown Unit'), icon_url=footer_icon_url)
+        embed.set_footer(text=char_info.get("fullUnit", "Unknown Unit"), icon_url=footer_icon_url)
         embed.timestamp = interaction.created_at
 
         view = CardView(selected_card, char_info, base_url)
         msg = await interaction.followup.send(embed=embed, files=files_to_send, view=view)
         view.message = msg
 
-    @card_command.autocomplete('card_name')
-    async def card_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    @card_command.autocomplete("card_name")
+    async def card_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
         """Autocomplete that searches both EN and JP card names."""
         choices = []
         current_lower = current.lower()
@@ -166,9 +173,11 @@ class CardCog(commands.Cog):
             card = card_data.get_by_id(card_id)
             if not card:
                 continue
-            char_id = card['characterId']
+            char_id = card["characterId"]
             char_name = get_character_name(char_id, full=True)
-            rarity_str = "🎂" if 'birthday' in card['cardRarityType'] else f"{card['cardRarityType'][-1]}⭐"
+            rarity_str = (
+                "🎂" if "birthday" in card["cardRarityType"] else f"{card['cardRarityType'][-1]}⭐"
+            )
             display_name = f"{rarity_str} // {en_pfx} [{char_name}]"
             if current_lower in display_name.lower():
                 choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
@@ -179,16 +188,20 @@ class CardCog(commands.Cog):
         # 2. JP-only cards (no EN prefix)
         if len(choices) < 25:
             for card in card_data.cards:
-                if not card.get('prefix'):
+                if not card.get("prefix"):
                     continue
-                card_id = card['id']
+                card_id = card["id"]
                 if card_id in seen_ids:
                     continue
-                char_id = card['characterId']
+                char_id = card["characterId"]
                 char_name = get_character_name(char_id, full=True)
-                rarity_str = "🎂" if 'birthday' in card['cardRarityType'] else f"{card['cardRarityType'][-1]}⭐"
+                rarity_str = (
+                    "🎂"
+                    if "birthday" in card["cardRarityType"]
+                    else f"{card['cardRarityType'][-1]}⭐"
+                )
                 display_name = f"{rarity_str} // {card['prefix']} [{char_name}]"
-                if current_lower in display_name.lower() or current_lower in card['prefix'].lower():
+                if current_lower in display_name.lower() or current_lower in card["prefix"].lower():
                     choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
                     seen_ids.add(card_id)
                     if len(choices) >= 25:

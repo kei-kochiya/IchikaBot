@@ -1,9 +1,7 @@
 import asyncio
-import os
-import tempfile
-import pytest
-from pathlib import Path
+
 import discord
+import pytest
 from discord.ext import commands
 
 from config import SharedResources
@@ -24,7 +22,7 @@ async def temp_db(monkeypatch, tmp_path):
     db_file = tmp_path / "test_ichika.db"
     monkeypatch.setattr(database, "DB_FILE", db_file)
     monkeypatch.setattr("config.DB_FILE", db_file)
-    
+
     await database.init_db()
     yield db_file
 

@@ -13,8 +13,8 @@ System requirement: FFmpeg must be installed and in PATH.
 """
 
 import asyncio
+import contextlib
 import logging
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -23,22 +23,19 @@ from discord.ext import commands
 from utils.voice.models import QueueEntry, UnresolvedEntry
 from utils.voice.player import GuildPlayer
 from utils.voice.ui import NowPlayingView, np_embed, queue_embed
-from utils.voice.youtube import resolve_track, fetch_playlist_flat
+from utils.voice.youtube import fetch_playlist_flat, resolve_track
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-INACTIVITY_TIMEOUT = 300   # seconds before auto-leave (no tracks)
-ALONE_TIMEOUT      = 120   # seconds before auto-leave (bot alone in VC)
-MAX_QUEUE_SIZE     = 200
+INACTIVITY_TIMEOUT = 300  # seconds before auto-leave (no tracks)
+ALONE_TIMEOUT = 120  # seconds before auto-leave (bot alone in VC)
+MAX_QUEUE_SIZE = 200
 
 # FFmpeg options for robust reconnection on network hiccups
 FFMPEG_BEFORE = (
-    "-reconnect 1 "
-    "-reconnect_streamed 1 "
-    "-reconnect_delay_max 5 "
-    "-reconnect_on_network_error 1"
+    "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1"
 )
 FFMPEG_OPTIONS = {
     "before_options": FFMPEG_BEFORE,
@@ -46,6 +43,7 @@ FFMPEG_OPTIONS = {
 }
 
 # ── Main Cog ───────────────────────────────────────────────────────────────────
+
 
 class StreamingCog(commands.Cog, name="Streaming"):
     """YouTube audio streaming with queue management."""
@@ -74,10 +72,8 @@ class StreamingCog(commands.Cog, name="Streaming"):
         if player.vc:
             if player.vc.is_playing() or player.vc.is_paused():
                 player.vc.stop()
-            try:
+            with contextlib.suppress(Exception):
                 await player.vc.disconnect()
-            except Exception:
-                pass
 
     # ── NP embed helpers ───────────────────────────────────────────────────────
 
@@ -135,14 +131,12 @@ class StreamingCog(commands.Cog, name="Streaming"):
         player = self._get_player(guild_id)
 
         while not player._stop_flag:
-            entry: Optional[QueueEntry] = None
+            entry: QueueEntry | None = None
 
             # ── Determine next entry ────────────────────────────────────────
             if player.loop == GuildPlayer.LOOP_TRACK and player.current:
                 # Re-resolve because stream URLs expire
-                fetched = await resolve_track(
-                    player.current.webpage_url, player.current.requester
-                )
+                fetched = await resolve_track(player.current.webpage_url, player.current.requester)
                 entry = fetched  # None → fall through to queue
 
             if entry is None:
@@ -183,12 +177,10 @@ class StreamingCog(commands.Cog, name="Streaming"):
 
                 done = asyncio.Event()
 
-                def _after(err):
+                def _after(err, done_ev=done):
                     if err:
                         logger.error("Playback error in guild %d: %s", guild_id, err)
-                    asyncio.run_coroutine_threadsafe(
-                        self._signal(done), self.bot.loop
-                    )
+                    asyncio.run_coroutine_threadsafe(self._signal(done_ev), self.bot.loop)
 
                 if not player.vc or not player.vc.is_connected():
                     logger.warning("Guild %d: VC disconnected before playback.", guild_id)
@@ -227,35 +219,27 @@ class StreamingCog(commands.Cog, name="Streaming"):
             ch = player.text_channel
             await self._destroy_player(guild_id)
             if ch:
-                try:
-                    await ch.send(
-                        f"Rời kênh vì không hoạt động trong **{timeout // 60} phút**."
-                    )
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    await ch.send(f"Rời kênh vì không hoạt động trong **{timeout // 60} phút**.")
 
     # ── Voice helpers ──────────────────────────────────────────────────────────
 
-    async def _join_voice(self, ctx_or_ix) -> tuple[bool, Optional[GuildPlayer]]:
+    async def _join_voice(self, ctx_or_ix) -> tuple[bool, GuildPlayer | None]:
         """
         Ensure the bot is in the user's voice channel.
         Returns (success, player).  Sends an error message on failure.
         """
         is_ix = isinstance(ctx_or_ix, discord.Interaction)
         author = ctx_or_ix.user if is_ix else ctx_or_ix.author
-        guild  = ctx_or_ix.guild
+        guild = ctx_or_ix.guild
 
         async def err(msg: str):
             if is_ix:
-                try:
+                with contextlib.suppress(Exception):
                     await ctx_or_ix.followup.send(msg, ephemeral=True)
-                except Exception:
-                    pass
             else:
-                try:
+                with contextlib.suppress(Exception):
                     await ctx_or_ix.send(msg)
-                except Exception:
-                    pass
 
         if not guild:
             await err("Lệnh này chỉ dùng được trong server.")
@@ -295,7 +279,7 @@ class StreamingCog(commands.Cog, name="Streaming"):
             return
 
         guild_id = ctx_or_ix.guild_id if is_ix else ctx_or_ix.guild.id
-        player.cancel_tasks()   # clear any pending inactivity timer
+        player.cancel_tasks()  # clear any pending inactivity timer
 
         # ── Playlist vs single ──────────────────────────────────────────────
         if "list=" in url or "playlist" in url:
@@ -303,7 +287,9 @@ class StreamingCog(commands.Cog, name="Streaming"):
             entries = await fetch_playlist_flat(url, author)
             if not entries:
                 msg = "Không lấy được playlist. Kiểm tra link hoặc thử lại."
-                await (ctx_or_ix.followup.send(msg, ephemeral=True) if is_ix else ctx_or_ix.send(msg))
+                await (
+                    ctx_or_ix.followup.send(msg, ephemeral=True) if is_ix else ctx_or_ix.send(msg)
+                )
                 return
             added = 0
             for e in entries:
@@ -315,7 +301,9 @@ class StreamingCog(commands.Cog, name="Streaming"):
         else:
             if len(player.queue) >= MAX_QUEUE_SIZE:
                 msg = f"Queue đầy! (tối đa {MAX_QUEUE_SIZE} bài)"
-                await (ctx_or_ix.followup.send(msg, ephemeral=True) if is_ix else ctx_or_ix.send(msg))
+                await (
+                    ctx_or_ix.followup.send(msg, ephemeral=True) if is_ix else ctx_or_ix.send(msg)
+                )
                 return
             player.queue.append(UnresolvedEntry(raw_url=url, title=url, requester=author))
             confirm = f"Đã thêm vào queue: `{url}`"
@@ -332,7 +320,6 @@ class StreamingCog(commands.Cog, name="Streaming"):
         elif player.is_active:
             await self._safe_send(player, confirm)
 
-
     # ── Shared skip / stop helpers ─────────────────────────────────────────────
 
     def _do_skip(self, player: GuildPlayer) -> bool:
@@ -344,7 +331,9 @@ class StreamingCog(commands.Cog, name="Streaming"):
         return True
 
     @staticmethod
-    async def _safe_send(player: GuildPlayer, content: str = None, *, embed=None, delete_after=None):
+    async def _safe_send(
+        player: GuildPlayer, content: str = None, *, embed=None, delete_after=None
+    ):
         if not player.text_channel:
             return
         try:
@@ -404,13 +393,11 @@ class StreamingCog(commands.Cog, name="Streaming"):
         if 1 <= index <= len(player.queue):
             item = player.queue[index - 1]
             del player.queue[index - 1]
-            title = getattr(item, 'title', 'Bài hát')
+            title = getattr(item, "title", "Bài hát")
             await interaction.response.send_message(f"🗑️ Đã xóa: **{title}**", ephemeral=True)
             if player.np_message:
-                try:
+                with contextlib.suppress(Exception):
                     await player.np_message.edit(embed=np_embed(player.current, player))
-                except Exception:
-                    pass
         else:
             await interaction.response.send_message("Số thứ tự không hợp lệ.", ephemeral=True)
 
@@ -426,11 +413,8 @@ class StreamingCog(commands.Cog, name="Streaming"):
             player.vc.source.volume = player.volume
         await interaction.response.send_message(f"🔊 Âm lượng: **{v}%**", ephemeral=True)
         if player.np_message and player.current:
-            try:
+            with contextlib.suppress(Exception):
                 await player.np_message.edit(embed=np_embed(player.current, player))
-            except Exception:
-                pass
-
 
     # ══════════════════════════════════════════════════════════════════════════
     # Prefix Commands (Legacy)
@@ -470,13 +454,11 @@ class StreamingCog(commands.Cog, name="Streaming"):
         if 1 <= index <= len(player.queue):
             item = player.queue[index - 1]
             del player.queue[index - 1]
-            title = getattr(item, 'title', 'Bài hát')
+            title = getattr(item, "title", "Bài hát")
             await ctx.send(f"🗑️ Đã xóa: **{title}**")
             if player.np_message:
-                try:
+                with contextlib.suppress(Exception):
                     await player.np_message.edit(embed=np_embed(player.current, player))
-                except Exception:
-                    pass
         else:
             await ctx.send("Số thứ tự không hợp lệ.")
 
@@ -491,11 +473,8 @@ class StreamingCog(commands.Cog, name="Streaming"):
             player.vc.source.volume = player.volume
         await ctx.send(f"🔊 Âm lượng: **{v}%**")
         if player.np_message and player.current:
-            try:
+            with contextlib.suppress(Exception):
                 await player.np_message.edit(embed=np_embed(player.current, player))
-            except Exception:
-                pass
-
 
     # ── Voice State Events ─────────────────────────────────────────────────────
 
@@ -508,16 +487,14 @@ class StreamingCog(commands.Cog, name="Streaming"):
         vc = member.guild.voice_client
         if not vc or not vc.channel:
             return
-        
+
         # If bot is left alone in the channel (only bot remains)
         non_bot_members = [m for m in vc.channel.members if not m.bot]
         if not non_bot_members:
             player = self._players.get(member.guild.id)
             if player and player.vc:
                 # Set a timer to leave if nobody joins back
-                player.restart_inactivity(
-                    self._inactivity_leave(member.guild.id, ALONE_TIMEOUT)
-                )
+                player.restart_inactivity(self._inactivity_leave(member.guild.id, ALONE_TIMEOUT))
 
         # If someone joined and bot was alone, cancel or reset the leave timer
         if after.channel == vc.channel and len(non_bot_members) > 0:

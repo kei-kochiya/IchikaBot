@@ -1,4 +1,3 @@
-import pytest
 from cogs.game.gacha import GachaCog
 from config import PITY_THRESHOLD
 

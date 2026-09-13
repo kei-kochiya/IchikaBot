@@ -1,16 +1,17 @@
-import os
-import random
 import asyncio
 import logging
-from typing import Optional
+import os
+import random
+
 import discord
 import yt_dlp
+
 from utils.voice.models import QueueEntry, UnresolvedEntry
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES        = 5
-BASE_RETRY_DELAY   = 2.0
+MAX_RETRIES = 5
+BASE_RETRY_DELAY = 2.0
 
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -46,7 +47,8 @@ YDL_OPTS_FLAT: dict = {
     "http_headers": _BROWSER_HEADERS,
 }
 
-async def resolve_track(url: str, requester: Optional[discord.Member] = None) -> Optional[QueueEntry]:
+
+async def resolve_track(url: str, requester: discord.Member | None = None) -> QueueEntry | None:
     """Fully resolve a YouTube URL to a playable QueueEntry."""
     opts = dict(YDL_OPTS_SINGLE)
     if os.path.exists("cookies.txt"):
@@ -56,6 +58,7 @@ async def resolve_track(url: str, requester: Optional[discord.Member] = None) ->
 
     for attempt in range(MAX_RETRIES):
         try:
+
             def _extract():
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     return ydl.extract_info(url, download=False)
@@ -82,11 +85,13 @@ async def resolve_track(url: str, requester: Optional[discord.Member] = None) ->
         except yt_dlp.utils.DownloadError as exc:
             err_str = str(exc).lower()
             if "429" in err_str or "rate limit" in err_str:
-                delay = BASE_RETRY_DELAY * (2 ** attempt) + random.uniform(0.5, 2.0)
-                logger.warning("Rate-limited by YouTube. Retry %d/%d in %.1fs", attempt + 1, MAX_RETRIES, delay)
+                delay = BASE_RETRY_DELAY * (2**attempt) + random.uniform(0.5, 2.0)
+                logger.warning(
+                    "Rate-limited by YouTube. Retry %d/%d in %.1fs", attempt + 1, MAX_RETRIES, delay
+                )
                 await asyncio.sleep(delay)
             elif attempt < MAX_RETRIES - 1:
-                delay = BASE_RETRY_DELAY * (1.5 ** attempt)
+                delay = BASE_RETRY_DELAY * (1.5**attempt)
                 logger.warning("yt-dlp error (attempt %d/%d): %s", attempt + 1, MAX_RETRIES, exc)
                 await asyncio.sleep(delay)
             else:
@@ -97,7 +102,8 @@ async def resolve_track(url: str, requester: Optional[discord.Member] = None) ->
             return None
     return None
 
-async def fetch_playlist_flat(url: str, requester: Optional[discord.Member]) -> list[UnresolvedEntry]:
+
+async def fetch_playlist_flat(url: str, requester: discord.Member | None) -> list[UnresolvedEntry]:
     """Extract only the video URLs from a playlist (no full metadata)."""
     opts = dict(YDL_OPTS_FLAT)
     if os.path.exists("cookies.txt"):
@@ -105,6 +111,7 @@ async def fetch_playlist_flat(url: str, requester: Optional[discord.Member]) -> 
 
     loop = asyncio.get_event_loop()
     try:
+
         def _extract():
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(url, download=False)
@@ -126,11 +133,13 @@ async def fetch_playlist_flat(url: str, requester: Optional[discord.Member]) -> 
                 continue
             if not vid_url.startswith("http"):
                 vid_url = f"https://www.youtube.com/watch?v={vid_url}"
-            result.append(UnresolvedEntry(
-                raw_url=vid_url,
-                title=item.get("title") or "Unknown",
-                requester=requester,
-            ))
+            result.append(
+                UnresolvedEntry(
+                    raw_url=vid_url,
+                    title=item.get("title") or "Unknown",
+                    requester=requester,
+                )
+            )
         return result
     except Exception as exc:
         logger.error("Playlist flat-extract failed: %s", exc)

@@ -1,9 +1,10 @@
-import pytest
-from PIL import Image
 from io import BytesIO
-from utils.game.tournament_logic import _create_phase_images_sync
-from utils.game.cards import supports_trained_art, get_card_image_url, get_random_card
+
+from PIL import Image
+
 from utils.data.card_data import card_data
+from utils.game.cards import get_card_image_url, get_random_card, supports_trained_art
+from utils.game.tournament_logic import _create_phase_images_sync
 
 
 def test_card_helpers():

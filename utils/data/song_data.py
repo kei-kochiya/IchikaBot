@@ -3,13 +3,15 @@ Shared song and music difficulties data singleton.
 
 Loads JP music data ONCE and keeps only lightweight EN search/display strings to minimize RAM.
 """
+
 import json
 import logging
 import random
+
 from discord import app_commands
 
-from config import MUSICS_FILE_JP, MUSICS_FILE_EN, MUSIC_DIFFICULTIES_FILE_JP
-from utils.core.romaji import matches_query, normalize_for_search
+from config import MUSIC_DIFFICULTIES_FILE_JP, MUSICS_FILE_EN, MUSICS_FILE_JP
+from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,7 @@ class SongDataManager:
     Singleton for managing Project Sekai songs and difficulties data.
     Provides memory-efficient access and helper methods used by SongsCog and others.
     """
+
     _instance = None
     _initialized = False
 
@@ -46,9 +49,9 @@ class SongDataManager:
 
         # ── JP Songs ────────────────────────────────────────────────────────
         try:
-            with open(MUSICS_FILE_JP, 'r', encoding='utf-8') as f:
+            with open(MUSICS_FILE_JP, encoding="utf-8") as f:
                 new_songs_jp = json.load(f)
-            new_songs_jp_by_id = {s['id']: s for s in new_songs_jp}
+            new_songs_jp_by_id = {s["id"]: s for s in new_songs_jp}
             logger.info("SongData: %d JP songs loaded", len(new_songs_jp))
         except FileNotFoundError as e:
             logger.error("SongData: Missing JP file: %s", e.filename)
@@ -58,17 +61,20 @@ class SongDataManager:
         # ── EN Songs (lightweight metadata only) ─────────────────────────────
         songs_en_raw = None
         try:
-            with open(MUSICS_FILE_EN, 'r', encoding='utf-8') as f:
+            with open(MUSICS_FILE_EN, encoding="utf-8") as f:
                 songs_en_raw = json.load(f)
             new_songs_en_meta = {
-                s['id']: {
-                    'title': s.get('title', ''),
-                    'pronunciation': s.get('pronunciation', ''),
-                    'composer': s.get('composer', ''),
+                s["id"]: {
+                    "title": s.get("title", ""),
+                    "pronunciation": s.get("pronunciation", ""),
+                    "composer": s.get("composer", ""),
                 }
-                for s in songs_en_raw if s.get('title')
+                for s in songs_en_raw
+                if s.get("title")
             }
-            logger.info("SongData: %d EN songs metadata loaded (lightweight)", len(new_songs_en_meta))
+            logger.info(
+                "SongData: %d EN songs metadata loaded (lightweight)", len(new_songs_en_meta)
+            )
         except FileNotFoundError as e:
             logger.warning("SongData: Missing EN file: %s", e.filename)
         except Exception as e:
@@ -78,15 +84,15 @@ class SongDataManager:
 
         # ── Music Difficulties ──────────────────────────────────────────────
         try:
-            with open(MUSIC_DIFFICULTIES_FILE_JP, 'r', encoding='utf-8') as f:
+            with open(MUSIC_DIFFICULTIES_FILE_JP, encoding="utf-8") as f:
                 raw_diffs = json.load(f)
             for diff in raw_diffs:
-                music_id = diff['musicId']
+                music_id = diff["musicId"]
                 if music_id not in new_difficulties:
                     new_difficulties[music_id] = {}
-                new_difficulties[music_id][diff['musicDifficulty']] = {
-                    'playLevel': diff['playLevel'],
-                    'noteCount': diff['totalNoteCount']
+                new_difficulties[music_id][diff["musicDifficulty"]] = {
+                    "playLevel": diff["playLevel"],
+                    "noteCount": diff["totalNoteCount"],
                 }
             logger.info("SongData: Difficulties for %d songs loaded", len(new_difficulties))
         except Exception as e:
@@ -112,9 +118,9 @@ class SongDataManager:
     def get_display_title(self, song: dict, song_id: int) -> str:
         """Get display title, using EN title if available."""
         en_meta = self.songs_en_meta.get(song_id)
-        if en_meta and en_meta.get('title'):
-            return en_meta['title']
-        return song.get('title', 'Unknown')
+        if en_meta and en_meta.get("title"):
+            return en_meta["title"]
+        return song.get("title", "Unknown")
 
     def search_songs(self, query: str, limit: int = 50) -> list[dict]:
         """Search songs by name, ID, or romaji across EN and JP."""
@@ -124,7 +130,9 @@ class SongDataManager:
             if song:
                 return [song]
             if self.songs_jp:
-                sorted_songs = sorted(self.songs_jp, key=lambda s: (abs(s['id'] - target_id), -s['id']))
+                sorted_songs = sorted(
+                    self.songs_jp, key=lambda s: (abs(s["id"] - target_id), -s["id"])
+                )
                 if sorted_songs:
                     return [sorted_songs[0]]
             return []
@@ -134,7 +142,7 @@ class SongDataManager:
 
         # 1. Search EN songs metadata first
         for song_id, meta in self.songs_en_meta.items():
-            if matches_query(query, meta['title'], meta['pronunciation'], meta['composer']):
+            if matches_query(query, meta["title"], meta["pronunciation"], meta["composer"]):
                 jp_song = self.songs_jp_by_id.get(song_id)
                 if jp_song and song_id not in seen_ids:
                     results.append(jp_song)
@@ -144,12 +152,12 @@ class SongDataManager:
 
         # 2. Then search JP songs
         for song in self.songs_jp:
-            song_id = song['id']
+            song_id = song["id"]
             if song_id in seen_ids:
                 continue
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
-            composer = song.get('composer', '')
+            title = song.get("title", "")
+            pronunciation = song.get("pronunciation", "")
+            composer = song.get("composer", "")
             if matches_query(query, title, pronunciation, composer):
                 results.append(song)
                 seen_ids.add(song_id)
@@ -162,11 +170,11 @@ class SongDataManager:
         """Get a random song optionally filtered by Master level range."""
         valid_songs = []
         for song in self.songs_jp:
-            diff_info = self.difficulties.get(song['id'], {})
-            master = diff_info.get('master', {})
+            diff_info = self.difficulties.get(song["id"], {})
+            master = diff_info.get("master", {})
             if not master:
                 continue
-            level = master.get('playLevel', 0)
+            level = master.get("playLevel", 0)
             if min_level is not None and level < min_level:
                 continue
             if max_level is not None and level > max_level:
@@ -184,11 +192,11 @@ class SongDataManager:
 
         # 1. EN matches
         for song_id, meta in self.songs_en_meta.items():
-            title = meta['title']
-            pronunciation = meta['pronunciation']
+            title = meta["title"]
+            pronunciation = meta["pronunciation"]
             if matches_query(current, title, pronunciation):
                 diff_info = self.difficulties.get(song_id, {})
-                master_level = diff_info.get('master', {}).get('playLevel', '?')
+                master_level = diff_info.get("master", {}).get("playLevel", "?")
                 display = f"{title} (Master Lv.{master_level})"
                 choices.append(app_commands.Choice(name=display[:100], value=str(song_id)))
                 seen_ids.add(song_id)
@@ -197,15 +205,15 @@ class SongDataManager:
 
         # 2. JP matches
         for song in self.songs_jp:
-            song_id = song['id']
+            song_id = song["id"]
             if song_id in seen_ids:
                 continue
-            title = song.get('title', '')
-            pronunciation = song.get('pronunciation', '')
+            title = song.get("title", "")
+            pronunciation = song.get("pronunciation", "")
             if matches_query(current, title, pronunciation):
                 diff_info = self.difficulties.get(song_id, {})
-                master_level = diff_info.get('master', {}).get('playLevel', '?')
-                display_title = self.songs_en_meta.get(song_id, {}).get('title', title)
+                master_level = diff_info.get("master", {}).get("playLevel", "?")
+                display_title = self.songs_en_meta.get(song_id, {}).get("title", title)
                 display = f"{display_title} (Master Lv.{master_level})"
                 choices.append(app_commands.Choice(name=display[:100], value=str(song_id)))
                 seen_ids.add(song_id)
