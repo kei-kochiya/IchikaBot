@@ -50,39 +50,72 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 
 <h2 id="setup--installation">🚀 Setup & Installation</h2>
 
-To host IchikaBot yourself, you'll need **Python 3.11+** and **FFmpeg** installed on your system.
+### Option A: Standard Setup (Python 3.11+)
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/kei-kochiya/IchikaBot.git
-cd IchikaBot
-```
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/kei-kochiya/IchikaBot.git
+   cd IchikaBot
+   ```
 
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-*(Ensure `FFmpeg` is installed and added to your system PATH for the music streaming module to function).*
+2. **Install Dependencies & FFmpeg**
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *(Ensure `FFmpeg` is installed and in your system PATH for audio/music streaming).*
 
-### 3. Configuration
-Create a `.env` file in the root directory and add your Discord bot token:
-```env
-DISCORD_TOKEN=your_bot_token_here
-```
+3. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and insert your Discord Bot Token.
 
-### 4. Run the Bot
-```bash
-python bot.py
-```
-*Note: Game data files and the SQLite database (`ichika.db`) will automatically download and initialize upon the first successful run.*
+4. **Run the Bot**
+   ```bash
+   python bot.py
+   ```
 
 ---
 
-## 🛠️ Architecture & Contribution
+### Option B: Docker Deployment (Recommended for Servers)
 
-IchikaBot uses a modular Cog architecture. We heavily utilize the Singleton pattern for massive JSON payloads and an async SQLite layer for persistence to keep RAM usage extremely low.
+Run IchikaBot in a container with FFmpeg and all system dependencies pre-configured:
+```bash
+# 1. Create .env from template
+cp .env.example .env
 
-For developers looking to contribute, please read the **[Architecture & Contribution Guide (ARCHITECT.md)](./ARCHITECT.md)** for a deep dive into the bot's internal data flow, state management, and file dependencies.
+# 2. Start the container in background
+docker compose up -d
+
+# 3. View live logs
+docker compose logs -f
+```
+
+---
+
+## 🧪 Testing & Quality Assurance
+
+Run the automated test suite and linter:
+```bash
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests with coverage
+pytest --cov=utils --cov=cogs tests/
+
+# Run Ruff linter & formatter check
+ruff check .
+ruff format --check .
+```
+
+---
+
+## 🛠️ Architecture & Documentation
+
+- **[Architecture Guide (ARCHITECT.md)](./ARCHITECT.md)**: Deep dive into the bot's data singletons, memory optimizations, and async SQLite layer.
+- **[Contributing Guide (CONTRIBUTING.md)](./CONTRIBUTING.md)**: Guidelines for local development, tests, and opening PRs.
+- **[Changelog (CHANGELOG.md)](./CHANGELOG.md)**: Version release notes and migration history.
+- **[Security Policy (SECURITY.md)](./SECURITY.md)**: Vulnerability disclosure and secret handling.
 
 ---
 

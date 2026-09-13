@@ -1,0 +1,18 @@
+services:
+  ichikabot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ichikabot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./ichika.db:/app/ichika.db
+      - ./gameData:/app/gameData
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
