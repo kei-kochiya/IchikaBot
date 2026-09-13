@@ -31,11 +31,23 @@ gameData/EN_data/
 *.md
 !README.md
 !ARCHITECT.md
+!CONTRIBUTING.md
+!CHANGELOG.md
+!SECURITY.md
+!docs/**/*.md
+!.github/**/*.md
 AGENTS.md
 agent.md
 
 # Logs
 *.log
+logs/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
 
 # OS files
 .DS_Store
