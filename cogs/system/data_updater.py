@@ -62,6 +62,10 @@ class DataUpdaterCog(commands.Cog):
     async def before_scheduled_update(self):
         """Wait for bot to be ready."""
         await self.bot.wait_until_ready()
+
+    @scheduled_update.error
+    async def on_scheduled_update_error(self, error: Exception):
+        logger.error("DataUpdaterCog: Exception in background loop: %s", error, exc_info=True)
     
     async def _notify_cogs_to_reload(self, results: dict):
         """Notify relevant cogs and reload singletons after updates."""

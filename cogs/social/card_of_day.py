@@ -135,6 +135,10 @@ class CardOfDayCog(commands.Cog):
     async def before_card_loop(self):
         await self.bot.wait_until_ready()
 
+    @card_loop.error
+    async def on_card_loop_error(self, error: Exception):
+        logger.error("CardOfDayCog: Exception in background loop: %s", error, exc_info=True)
+
     # --- Slash commands ---
 
     cotd_group = app_commands.Group(

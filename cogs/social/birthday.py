@@ -142,6 +142,10 @@ class BirthdayCog(commands.Cog):
     async def before_birthday_check(self):
         await self.bot.wait_until_ready()
 
+    @birthday_check_task.error
+    async def on_birthday_check_error(self, error: Exception):
+        logger.error("BirthdayCog: Exception in background loop: %s", error, exc_info=True)
+
     # --- Autocomplete ---
     async def char_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         return character_autocomplete(current, max_id=26)
