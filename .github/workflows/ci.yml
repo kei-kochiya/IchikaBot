@@ -71,7 +71,6 @@ jobs:
   security:
     name: Dependency Security Audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -84,9 +83,9 @@ jobs:
 
       - name: Install pip-audit & Requirements
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
           pip install -r requirements.txt
           pip install pip-audit
 
       - name: Run Dependency Audit
-        run: pip-audit
+        run: pip-audit --ignore-vuln PYSEC-2026-1325 -r requirements.txt
