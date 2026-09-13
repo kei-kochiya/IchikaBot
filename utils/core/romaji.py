@@ -91,6 +91,7 @@ COMBINATIONS_HIRA = {
     'ぴゃ': 'pya', 'ぴゅ': 'pyu', 'ぴょ': 'pyo',
     # Extended combinations
     'てぃ': 'ti', 'でぃ': 'di', 'ふぁ': 'fa', 'ふぃ': 'fi', 'ふぇ': 'fe', 'ふぉ': 'fo',
+    'じぇ': 'je', 'しぇ': 'she', 'ちぇ': 'che',
 }
 
 COMBINATIONS_KATA = {
@@ -108,6 +109,7 @@ COMBINATIONS_KATA = {
     # Extended combinations
     'ティ': 'ti', 'ディ': 'di', 'ファ': 'fa', 'フィ': 'fi', 'フェ': 'fe', 'フォ': 'fo',
     'ウィ': 'wi', 'ウェ': 'we', 'ウォ': 'wo',
+    'ジェ': 'je', 'シェ': 'she', 'チェ': 'che',
 }
 
 
