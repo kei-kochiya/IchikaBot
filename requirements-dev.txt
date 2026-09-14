@@ -4,7 +4,7 @@ pytest-asyncio>=1.4.0
 pytest-cov>=7.1.0
 
 # Linting & Formatting
-ruff>=0.16.6,<1.0.0
+ruff>=0.16.7,<1.0.0
 
 # Security Auditing
 pip-audit>=2.10.1,<3.0.0
