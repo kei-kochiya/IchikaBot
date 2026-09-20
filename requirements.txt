@@ -18,4 +18,4 @@ openpyxl>=3.1.5,<4.0.0
 
 # Media & Third-Party APIs
 yt-dlp>=2026.8.19
-mercapi>=0.4.2,<1.0.0
+mercapi>=0.5.0,<1.0.0
