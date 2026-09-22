@@ -12,6 +12,16 @@ from discord.ext import commands
 
 logger = logging.getLogger(__name__)
 
+# Users who receive the lower exchange rate (JPY × 180 + 10 000 VND)
+# Everyone else uses JPY × 182 + 10 000 VND
+_PREFERRED_RATE_USERS: frozenset[int] = frozenset(
+    {
+        304351602637012992,
+        602357018782597120,
+        458547599947857920,
+    }
+)
+
 try:
     from mercapi import Mercapi
 
@@ -35,7 +45,7 @@ class MercariCog(commands.Cog):
 
     # Shared lookup logic
 
-    async def _lookup(self, item_id: str) -> discord.Embed | str:
+    async def _lookup(self, item_id: str, user_id: int) -> discord.Embed | str:
         # Fetch the item and return a ready-made Embed, or an error string
         if not MERCAPI_AVAILABLE or self._mercapi is None:
             return "❌ Dependency `mercapi` chưa được cài. Chạy `pip install mercapi`."
@@ -49,9 +59,10 @@ class MercariCog(commands.Cog):
         if not item:
             return "Không tìm thấy sản phẩm hoặc bị Mercari chặn."
 
-        # Price calculations
+        # Price calculations — preferred users get a lower multiplier
         jpy = item.price
-        vnd = jpy * 182 + 10_000
+        rate = 180 if user_id in _PREFERRED_RATE_USERS else 182
+        vnd = jpy * rate + 10_000
 
         # Status
         status_raw = getattr(item, "status", "")
@@ -101,7 +112,7 @@ class MercariCog(commands.Cog):
     async def slash_mercari(self, interaction: discord.Interaction, link: str):
         await interaction.response.defer()
         item_id = extract_item_id(link)
-        result = await self._lookup(item_id)
+        result = await self._lookup(item_id, interaction.user.id)
 
         if isinstance(result, str):
             await interaction.followup.send(result, ephemeral=True)
@@ -137,7 +148,7 @@ class MercariCog(commands.Cog):
 
         async with ctx.typing():
             item_id = extract_item_id(link)
-            result = await self._lookup(item_id)
+            result = await self._lookup(item_id, ctx.author.id)
 
         if isinstance(result, str):
             await ctx.send(result)
