@@ -1,11 +1,10 @@
 """
 Mercari Cog - Look up Mercari item info from a URL or item ID.
-Shows item name, price (raw JPY + two VND estimates), status, and cover photo.
+Shows item name, price (raw JPY + VND estimate), status, and cover photo.
 Global cooldown: 5 seconds per user.
 """
 
 import logging
-from math import ceil
 
 import discord
 from discord import app_commands
@@ -52,8 +51,7 @@ class MercariCog(commands.Cog):
 
         # Price calculations
         jpy = item.price
-        vnd_phuong = ceil(0.176 * jpy)
-        vnd_linh = ceil(0.175 * (jpy + 100))
+        vnd = jpy * 182 + 10_000
 
         # Status
         status_raw = getattr(item, "status", "")
@@ -76,13 +74,8 @@ class MercariCog(commands.Cog):
             inline=True,
         )
         embed.add_field(
-            name="Phượng",
-            value=f"{vnd_phuong:,}k VND",
-            inline=True,
-        )
-        embed.add_field(
-            name="Linh",
-            value=f"{vnd_linh:,}k VND",
+            name="Giá (VND)",
+            value=f"{vnd:,} VND",
             inline=True,
         )
         embed.add_field(name="Trạng thái", value=status_text, inline=True)
