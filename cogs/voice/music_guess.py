@@ -435,7 +435,15 @@ class MusicGuess(commands.Cog):
         else:
             lines.append("❌ **Libopus:** Không thể nạp libopus (thư viện codec voice)!")
 
-        # 3. Test outbound UDP
+        # 3. PyNaCl (libsodium)
+        try:
+            import nacl.secret  # noqa: F401
+
+            lines.append("✅ **PyNaCl (libsodium):** Đã sẵn sàng")
+        except ImportError as e:
+            lines.append(f"❌ **PyNaCl (libsodium):** Thiếu ({e})")
+
+        # 4. Test outbound UDP DNS (Port 53)
         udp_dns_ok = False
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -452,15 +460,35 @@ class MusicGuess(commands.Cog):
             logger.warning("DNS UDP probe failed: %s", e)
 
         if udp_dns_ok:
-            lines.append("✅ **Mạng UDP cơ bản (Cổng 53):** Gửi & nhận tốt")
+            lines.append("✅ **Mạng UDP cổng 53 (DNS):** Mở (Gửi & nhận tốt)")
         else:
-            lines.append("❌ **Mạng UDP cơ bản:** Bị chặn hoặc timeout!")
+            lines.append("❌ **Mạng UDP cổng 53 (DNS):** Bị chặn hoặc timeout!")
 
-        lines.append(
-            "\n💡 *Lưu ý:* Discord Voice bắt buộc phải dùng UDP (cổng cao 50000-65535). "
-            "Nếu máy chủ host (như PIKAMC / Pikashield) chặn outbound UDP, "
-            "bot sẽ không thể kết nối vào voice."
-        )
+        # 5. Test outbound UDP High Port (STUN NAT / Voice)
+        udp_stun_ok = False
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(3.0)
+            stun_req = b"\x00\x01\x00\x00\x21\x12\xa4\x42" + b"\x00" * 12
+            sock.sendto(stun_req, ("stun.cloudflare.com", 3478))
+            data, _ = sock.recvfrom(512)
+            sock.close()
+            if data:
+                udp_stun_ok = True
+        except Exception as e:
+            logger.warning("STUN UDP probe failed: %s", e)
+
+        if udp_stun_ok:
+            lines.append("✅ **Mạng UDP cổng cao (Voice/STUN):** Mở (Gửi & nhận tốt)")
+        else:
+            lines.append("❌ **Mạng UDP cổng cao (Voice/STUN):** BỊ CHẶN hoặc TIMEOUT!")
+
+        if not udp_stun_ok:
+            lines.append(
+                "\n🚨 **Kết luận:** Tường lửa của host (PIKAMC) chỉ cho phép cổng 53 (DNS) "
+                "nhưng chặn các cổng UDP cao mà Discord Voice yêu cầu (50000-65535). "
+                "Cần gửi ticket cho bên hỗ trợ PIKAMC mở outbound UDP cho máy chủ này."
+            )
 
         content = "\n".join(lines)
         if isinstance(target, discord.Interaction):
