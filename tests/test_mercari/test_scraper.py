@@ -1,6 +1,6 @@
 import pytest
 
-from mercari_scraper import AsyncMercariScraper, ItemSource, MercariScraper
+from utils.mercari_scraper import AsyncMercariScraper, ItemSource, MercariScraper
 
 
 def test_sync_scraper_search_both_sources():

@@ -1,4 +1,4 @@
-from mercari_scraper import ItemSource, MercariItem
+from utils.mercari_scraper import ItemSource, MercariItem
 
 
 def test_mercari_item_creation_and_to_dict():

@@ -47,3 +47,27 @@ async def get_card_image_path(asset_bundle_name: str, is_trained: bool = False) 
     except Exception as e:
         logger.error(f"Error downloading {asset_bundle_name}: {e}")
         return None
+
+
+async def get_character_trim_path(char_id: int | str) -> str | None:
+    """Get path to a character trim image, downloading and caching if necessary."""
+    filename = f"chr_trim_{char_id}.webp"
+    file_path = CACHE_DIR / filename
+
+    if file_path.exists():
+        return str(file_path)
+
+    url = f"https://storage.sekai.best/sekai-jp-assets/character/character_trim/chr_trim_{char_id}.webp"
+    try:
+        session = await SharedResources.get_session()
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                async with aiofiles.open(file_path, mode="wb") as f:
+                    await f.write(await resp.read())
+                return str(file_path)
+            else:
+                logger.warning(f"Failed to download {url}: HTTP {resp.status}")
+                return None
+    except Exception as e:
+        logger.error(f"Error downloading chr_trim_{char_id}: {e}")
+        return None

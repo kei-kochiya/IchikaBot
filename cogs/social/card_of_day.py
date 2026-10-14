@@ -3,6 +3,7 @@ Card of the Day Cog - Posts a random 3/4★ trained card at a configurable inter
 Admins can set the channel and interval (in hours) per guild.
 """
 
+import contextlib
 import logging
 import random
 from datetime import UTC, datetime
@@ -14,7 +15,8 @@ from discord.ext import commands, tasks
 from utils.core import database
 from utils.data.card_data import card_data
 from utils.data.game_data import get_character_name, get_unit_color
-from utils.game.cards import CardToggleView, get_card_image_url
+from utils.game.cards import CardToggleView, get_card_image_url, supports_trained_art
+from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +82,8 @@ class CardOfDayCog(commands.Cog):
     def get_display_prefix(self, card: dict) -> str:
         return card_data.get_display_prefix(card)
 
-    def create_card_embed(self, card: dict) -> discord.Embed:
-        """Create a Card of the Day embed (trained art by default)."""
+    def create_card_embed(self, card: dict, attachment_url: str | None = None) -> discord.Embed:
+        """Create a Card of the Day embed (trained art by default if supported)."""
         char_id = card["characterId"]
         char_name = get_character_name(char_id, full=True)
         rarity = f"{card['cardRarityType'][-1]}⭐"
@@ -92,7 +94,11 @@ class CardOfDayCog(commands.Cog):
             description=f"**{display_name}**\n{rarity} — {char_name}",
             color=get_unit_color(char_id),
         )
-        embed.set_image(url=get_card_image_url(card["assetbundleName"], trained=True))
+        is_trained = supports_trained_art(card)
+        image_url = attachment_url or get_card_image_url(
+            card["assetbundleName"], trained=is_trained
+        )
+        embed.set_image(url=image_url)
         embed.set_footer(text=f"ID: {card['id']}")
         embed.timestamp = datetime.now(UTC)
         return embed
@@ -121,9 +127,17 @@ class CardOfDayCog(commands.Cog):
 
             try:
                 card = random.choice(card_data.pool_3_4)
-                embed = self.create_card_embed(card)
-                view = CardToggleView(embed, card, default_trained=True)
-                msg = await channel.send(embed=embed, view=view)
+                is_trained = supports_trained_art(card)
+                img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+                file = discord.File(img_path, filename="card.png") if img_path else None
+                attachment_url = "attachment://card.png" if file else None
+
+                embed = self.create_card_embed(card, attachment_url=attachment_url)
+                view = CardToggleView(embed, card, default_trained=is_trained)
+                if file:
+                    msg = await channel.send(embed=embed, file=file, view=view)
+                else:
+                    msg = await channel.send(embed=embed, view=view)
                 view.message = msg
 
                 cfg["last_post_ts"] = now_ts
@@ -134,7 +148,8 @@ class CardOfDayCog(commands.Cog):
 
     @card_loop.before_loop
     async def before_card_loop(self):
-        await self.bot.wait_until_ready()
+        with contextlib.suppress(RuntimeError):
+            await self.bot.wait_until_ready()
 
     @card_loop.error
     async def on_card_loop_error(self, error: Exception):
@@ -213,9 +228,17 @@ class CardOfDayCog(commands.Cog):
         await interaction.response.defer()
 
         card = random.choice(card_data.pool_3_4)
-        embed = self.create_card_embed(card)
-        view = CardToggleView(embed, card, default_trained=True)
-        msg = await interaction.followup.send(embed=embed, view=view)
+        is_trained = supports_trained_art(card)
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+        file = discord.File(img_path, filename="card.png") if img_path else None
+        attachment_url = "attachment://card.png" if file else None
+
+        embed = self.create_card_embed(card, attachment_url=attachment_url)
+        view = CardToggleView(embed, card, default_trained=is_trained)
+        if file:
+            msg = await interaction.followup.send(embed=embed, file=file, view=view)
+        else:
+            msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
         # Reset timer so the next automatic post is a full interval away

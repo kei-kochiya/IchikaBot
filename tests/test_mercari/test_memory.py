@@ -1,6 +1,6 @@
 import psutil
 
-from mercari_scraper import ItemSource, MercariScraper
+from utils.mercari_scraper import ItemSource, MercariScraper
 
 
 def test_memory_under_one_gigabyte():

@@ -1,5 +1,5 @@
-from mercari_scraper.enums import ItemSource, ItemStatus, SortBy
-from mercari_scraper.shops_client import (
+from utils.mercari_scraper.enums import ItemSource, ItemStatus, SortBy
+from utils.mercari_scraper.shops_client import (
     SyncShopsClient,
     _build_payload,
     _parse_shops_node,

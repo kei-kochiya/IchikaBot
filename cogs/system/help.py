@@ -49,8 +49,8 @@ COMMAND_CATEGORIES = {
     "Birthday": {
         "description": "Sinh nhật nhân vật",
         "commands": [
-            ("/birthday today", "!bday", "Sinh nhật hôm nay"),
-            ("/birthday upcoming", "!bdayu", "Sinh nhật sắp tới"),
+            ("/birthday check", "!bday", "Kiểm tra sinh nhật hôm nay"),
+            ("/birthday countdown", "!bdayu / !countdown", "Đếm ngược đến sinh nhật tiếp theo"),
             ("/birthday channel", "-", "Đặt kênh thông báo (Admin)"),
         ],
     },
@@ -58,6 +58,7 @@ COMMAND_CATEGORIES = {
         "description": "Tiện ích",
         "commands": [
             ("/help", "!help", "Hiển thị trợ giúp"),
+            ("/gasprice", "!gasprice", "Tra cứu giá xăng dầu PVOIL"),
             ("-", "!sync", "Đồng bộ slash commands"),
             ("/update_data", "-", "Cập nhật dữ liệu (Admin)"),
         ],
@@ -82,7 +83,12 @@ COMMAND_CATEGORIES = {
     "Mercari": {
         "description": "Tra cứu giá Mercari JP",
         "commands": [
-            ("/mercari", "!mercari / !mer", "Tra cứu sản phẩm theo link hoặc ID"),
+            ("/mercari <url_or_id>", "!mercari / !mer", "Tra cứu sản phẩm theo link hoặc ID"),
+            (
+                "/mercarisearch <keyword>",
+                "!mercarisearch / !msearch",
+                "Tìm kiếm sản phẩm trên Mercari",
+            ),
         ],
     },
 }

@@ -16,6 +16,7 @@ from utils.data.game_data import (
     get_unit_color,
 )
 from utils.game.cards import CardToggleView, get_card_image_url, get_random_card
+from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,9 @@ class ProfileCog(commands.Cog):
         """Get a birthday card for a character."""
         return get_random_card(card_data.cards, char_id, ["rarity_birthday"])
 
-    def create_profile_embed(self, char_id: int, card: dict = None) -> discord.Embed | None:
+    def create_profile_embed(
+        self, char_id: int, card: dict | None = None, attachment_url: str | None = None
+    ) -> discord.Embed | None:
         profile = game_data.get_profile(char_id)
         if not profile:
             return None
@@ -85,7 +88,10 @@ class ProfileCog(commands.Cog):
 
         # Set card image
         if card:
-            embed.set_image(url=get_card_image_url(card["assetbundleName"], False))
+            if attachment_url:
+                embed.set_image(url=attachment_url)
+            else:
+                embed.set_image(url=get_card_image_url(card["assetbundleName"], False))
             rarity = (
                 "🎂"
                 if card["cardRarityType"] == "rarity_birthday"
@@ -119,15 +125,26 @@ class ProfileCog(commands.Cog):
                 return
 
         card = self.get_random_card_for_character(char_id)
-        embed = self.create_profile_embed(char_id, card)
+        file = None
+        attachment_url = None
+        if card:
+            img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                attachment_url = "attachment://card.png"
+
+        embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
 
         if embed is None:
             await interaction.followup.send("Không có thông tin profile cho nhân vật này.")
             return
 
         if card:
-            view = CardToggleView(embed, card)
-            msg = await interaction.followup.send(embed=embed, view=view)
+            view = CardToggleView(embed, card, default_trained=False)
+            kwargs = {"embed": embed, "view": view}
+            if file:
+                kwargs["file"] = file
+            msg = await interaction.followup.send(**kwargs)
             view.message = msg
         else:
             await interaction.followup.send(embed=embed)
@@ -146,15 +163,26 @@ class ProfileCog(commands.Cog):
             return
 
         card = self.get_random_card_for_character(char_id)
-        embed = self.create_profile_embed(char_id, card)
+        file = None
+        attachment_url = None
+        if card:
+            img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                attachment_url = "attachment://card.png"
+
+        embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
 
         if embed is None:
             await ctx.send("Không có thông tin profile cho nhân vật này.")
             return
 
         if card:
-            view = CardToggleView(embed, card)
-            await ctx.send(embed=embed, view=view)
+            view = CardToggleView(embed, card, default_trained=False)
+            kwargs = {"embed": embed, "view": view}
+            if file:
+                kwargs["file"] = file
+            await ctx.send(**kwargs)
         else:
             await ctx.send(embed=embed)
 

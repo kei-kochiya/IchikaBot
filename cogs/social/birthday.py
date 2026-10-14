@@ -2,8 +2,9 @@
 Birthday Cog - Character birthday announcements for Project Sekai.
 """
 
+import contextlib
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 import discord
 from discord import app_commands
@@ -60,20 +61,40 @@ class BirthdayCog(commands.Cog):
     # --- Messaging Helpers ---
     async def send_birthday_message(self, channel, character: dict):
         """Send birthday message with year navigation buttons if multiple cards exist."""
+        from utils.media.image_helper import get_card_image_path, get_character_trim_path
+
         cards = get_birthday_cards_for_character(character["id"])
 
         if len(cards) > 1:
             view = BirthdayCardView(character, cards, current_index=0)
-            embed = view._create_embed()
-            msg = await channel.send(embed=embed, view=view)
+            img_path = await get_card_image_path(cards[0]["assetbundleName"], is_trained=False)
+            file = discord.File(img_path, filename="card.png") if img_path else None
+            embed = view._create_embed(attachment_url="attachment://card.png" if file else None)
+            if file:
+                msg = await channel.send(embed=embed, file=file, view=view)
+            else:
+                msg = await channel.send(embed=embed, view=view)
             view.message = msg
         else:
-            embed = create_birthday_embed(character, cards[0] if cards else None)
-            await channel.send(embed=embed)
+            card = cards[0] if cards else None
+            img_path = None
+            if card:
+                img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            else:
+                img_path = await get_character_trim_path(character["id"])
+
+            file = discord.File(img_path, filename="card.png") if img_path else None
+            attachment_url = "attachment://card.png" if file else None
+            embed = create_birthday_embed(character, card, attachment_url=attachment_url)
+            if file:
+                await channel.send(embed=embed, file=file)
+            else:
+                await channel.send(embed=embed)
 
     async def send_countdown_message(self, channel, days_until: int, character: dict):
         """Send countdown message with card and toggle button."""
         from utils.data.card_data import card_data
+        from utils.media.image_helper import get_card_image_path
 
         card = get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
 
@@ -81,18 +102,30 @@ class BirthdayCog(commands.Cog):
             logger.warning(f"Birthday: No cards found for character {character['id']}")
             return
 
-        embed = create_countdown_embed(days_until, character, card)
+        is_trained = supports_trained_art(card)
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+        file = discord.File(img_path, filename="card.png") if img_path else None
+        attachment_url = "attachment://card.png" if file else None
 
-        if supports_trained_art(card):
+        embed = create_countdown_embed(days_until, character, card, attachment_url=attachment_url)
+
+        if is_trained:
             view = CardToggleView(embed, card, default_trained=True)
-            msg = await channel.send(embed=embed, view=view)
+            if file:
+                msg = await channel.send(embed=embed, file=file, view=view)
+            else:
+                msg = await channel.send(embed=embed, view=view)
             view.message = msg
         else:
-            await channel.send(embed=embed)
+            if file:
+                await channel.send(embed=embed, file=file)
+            else:
+                await channel.send(embed=embed)
 
     async def send_daily_card_message(self, channel, character: dict, days_until_bday: int):
         """Send daily card message with countdown and toggle button."""
         from utils.data.card_data import card_data
+        from utils.media.image_helper import get_card_image_path
 
         card = get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
 
@@ -100,14 +133,27 @@ class BirthdayCog(commands.Cog):
             logger.warning(f"Birthday: No 3/4 star cards found for character {character['id']}")
             return
 
-        embed = create_daily_card_embed(character, card, days_until_bday)
+        is_trained = supports_trained_art(card)
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+        file = discord.File(img_path, filename="card.png") if img_path else None
+        attachment_url = "attachment://card.png" if file else None
 
-        if supports_trained_art(card):
+        embed = create_daily_card_embed(
+            character, card, days_until_bday, attachment_url=attachment_url
+        )
+
+        if is_trained:
             view = CardToggleView(embed, card, default_trained=True)
-            msg = await channel.send(embed=embed, view=view)
+            if file:
+                msg = await channel.send(embed=embed, file=file, view=view)
+            else:
+                msg = await channel.send(embed=embed, view=view)
             view.message = msg
         else:
-            await channel.send(embed=embed)
+            if file:
+                await channel.send(embed=embed, file=file)
+            else:
+                await channel.send(embed=embed)
 
     # --- Scheduled Task ---
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=JST))
@@ -147,7 +193,8 @@ class BirthdayCog(commands.Cog):
 
     @birthday_check_task.before_loop
     async def before_birthday_check(self):
-        await self.bot.wait_until_ready()
+        with contextlib.suppress(RuntimeError):
+            await self.bot.wait_until_ready()
 
     @birthday_check_task.error
     async def on_birthday_check_error(self, error: Exception):
@@ -224,9 +271,20 @@ class BirthdayCog(commands.Cog):
     @app_commands.describe(character="Chọn nhân vật để xem thông báo")
     @app_commands.autocomplete(character=char_autocomplete)
     async def test_birthday(self, interaction: discord.Interaction, character: str):
+        from utils.media.image_helper import get_card_image_path, get_character_trim_path
+
+        await interaction.response.defer()
+
         char_data = game_data.characters.get(character)
         if not char_data:
-            await interaction.response.send_message("Không tìm thấy nhân vật.", ephemeral=True)
+            # Try searching by name or unit
+            char_id, found_data = game_data.get_character_by_name(character)
+            if char_id:
+                character = str(char_id)
+                char_data = found_data
+
+        if not char_data:
+            await interaction.followup.send("Không tìm thấy nhân vật.", ephemeral=True)
             return
 
         char_with_id = {**char_data, "id": character}
@@ -234,15 +292,71 @@ class BirthdayCog(commands.Cog):
 
         if len(cards) > 1:
             view = BirthdayCardView(char_with_id, cards, current_index=0)
-            embed = view._create_embed()
-            await interaction.response.send_message(
-                "**📋 Xem trước thông báo sinh nhật:**", embed=embed, view=view
-            )
+            img_path = await get_card_image_path(cards[0]["assetbundleName"], is_trained=False)
+            file = discord.File(img_path, filename="card.png") if img_path else None
+            embed = view._create_embed(attachment_url="attachment://card.png" if file else None)
+            if file:
+                msg = await interaction.followup.send(
+                    "**📋 Xem trước thông báo sinh nhật:**", embed=embed, file=file, view=view
+                )
+            else:
+                msg = await interaction.followup.send(
+                    "**📋 Xem trước thông báo sinh nhật:**", embed=embed, view=view
+                )
+            view.message = msg
         else:
-            embed = create_birthday_embed(char_with_id, cards[0] if cards else None)
-            await interaction.response.send_message(
-                "**📋 Xem trước thông báo sinh nhật:**", embed=embed
-            )
+            card = cards[0] if cards else None
+            img_path = None
+            if card:
+                img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            else:
+                img_path = await get_character_trim_path(character)
+
+            file = discord.File(img_path, filename="card.png") if img_path else None
+            attachment_url = "attachment://card.png" if file else None
+            embed = create_birthday_embed(char_with_id, card, attachment_url=attachment_url)
+            if file:
+                await interaction.followup.send(
+                    "**📋 Xem trước thông báo sinh nhật:**", embed=embed, file=file
+                )
+            else:
+                await interaction.followup.send(
+                    "**📋 Xem trước thông báo sinh nhật:**", embed=embed
+                )
+
+    @birthday_group.command(name="countdown", description="Xem đếm ngược sinh nhật kèm card")
+    @app_commands.describe(character="Chọn nhân vật hoặc để trống cho sinh nhật gần nhất")
+    @app_commands.autocomplete(character=char_autocomplete)
+    async def countdown_slash(self, interaction: discord.Interaction, character: str = None):
+        await interaction.response.defer()
+        target_char = None
+        days_until = None
+
+        if character:
+            char_data = game_data.characters.get(character)
+            if not char_data:
+                cid, found_data = game_data.get_character_by_name(character)
+                if cid:
+                    character = str(cid)
+                    char_data = found_data
+            if char_data:
+                target_char = {**char_data, "id": character}
+                # Calculate days until this character's birthday
+                now = datetime.now(JST)
+                for days_ahead in range(0, 366):
+                    d_str = (now + timedelta(days=days_ahead)).strftime("%m-%d")
+                    if char_data.get("birthday") == d_str:
+                        days_until = days_ahead
+                        break
+
+        if not target_char or days_until is None:
+            next_bday = get_next_birthday()
+            if not next_bday:
+                await interaction.followup.send("Không tìm thấy thông tin sinh nhật sắp tới.")
+                return
+            days_until, target_char = next_bday
+
+        await self.send_daily_card_message(interaction.channel, target_char, days_until)
 
     @birthday_group.command(name="check", description="Xem sinh nhật hôm nay và sắp tới")
     async def check_birthday_slash(self, interaction: discord.Interaction):
@@ -283,6 +397,37 @@ class BirthdayCog(commands.Cog):
         )
         embed.timestamp = now
         await ctx.send(embed=embed)
+
+    @commands.command(name="bdayu", aliases=["countdown", "upcoming", "bdaycountdown"])
+    async def bday_countdown_prefix(self, ctx: commands.Context, *, character: str = None):
+        """Check upcoming birthday countdown with card: !bdayu [character]"""
+        target_char = None
+        days_until = None
+
+        if character:
+            char_data = game_data.characters.get(character)
+            if not char_data:
+                cid, found_data = game_data.get_character_by_name(character)
+                if cid:
+                    character = str(cid)
+                    char_data = found_data
+            if char_data:
+                target_char = {**char_data, "id": character}
+                now = datetime.now(JST)
+                for days_ahead in range(0, 366):
+                    d_str = (now + timedelta(days=days_ahead)).strftime("%m-%d")
+                    if char_data.get("birthday") == d_str:
+                        days_until = days_ahead
+                        break
+
+        if not target_char or days_until is None:
+            next_bday = get_next_birthday()
+            if not next_bday:
+                await ctx.send("Không tìm thấy thông tin sinh nhật sắp tới.")
+                return
+            days_until, target_char = next_bday
+
+        await self.send_daily_card_message(ctx.channel, target_char, days_until)
 
 
 async def setup(bot):

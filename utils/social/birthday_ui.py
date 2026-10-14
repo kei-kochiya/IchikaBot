@@ -19,7 +19,9 @@ UNIT_NAMES = {
 }
 
 
-def create_birthday_embed(character: dict, card: dict = None) -> discord.Embed:
+def create_birthday_embed(
+    character: dict, card: dict = None, attachment_url: str | None = None
+) -> discord.Embed:
     """Create birthday embed with optional specific card."""
     full_name = get_character_name(character["id"], full=True)
     char_id = character.get("id")
@@ -46,21 +48,28 @@ def create_birthday_embed(character: dict, card: dict = None) -> discord.Embed:
             release_year = datetime.fromtimestamp(release_ts / 1000, tz=JST).year
             embed.add_field(name="Card Year", value=str(release_year), inline=True)
 
-        card_url = f"https://storage.sekai.best/sekai-jp-assets/character/member/{card['assetbundleName']}/card_normal.png"
+        card_url = (
+            attachment_url
+            or f"https://storage.sekai.best/sekai-jp-assets/character/member/{card['assetbundleName']}/card_normal.png"
+        )
         embed.set_image(url=card_url)
         embed.set_footer(text=card.get("prefix", "Birthday Card"))
     else:
         # Fallback to character trim if no birthday card found
-        embed.set_image(
-            url=f"https://storage.sekai.best/sekai-jp-assets/character/character_trim/chr_trim_{char_id}.webp"
+        trim_url = (
+            attachment_url
+            or f"https://storage.sekai.best/sekai-jp-assets/character/character_trim/chr_trim_{char_id}.webp"
         )
+        embed.set_image(url=trim_url)
         embed.set_footer(text="Project Sekai Birthday Announcement")
 
     embed.timestamp = datetime.now(JST)
     return embed
 
 
-def create_countdown_embed(days_until: int, character: dict, card: dict) -> discord.Embed:
+def create_countdown_embed(
+    days_until: int, character: dict, card: dict, attachment_url: str | None = None
+) -> discord.Embed:
     """Create a countdown embed for an upcoming birthday with card image."""
     full_name = get_character_name(character["id"], full=True)
     char_id = character.get("id")
@@ -84,7 +93,7 @@ def create_countdown_embed(days_until: int, character: dict, card: dict) -> disc
 
     # Use card image (default trained for 3/4 star)
     is_trained = supports_trained_art(card)
-    card_url = get_card_image_url(card["assetbundleName"], trained=is_trained)
+    card_url = attachment_url or get_card_image_url(card["assetbundleName"], trained=is_trained)
 
     embed.set_image(url=card_url)
     embed.set_footer(text=card.get("prefix", "Card"))
@@ -92,7 +101,9 @@ def create_countdown_embed(days_until: int, character: dict, card: dict) -> disc
     return embed
 
 
-def create_daily_card_embed(character: dict, card: dict, days_until_bday: int) -> discord.Embed:
+def create_daily_card_embed(
+    character: dict, card: dict, days_until_bday: int, attachment_url: str | None = None
+) -> discord.Embed:
     """Create daily card embed with birthday countdown."""
     full_name = get_character_name(character["id"], full=True)
     char_id = character.get("id")
@@ -114,9 +125,9 @@ def create_daily_card_embed(character: dict, card: dict, days_until_bday: int) -
     )
     embed.add_field(name="Birthday", value=character.get("birthday", "Unknown"), inline=True)
 
-    # Use trained art for 3/4 star
+    # Use trained art for 3/4 star if supported
     is_trained = supports_trained_art(card)
-    card_url = get_card_image_url(card["assetbundleName"], trained=is_trained)
+    card_url = attachment_url or get_card_image_url(card["assetbundleName"], trained=is_trained)
 
     embed.set_image(url=card_url)
     embed.set_footer(text=card.get("prefix", "Card"))
@@ -168,19 +179,57 @@ class BirthdayCardView(discord.ui.View):
         self.add_item(next_btn)
 
     async def prev_callback(self, interaction: discord.Interaction):
+        from utils.media.image_helper import get_card_image_path
+
         self.current_index = min(self.current_index + 1, len(self.cards) - 1)
         self.update_buttons()
-        embed = self._create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        card = self.cards[self.current_index]
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+        keep_attachments = [
+            att
+            for att in (interaction.message.attachments if interaction.message else [])
+            if att.filename != "card.png"
+        ]
+        if img_path:
+            file = discord.File(img_path, filename="card.png")
+            embed = self._create_embed(attachment_url="attachment://card.png")
+            await interaction.response.edit_message(
+                embed=embed, attachments=[*keep_attachments, file], view=self
+            )
+        else:
+            embed = self._create_embed()
+            await interaction.response.edit_message(
+                embed=embed, attachments=keep_attachments, view=self
+            )
 
     async def next_callback(self, interaction: discord.Interaction):
+        from utils.media.image_helper import get_card_image_path
+
         self.current_index = max(self.current_index - 1, 0)
         self.update_buttons()
-        embed = self._create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        card = self.cards[self.current_index]
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+        keep_attachments = [
+            att
+            for att in (interaction.message.attachments if interaction.message else [])
+            if att.filename != "card.png"
+        ]
+        if img_path:
+            file = discord.File(img_path, filename="card.png")
+            embed = self._create_embed(attachment_url="attachment://card.png")
+            await interaction.response.edit_message(
+                embed=embed, attachments=[*keep_attachments, file], view=self
+            )
+        else:
+            embed = self._create_embed()
+            await interaction.response.edit_message(
+                embed=embed, attachments=keep_attachments, view=self
+            )
 
-    def _create_embed(self) -> discord.Embed:
-        return create_birthday_embed(self.character, self.cards[self.current_index])
+    def _create_embed(self, attachment_url: str | None = None) -> discord.Embed:
+        return create_birthday_embed(
+            self.character, self.cards[self.current_index], attachment_url=attachment_url
+        )
 
     async def on_timeout(self):
         for item in self.children:

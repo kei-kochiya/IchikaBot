@@ -1,7 +1,7 @@
 from mercapi.requests.search import SearchRequestData
 
-from mercari_scraper.c2c_client import SyncC2CClient, _map_c2c_sorting, _map_c2c_status
-from mercari_scraper.enums import ItemSource, ItemStatus, SortBy
+from utils.mercari_scraper.c2c_client import SyncC2CClient, _map_c2c_sorting, _map_c2c_status
+from utils.mercari_scraper.enums import ItemSource, ItemStatus, SortBy
 
 
 def test_map_c2c_status():

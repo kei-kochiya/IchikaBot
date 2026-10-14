@@ -3,6 +3,7 @@ Data Updater Cog - Centralized scheduled updates for all game data files.
 This replaces the individual check_updates tasks in each cog.
 """
 
+import contextlib
 import logging
 
 import discord
@@ -63,7 +64,8 @@ class DataUpdaterCog(commands.Cog):
     @scheduled_update.before_loop
     async def before_scheduled_update(self):
         """Wait for bot to be ready."""
-        await self.bot.wait_until_ready()
+        with contextlib.suppress(RuntimeError):
+            await self.bot.wait_until_ready()
 
     @scheduled_update.error
     async def on_scheduled_update_error(self, error: Exception):

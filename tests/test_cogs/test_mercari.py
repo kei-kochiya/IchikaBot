@@ -9,7 +9,7 @@ from cogs.misc.mercari import (
     _compute_vnd_price,
     extract_item_id,
 )
-from mercari_scraper import ItemSource, MercariItem
+from utils.mercari_scraper import ItemSource, MercariItem
 
 
 def test_extract_item_id():

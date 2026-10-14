@@ -16,7 +16,11 @@ def get_card_image_url(asset_bundle: str, trained: bool = False) -> str:
 
 
 def supports_trained_art(card: dict) -> bool:
-    """Check if a card supports trained art (3-star or 4-star only)."""
+    """Check if a card supports trained art (3-star or 4-star only, not pre-trained)."""
+    if not isinstance(card, dict):
+        return False
+    if card.get("initialSpecialTrainingStatus") == "done":
+        return False
     return card.get("cardRarityType") in ["rarity_3", "rarity_4"]
 
 
@@ -80,13 +84,35 @@ class CardToggleView(discord.ui.View):
         return get_card_image_url(self.card["assetbundleName"], self.is_trained)
 
     async def toggle_callback(self, interaction: discord.Interaction):
+        from utils.media.image_helper import get_card_image_path
+
         self.is_trained = not self.is_trained
         self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
 
-        # Update embed image
-        self.embed.set_image(url=self.get_current_image_url())
+        # Update embed image from message or fallback to self.embed
+        embed = (
+            interaction.message.embeds[0]
+            if interaction.message and interaction.message.embeds
+            else self.embed
+        )
 
-        await interaction.response.edit_message(embed=self.embed, view=self)
+        img_path = await get_card_image_path(self.card["assetbundleName"], self.is_trained)
+        keep_attachments = [
+            att
+            for att in (interaction.message.attachments if interaction.message else [])
+            if att.filename != "card.png"
+        ]
+        if img_path:
+            file = discord.File(img_path, filename="card.png")
+            embed.set_image(url="attachment://card.png")
+            await interaction.response.edit_message(
+                embed=embed, attachments=[*keep_attachments, file], view=self
+            )
+        else:
+            embed.set_image(url=self.get_current_image_url())
+            await interaction.response.edit_message(
+                embed=embed, attachments=keep_attachments, view=self
+            )
 
     async def on_timeout(self):
         for item in self.children:

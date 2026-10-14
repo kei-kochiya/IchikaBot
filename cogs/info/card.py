@@ -13,6 +13,8 @@ from discord.ext import commands
 from config import ASSETS_PATH, RARITY_ICONS
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
+from utils.game.cards import supports_trained_art
+from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ class CardView(discord.ui.View):
             custom_id=f"switch_{card_data['id']}_type",
         )
 
-        if card_data["cardRarityType"] in ["rarity_birthday", "rarity_1"]:
+        if not supports_trained_art(card_data):
             self.switch_button.disabled = True
             self.switch_button.label = "No Trained Art"
             self.switch_button.style = discord.ButtonStyle.secondary
@@ -46,13 +48,29 @@ class CardView(discord.ui.View):
             discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
         )
 
-        suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
-        new_image_url = f"{self.base_image_url}/{suffix}"
-
         embed = interaction.message.embeds[0]
-        embed.set_image(url=new_image_url)
-
-        await interaction.response.edit_message(embed=embed, view=self)
+        is_trained = not self.is_normal
+        img_path = await get_card_image_path(
+            self.card_data["assetbundleName"], is_trained=is_trained
+        )
+        keep_attachments = [
+            att
+            for att in (interaction.message.attachments if interaction.message else [])
+            if att.filename != "card.png"
+        ]
+        if img_path:
+            file = discord.File(img_path, filename="card.png")
+            embed.set_image(url="attachment://card.png")
+            await interaction.response.edit_message(
+                embed=embed, attachments=[*keep_attachments, file], view=self
+            )
+        else:
+            suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
+            new_image_url = f"{self.base_image_url}/{suffix}"
+            embed.set_image(url=new_image_url)
+            await interaction.response.edit_message(
+                embed=embed, attachments=keep_attachments, view=self
+            )
 
     async def on_timeout(self):
         for item in self.children:
@@ -116,7 +134,6 @@ class CardCog(commands.Cog):
 
         # Asset URLs always use JP storage
         base_url = f"https://storage.sekai.best/sekai-jp-assets/character/member/{selected_card['assetbundleName']}"
-        image_url = f"{base_url}/card_normal.png"
 
         unit_img_path = (
             ASSETS_PATH / "common" / "logo_mini" / f"{char_info.get('unit', 'unknown')}.png"
@@ -126,6 +143,16 @@ class CardCog(commands.Cog):
         icon_img_path = ASSETS_PATH / "chara_icons" / f"{clean_name}.png"
 
         files_to_send = []
+
+        # Check cache / download card image
+        card_img_path = await get_card_image_path(
+            selected_card["assetbundleName"], is_trained=False
+        )
+        if card_img_path:
+            files_to_send.append(discord.File(card_img_path, filename="card.png"))
+            image_url = "attachment://card.png"
+        else:
+            image_url = f"{base_url}/card_normal.png"
 
         author_icon_url = None
         if icon_img_path.exists():
