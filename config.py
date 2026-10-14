@@ -8,17 +8,19 @@ from pathlib import Path
 import aiohttp
 
 # --- Paths ---
-DB_FILE = Path("./ichika.db")
+BASE_DIR = Path(__file__).resolve().parent
 
-GAME_DATA_PATH = Path("./gameData")
+DB_FILE = BASE_DIR / "ichika.db"
+
+GAME_DATA_PATH = BASE_DIR / "gameData"
 STATIC_DATA_PATH = GAME_DATA_PATH / "static"
 JP_DATA_PATH = GAME_DATA_PATH / "JP_data"
 EN_DATA_PATH = GAME_DATA_PATH / "EN_data"
 
-CACHE_DIR = Path("./.gachacache")
+CACHE_DIR = BASE_DIR / ".gachacache"
 TEMP_DIR = CACHE_DIR / "temp"
-ASSETS_PATH = Path("./assets")
-AUDIO_DIR = Path("./music")
+ASSETS_PATH = BASE_DIR / "assets"
+AUDIO_DIR = BASE_DIR / "music"
 
 # Static files (not updated)
 CHARACTERS_FILE = STATIC_DATA_PATH / "gameCharacters.json"
@@ -47,7 +49,7 @@ MUSIC_DIFFICULTIES_FILE = MUSIC_DIFFICULTIES_FILE_JP
 STAMPS_FILE = STAMPS_FILE_JP
 EVENTS_FILE = EVENTS_FILE_JP
 
-PITY_FILE = Path("./pityData.json")
+PITY_FILE = BASE_DIR / "pityData.json"
 
 # Rarity display icons
 RARITY_ICONS = {

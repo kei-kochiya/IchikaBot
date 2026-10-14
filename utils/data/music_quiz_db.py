@@ -84,13 +84,13 @@ class MusicQuizDB:
         logger.info("MusicQuizDB: Loaded %d songs from song.xlsx", len(db))
 
     def get_song_info(self, filename: str) -> dict:
-        idx = os.path.splitext(filename)[0]
+        idx = os.path.splitext(os.path.basename(filename))[0]
         return self._db.get(
             idx, {"title_en": None, "romaji_title": None, "title_jp": idx, "is_comm": False}
         )
 
     def is_commission(self, filename_or_id: str | int) -> bool:
-        idx = os.path.splitext(str(filename_or_id))[0]
+        idx = os.path.splitext(os.path.basename(str(filename_or_id)))[0]
         return bool(self._db.get(idx, {}).get("is_comm", False))
 
     def get_commission_ids(self) -> set[str]:
@@ -118,11 +118,5 @@ class MusicQuizDB:
 
     @staticmethod
     def build_reveal(info: dict) -> str:
-        lines = []
-        if info.get("title_en"):
-            lines.append(f"🎵 **{info['title_en']}**")
-        if info.get("romaji_title") and info["romaji_title"] != info.get("title_en"):
-            lines.append(f"🔤 *{info['romaji_title']}*")
-        if not lines and info.get("title_jp"):
-            lines.append(f"🎵 **{info['title_jp']}**")
-        return "\n".join(lines) if lines else "???"
+        title = info.get("title_en") or info.get("title_jp") or "???"
+        return f"🎵 **{title}**"

@@ -49,3 +49,14 @@ def test_music_quiz_db_instance():
     assert db.is_commission("54.mp3") is True
     assert db.is_commission("1") is False  # Tell Your World
     assert db.is_commission("1.mp3") is False
+
+
+def test_build_reveal():
+    info = {"title_en": "Lower one's eyes", "romaji_title": "Lower", "title_jp": "ロウワー"}
+    reveal = MusicQuizDB.build_reveal(info)
+    assert reveal == "🎵 **Lower one's eyes**"
+    assert "🔤" not in reveal
+
+    info_jp = {"title_en": None, "romaji_title": None, "title_jp": "ロウワー"}
+    assert MusicQuizDB.build_reveal(info_jp) == "🎵 **ロウワー**"
+

@@ -4,6 +4,7 @@ import glob
 import logging
 import os
 import random
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -49,7 +50,7 @@ class MusicGuess(commands.Cog):
             return all_files
         db = MusicQuizDB.get_instance()
         comm_ids = db.get_commission_ids()
-        return [f for f in all_files if os.path.splitext(f)[0] in comm_ids]
+        return [f for f in all_files if os.path.splitext(os.path.basename(f))[0] in comm_ids]
 
     def _refresh_available_songs(self, pool_type: str, eligible_files: list[str]) -> set:
         available = set(eligible_files)
@@ -159,14 +160,27 @@ class MusicGuess(commands.Cog):
 
         # ── Scan song files ─────────────────────────────────────────────────
         try:
-            audio_dir = str(AUDIO_DIR)
-            if not os.path.exists(audio_dir):
-                os.makedirs(audio_dir)
-            song_files = [
-                f for f in os.listdir(audio_dir) if f.endswith((".mp3", ".wav", ".m4a", ".ogg"))
-            ]
+            audio_path = Path(AUDIO_DIR)
+            if not audio_path.exists():
+                # Case-insensitive fallback for Linux
+                parent = audio_path.parent
+                if parent.exists():
+                    for p in parent.iterdir():
+                        if p.name.lower() == audio_path.name.lower() and p.is_dir():
+                            audio_path = p
+                            break
+            if not audio_path.exists():
+                audio_path.mkdir(parents=True, exist_ok=True)
+
+            song_files = []
+            for root, _, files in os.walk(str(audio_path)):
+                for f in files:
+                    if f.lower().endswith((".mp3", ".wav", ".m4a", ".ogg")):
+                        rel_path = os.path.relpath(os.path.join(root, f), str(audio_path))
+                        song_files.append(rel_path)
+
             if not song_files:
-                await send_msg(f"Không tìm thấy bài hát nào trong thư mục `{audio_dir}`.")
+                await send_msg(f"Không tìm thấy bài hát nào trong thư mục `{audio_path}`.")
                 return
         except Exception as e:
             logger.error("Error reading music directory: %s", e)
@@ -200,7 +214,7 @@ class MusicGuess(commands.Cog):
                 await send_msg("Không có bài hát nào có thể phát được.")
                 return
             chosen_file = random.choice(list(available))
-            full_path = os.path.join(audio_dir, chosen_file)
+            full_path = os.path.join(str(audio_path), chosen_file)
             clip_path, effect_name = await self.bot.loop.run_in_executor(
                 None, prepare_clip, full_path, variant
             )
