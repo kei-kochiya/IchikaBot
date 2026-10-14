@@ -35,6 +35,17 @@ class TestSupportsTrainedArt:
         assert supports_trained_art("not a dict") is False
 
 
+class TestIsPreTrainedCard:
+    def test_pre_trained_card_detection(self):
+        from utils.game.cards import is_pre_trained_card
+
+        assert is_pre_trained_card({"initialSpecialTrainingStatus": "done"}) is True
+        assert is_pre_trained_card({"initialSpecialTrainingStatus": "not_done"}) is False
+        assert is_pre_trained_card({}) is False
+        assert is_pre_trained_card(None) is False
+        assert is_pre_trained_card("invalid") is False
+
+
 class TestGetCardImageUrl:
     def test_normal_image_url(self):
         url = get_card_image_url("card_bundle_1", trained=False)

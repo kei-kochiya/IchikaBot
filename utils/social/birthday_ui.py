@@ -271,14 +271,14 @@ async def prepare_daily_card_message(
 ) -> tuple[discord.Embed | None, discord.File | None, discord.ui.View | None]:
     """Prepare embed, cached card image file, and toggle view for a countdown daily card announcement."""
     from utils.data.card_data import card_data
-    from utils.game.cards import CardToggleView, get_random_card
+    from utils.game.cards import CardToggleView, get_random_card, is_pre_trained_card
     from utils.media.image_helper import get_card_image_path
 
     card = get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
     if not card:
         return None, None, None
 
-    is_trained = supports_trained_art(card)
+    is_trained = supports_trained_art(card) or is_pre_trained_card(card)
     img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
     file = discord.File(img_path, filename="card.png") if img_path else None
     attachment_url = "attachment://card.png" if file else None

@@ -15,7 +15,12 @@ from utils.data.game_data import (
     get_character_name,
     get_unit_color,
 )
-from utils.game.cards import CardToggleView, get_card_image_url, get_random_card
+from utils.game.cards import (
+    CardToggleView,
+    get_card_image_url,
+    get_random_card,
+    is_pre_trained_card,
+)
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
@@ -91,7 +96,8 @@ class ProfileCog(commands.Cog):
             if attachment_url:
                 embed.set_image(url=attachment_url)
             else:
-                embed.set_image(url=get_card_image_url(card["assetbundleName"], False))
+                trained = is_pre_trained_card(card)
+                embed.set_image(url=get_card_image_url(card["assetbundleName"], trained))
             rarity = (
                 "🎂"
                 if card["cardRarityType"] == "rarity_birthday"
@@ -128,7 +134,10 @@ class ProfileCog(commands.Cog):
         file = None
         attachment_url = None
         if card:
-            img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            initial_trained = is_pre_trained_card(card)
+            img_path = await get_card_image_path(
+                card["assetbundleName"], is_trained=initial_trained
+            )
             if img_path:
                 file = discord.File(img_path, filename="card.png")
                 attachment_url = "attachment://card.png"
@@ -166,7 +175,10 @@ class ProfileCog(commands.Cog):
         file = None
         attachment_url = None
         if card:
-            img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+            initial_trained = is_pre_trained_card(card)
+            img_path = await get_card_image_path(
+                card["assetbundleName"], is_trained=initial_trained
+            )
             if img_path:
                 file = discord.File(img_path, filename="card.png")
                 attachment_url = "attachment://card.png"

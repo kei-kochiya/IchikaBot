@@ -13,7 +13,7 @@ from discord.ext import commands
 from config import ASSETS_PATH, RARITY_ICONS
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
-from utils.game.cards import supports_trained_art
+from utils.game.cards import is_pre_trained_card, supports_trained_art
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
@@ -25,17 +25,18 @@ class CardView(discord.ui.View):
         self.card_data = card_data
         self.char_data = char_data
         self.base_image_url = base_image_url
-        self.is_normal = True
+        is_pre_trained = is_pre_trained_card(card_data)
+        self.is_normal = not is_pre_trained
 
         self.switch_button = discord.ui.Button(
-            label="Trained",
-            style=discord.ButtonStyle.primary,
+            label="Trained" if self.is_normal else "Normal",
+            style=discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary,
             custom_id=f"switch_{card_data['id']}_type",
         )
 
         if not supports_trained_art(card_data):
             self.switch_button.disabled = True
-            self.switch_button.label = "No Trained Art"
+            self.switch_button.label = "Trained Only" if is_pre_trained else "No Trained Art"
             self.switch_button.style = discord.ButtonStyle.secondary
 
         self.switch_button.callback = self.switch_callback
@@ -144,15 +145,19 @@ class CardCog(commands.Cog):
 
         files_to_send = []
 
+        is_pre_trained = is_pre_trained_card(selected_card)
+        initial_trained = is_pre_trained
+
         # Check cache / download card image
         card_img_path = await get_card_image_path(
-            selected_card["assetbundleName"], is_trained=False
+            selected_card["assetbundleName"], is_trained=initial_trained
         )
         if card_img_path:
             files_to_send.append(discord.File(card_img_path, filename="card.png"))
             image_url = "attachment://card.png"
         else:
-            image_url = f"{base_url}/card_normal.png"
+            suffix = "card_after_training.png" if initial_trained else "card_normal.png"
+            image_url = f"{base_url}/{suffix}"
 
         author_icon_url = None
         if icon_img_path.exists():

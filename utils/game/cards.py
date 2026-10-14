@@ -15,11 +15,16 @@ def get_card_image_url(asset_bundle: str, trained: bool = False) -> str:
     return f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_bundle}/{suffix}"
 
 
+def is_pre_trained_card(card: dict) -> bool:
+    """Check if a card is pre-trained (only has trained art, no normal art)."""
+    return isinstance(card, dict) and card.get("initialSpecialTrainingStatus") == "done"
+
+
 def supports_trained_art(card: dict) -> bool:
-    """Check if a card supports trained art (3-star or 4-star only, not pre-trained)."""
+    """Check if a card supports toggleable trained art (has both normal and trained versions)."""
     if not isinstance(card, dict):
         return False
-    if card.get("initialSpecialTrainingStatus") == "done":
+    if is_pre_trained_card(card):
         return False
     return card.get("cardRarityType") in ["rarity_3", "rarity_4"]
 
@@ -65,10 +70,11 @@ class CardToggleView(discord.ui.View):
         self.embed = embed
         self.card = card
         self.message = None  # Set by caller after sending: view.message = msg
+        self.is_pre_trained = is_pre_trained_card(card)
         self.supports_trained = supports_trained_art(card)
 
-        # Start with trained for 3/4 star, untrained otherwise
-        self.is_trained = default_trained and self.supports_trained
+        # Start with trained for pre-trained cards, or if default_trained requested on toggleable cards
+        self.is_trained = (default_trained and self.supports_trained) or self.is_pre_trained
 
         if self.supports_trained:
             self.toggle_btn = discord.ui.Button(

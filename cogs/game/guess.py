@@ -12,6 +12,7 @@ from PIL import Image, ImageFilter, ImageOps
 from config import SONG_GUESS_DURATION
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
+from utils.game.cards import is_pre_trained_card, supports_trained_art
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,12 @@ class GuessCog(commands.Cog):
 
         try:
             card = random.choice(self.cards)
-            is_trained = random.choice([True, False])
+            if is_pre_trained_card(card):
+                is_trained = True
+            elif not supports_trained_art(card):
+                is_trained = False
+            else:
+                is_trained = random.choice([True, False])
 
             game_img, full_img, effect_name = await self.process_game_image(
                 card["assetbundleName"], is_trained, mode

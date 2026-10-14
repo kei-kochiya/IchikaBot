@@ -15,7 +15,12 @@ from discord.ext import commands, tasks
 from utils.core import database
 from utils.data.card_data import card_data
 from utils.data.game_data import get_character_name, get_unit_color
-from utils.game.cards import CardToggleView, get_card_image_url, supports_trained_art
+from utils.game.cards import (
+    CardToggleView,
+    get_card_image_url,
+    is_pre_trained_card,
+    supports_trained_art,
+)
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
@@ -94,7 +99,7 @@ class CardOfDayCog(commands.Cog):
             description=f"**{display_name}**\n{rarity} — {char_name}",
             color=get_unit_color(char_id),
         )
-        is_trained = supports_trained_art(card)
+        is_trained = supports_trained_art(card) or is_pre_trained_card(card)
         image_url = attachment_url or get_card_image_url(
             card["assetbundleName"], trained=is_trained
         )
@@ -127,7 +132,7 @@ class CardOfDayCog(commands.Cog):
 
             try:
                 card = random.choice(card_data.pool_3_4)
-                is_trained = supports_trained_art(card)
+                is_trained = supports_trained_art(card) or is_pre_trained_card(card)
                 img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
                 file = discord.File(img_path, filename="card.png") if img_path else None
                 attachment_url = "attachment://card.png" if file else None
@@ -228,7 +233,7 @@ class CardOfDayCog(commands.Cog):
         await interaction.response.defer()
 
         card = random.choice(card_data.pool_3_4)
-        is_trained = supports_trained_art(card)
+        is_trained = supports_trained_art(card) or is_pre_trained_card(card)
         img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
         file = discord.File(img_path, filename="card.png") if img_path else None
         attachment_url = "attachment://card.png" if file else None
