@@ -72,14 +72,29 @@ class MusicQuizDB:
             title_jp = str(row[1]).strip() if len(row) > 1 and row[1] else None
             title_en = str(row[2]).strip() if len(row) > 2 and row[2] else None
             romaji = str(row[7]).strip() if len(row) > 7 and row[7] else None
-            db[idx] = {"title_en": title_en, "romaji_title": romaji, "title_jp": title_jp}
+            is_comm = bool(row[8]) if len(row) > 8 and row[8] is not None else False
+            db[idx] = {
+                "title_en": title_en,
+                "romaji_title": romaji,
+                "title_jp": title_jp,
+                "is_comm": is_comm,
+            }
 
         self._db = db
         logger.info("MusicQuizDB: Loaded %d songs from song.xlsx", len(db))
 
     def get_song_info(self, filename: str) -> dict:
         idx = os.path.splitext(filename)[0]
-        return self._db.get(idx, {"title_en": None, "romaji_title": None, "title_jp": idx})
+        return self._db.get(
+            idx, {"title_en": None, "romaji_title": None, "title_jp": idx, "is_comm": False}
+        )
+
+    def is_commission(self, filename_or_id: str | int) -> bool:
+        idx = os.path.splitext(str(filename_or_id))[0]
+        return bool(self._db.get(idx, {}).get("is_comm", False))
+
+    def get_commission_ids(self) -> set[str]:
+        return {idx for idx, info in self._db.items() if info.get("is_comm")}
 
     @staticmethod
     def build_display_answer(info: dict) -> str:

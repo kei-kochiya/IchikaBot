@@ -41,3 +41,11 @@ def test_music_quiz_db_instance():
     norm_targets = db.build_norm_targets(info)
     assert isinstance(norm_targets, list)
     assert len(norm_targets) > 0
+
+    # Test commission queries
+    comm_ids = db.get_commission_ids()
+    assert len(comm_ids) >= 200
+    assert db.is_commission("54") is True  # Ready Steady
+    assert db.is_commission("54.mp3") is True
+    assert db.is_commission("1") is False  # Tell Your World
+    assert db.is_commission("1.mp3") is False

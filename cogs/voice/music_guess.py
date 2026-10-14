@@ -23,17 +23,44 @@ class MusicGuess(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_games = {}
-        # Per-session song tracking (two-set approach for efficient selection)
-        self.played_songs: set = set()
-        self.available_songs: set = set()
+        # Independent per-session song tracking for comm and all modes
+        self.played_songs_comm: set = set()
+        self.available_songs_comm: set = set()
+        self.played_songs_all: set = set()
+        self.available_songs_all: set = set()
 
     # ── Pool management ────────────────────────────────────────────────────────
 
-    def _refresh_available_songs(self, all_songs: list[str]) -> None:
-        if not self.available_songs:
-            self.available_songs = set(all_songs)
-            self.played_songs.clear()
-            logger.info("Music: All songs played, resetting song pool.")
+    def _get_pool(self, pool_type: str) -> tuple[set, set]:
+        if pool_type == "all":
+            return self.available_songs_all, self.played_songs_all
+        return self.available_songs_comm, self.played_songs_comm
+
+    def _set_pool(self, pool_type: str, available: set, played: set) -> None:
+        if pool_type == "all":
+            self.available_songs_all = available
+            self.played_songs_all = played
+        else:
+            self.available_songs_comm = available
+            self.played_songs_comm = played
+
+    def _filter_eligible_songs(self, pool_type: str, all_files: list[str]) -> list[str]:
+        if pool_type == "all":
+            return all_files
+        db = MusicQuizDB.get_instance()
+        comm_ids = db.get_commission_ids()
+        return [f for f in all_files if os.path.splitext(f)[0] in comm_ids]
+
+    def _refresh_available_songs(self, pool_type: str, eligible_files: list[str]) -> set:
+        available = set(eligible_files)
+        played = set()
+        self._set_pool(pool_type, available, played)
+        logger.info(
+            "Music: Reset [%s] song pool with %d songs.",
+            pool_type,
+            len(eligible_files),
+        )
+        return available
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -95,8 +122,12 @@ class MusicGuess(commands.Cog):
 
     # ── Core game logic ────────────────────────────────────────────────────────
 
-    async def start_game_logic(self, interaction_or_ctx, variant_mode: bool = False):
+    async def start_game_logic(
+        self, interaction_or_ctx, variant_mode: bool = False, pool_type: str = "comm"
+    ):
         """Core game logic shared between slash and prefix commands."""
+        pool_type = "all" if pool_type.lower() in ("all", "a", "tatca") else "comm"
+
         if isinstance(interaction_or_ctx, discord.Interaction):
             interaction = interaction_or_ctx
             user = interaction.user
@@ -142,14 +173,22 @@ class MusicGuess(commands.Cog):
             await send_msg(f"Lỗi đọc thư mục nhạc: {e}")
             return
 
+        eligible_files = self._filter_eligible_songs(pool_type, song_files)
+        if not eligible_files:
+            pool_desc = "commission" if pool_type == "comm" else "hợp lệ"
+            await send_msg(f"Không tìm thấy bài hát {pool_desc} nào trong thư mục nhạc.")
+            return
+
         variant = random.choice(["fast", "slow", "reverse"]) if variant_mode else None
 
         # Sync pool with current files
-        song_files_set = set(song_files)
-        self.available_songs &= song_files_set
-        self.played_songs &= song_files_set
-        if not self.available_songs:
-            self._refresh_available_songs(song_files)
+        available, played = self._get_pool(pool_type)
+        eligible_set = set(eligible_files)
+        available &= eligible_set
+        played &= eligible_set
+        if not available:
+            available = self._refresh_available_songs(pool_type, eligible_files)
+            played = set()
 
         # ── Pick a song ─────────────────────────────────────────────────────
         chosen_file = None
@@ -157,23 +196,24 @@ class MusicGuess(commands.Cog):
         effect_name = None
 
         for _ in range(5):
-            if not self.available_songs:
+            if not available:
                 await send_msg("Không có bài hát nào có thể phát được.")
                 return
-            chosen_file = random.choice(list(self.available_songs))
+            chosen_file = random.choice(list(available))
             full_path = os.path.join(audio_dir, chosen_file)
             clip_path, effect_name = await self.bot.loop.run_in_executor(
                 None, prepare_clip, full_path, variant
             )
             if clip_path is not None:
                 break
-            self.available_songs.discard(chosen_file)
-            if not self.available_songs:
-                self._refresh_available_songs(song_files)
+            available.discard(chosen_file)
+            if not available:
+                available = self._refresh_available_songs(pool_type, eligible_files)
 
         if chosen_file:
-            self.available_songs.discard(chosen_file)
-            self.played_songs.add(chosen_file)
+            available.discard(chosen_file)
+            played.add(chosen_file)
+            self._set_pool(pool_type, available, played)
 
         if clip_path is None:
             await send_msg("Lỗi kỹ thuật khi xử lý bài hát.")
@@ -225,9 +265,10 @@ class MusicGuess(commands.Cog):
             "timer_task": timer_task,
         }
 
-        mode_text = f"\n(Chế độ: {effect_name})" if variant_mode else ""
+        pool_label = "Commission" if pool_type == "comm" else "Tất cả bài hát"
+        mode_text = f"\n(Hiệu ứng: {effect_name})" if variant_mode else ""
         await send_msg(
-            f"**Đoán Tên Bài Hát!** 🎧{mode_text}\n"
+            f"**Đoán Tên Bài Hát!** 🎧 [Gói: **{pool_label}**]{mode_text}\n"
             f"Thời gian: {GUESS_TIME_LIMIT}s | Số lượt đoán: {MAX_GUESSES}\n"
             f"Gõ `-g [tên bài hát]` để trả lời!"
         )
@@ -241,23 +282,48 @@ class MusicGuess(commands.Cog):
 
     # ── Commands ───────────────────────────────────────────────────────────────
 
-    @commands.command(name="songguess", aliases=["sg"])
-    async def guess_music(self, ctx):
-        await self.start_game_logic(ctx, variant_mode=False)
+    @commands.command(name="songguess", aliases=["sg", "sgc"])
+    async def guess_music(self, ctx, pool: str = "comm"):
+        """Đoán nhạc. Mặc định là commission (-sg), hoặc tất cả (-sg all)"""
+        await self.start_game_logic(ctx, variant_mode=False, pool_type=pool)
 
     @commands.command(name="songguessv", aliases=["sgv"])
-    async def guess_music_variant(self, ctx):
-        await self.start_game_logic(ctx, variant_mode=True)
+    async def guess_music_variant(self, ctx, pool: str = "comm"):
+        """Đoán nhạc có hiệu ứng (-sgv hoặc -sgv all)"""
+        await self.start_game_logic(ctx, variant_mode=True, pool_type=pool)
+
+    @commands.command(name="songguessall", aliases=["sga"])
+    async def guess_music_all(self, ctx):
+        """Đoán nhạc toàn bộ bài hát (-sga)"""
+        await self.start_game_logic(ctx, variant_mode=False, pool_type="all")
+
+    @commands.command(name="songguessallv", aliases=["sgav"])
+    async def guess_music_all_variant(self, ctx):
+        """Đoán nhạc toàn bộ bài hát có hiệu ứng (-sgav)"""
+        await self.start_game_logic(ctx, variant_mode=True, pool_type="all")
 
     @app_commands.command(name="songguess", description="Bắt đầu game đoán bài hát!")
+    @app_commands.describe(
+        mode="Chế độ hiệu ứng âm thanh",
+        pool="Gói bài hát muốn đoán (Commission hoặc Tất cả)",
+    )
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="Bình thường", value="normal"),
             app_commands.Choice(name="Khó (Hiệu ứng)", value="hard"),
-        ]
+        ],
+        pool=[
+            app_commands.Choice(name="Commission (Viết riêng cho game)", value="comm"),
+            app_commands.Choice(name="Tất cả bài hát", value="all"),
+        ],
     )
-    async def slash_songguess(self, interaction: discord.Interaction, mode: str = "normal"):
-        await self.start_game_logic(interaction, variant_mode=(mode == "hard"))
+    async def slash_songguess(
+        self,
+        interaction: discord.Interaction,
+        mode: str = "normal",
+        pool: str = "comm",
+    ):
+        await self.start_game_logic(interaction, variant_mode=(mode == "hard"), pool_type=pool)
 
     # ── Message listener ───────────────────────────────────────────────────────
 
