@@ -4,7 +4,6 @@ import glob
 import logging
 import os
 import random
-import shutil
 from pathlib import Path
 
 import discord
@@ -235,13 +234,6 @@ class MusicGuess(commands.Cog):
             available = self._refresh_available_songs(pool_type, eligible_files)
             played = set()
 
-        # ── Check ffmpeg ───────────────────────────────────────────────────
-        if not shutil.which("ffmpeg"):
-            await send_msg(
-                "❌ Máy chủ chưa có công cụ `ffmpeg`! Vui lòng cài `ffmpeg` vào host để bot có thể phát nhạc."
-            )
-            return
-
         # ── Pick a song ─────────────────────────────────────────────────────
         chosen_file = None
         clip_path = None
@@ -288,10 +280,6 @@ class MusicGuess(commands.Cog):
             )
 
         # ── Connect to voice ────────────────────────────────────────────────
-        from utils.media.opus_helper import ensure_opus_loaded
-
-        ensure_opus_loaded()
-
         try:
             guild_vc = user.guild.voice_client
             if guild_vc and guild_vc.channel == user.voice.channel and guild_vc.is_connected():
@@ -307,11 +295,7 @@ class MusicGuess(commands.Cog):
                 )
         except TimeoutError:
             logger.error("Voice connection timed out on %s", user.voice.channel.name)
-            await send_msg(
-                "❌ Không thể kết nối Voice (Hết thời gian chờ handshake UDP).\n"
-                "👉 **Nguyên nhân:** Máy chủ host có thể đang chặn luồng mạng UDP (Voice Discord yêu cầu cổng UDP).\n"
-                "👉 **Khắc phục thử:** Vào Discord -> Chỉnh sửa kênh Voice -> Đổi **Region Override** sang Singapore hoặc Hong Kong."
-            )
+            await send_msg("❌ Hết thời gian chờ kết nối Voice (máy chủ bị chặn UDP).")
             if clip_path and os.path.exists(clip_path):
                 os.remove(clip_path)
             return
@@ -400,101 +384,6 @@ class MusicGuess(commands.Cog):
         pool: str = "comm",
     ):
         await self.start_game_logic(interaction, variant_mode=(mode == "hard"), pool_type=pool)
-
-    @commands.command(name="checkvoice")
-    async def check_voice_cmd(self, ctx):
-        """Kiểm tra môi trường mạng và hệ thống cho Discord Voice (-checkvoice)."""
-        await self._run_voice_check(ctx)
-
-    @app_commands.command(
-        name="checkvoice", description="Kiểm tra FFmpeg, Opus và kết nối mạng UDP của bot."
-    )
-    async def slash_checkvoice(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._run_voice_check(interaction)
-
-    async def _run_voice_check(self, target):
-        import socket
-
-        import discord.opus
-
-        lines = ["**🔍 Báo cáo kiểm tra môi trường Voice của Bot:**\n"]
-
-        # 1. FFmpeg
-        ffmpeg_path = shutil.which("ffmpeg")
-        if ffmpeg_path:
-            lines.append(f"✅ **FFmpeg:** Đã sẵn sàng (`{ffmpeg_path}`)")
-        else:
-            lines.append("❌ **FFmpeg:** Chưa cài đặt hoặc chưa có trong PATH!")
-
-        # 2. Opus
-        from utils.media.opus_helper import ensure_opus_loaded
-
-        if ensure_opus_loaded():
-            lines.append("✅ **Libopus:** Đã nạp thành công")
-        else:
-            lines.append("❌ **Libopus:** Không thể nạp libopus (thư viện codec voice)!")
-
-        # 3. PyNaCl (libsodium)
-        try:
-            import nacl.secret  # noqa: F401
-
-            lines.append("✅ **PyNaCl (libsodium):** Đã sẵn sàng")
-        except ImportError as e:
-            lines.append(f"❌ **PyNaCl (libsodium):** Thiếu ({e})")
-
-        # 4. Test outbound UDP DNS (Port 53)
-        udp_dns_ok = False
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(3.0)
-            sock.sendto(
-                b"\xaa\xaa\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07discord\x02gg\x00\x00\x01\x00\x01",
-                ("8.8.8.8", 53),
-            )
-            data, _ = sock.recvfrom(512)
-            sock.close()
-            if data:
-                udp_dns_ok = True
-        except Exception as e:
-            logger.warning("DNS UDP probe failed: %s", e)
-
-        if udp_dns_ok:
-            lines.append("✅ **Mạng UDP cổng 53 (DNS):** Mở (Gửi & nhận tốt)")
-        else:
-            lines.append("❌ **Mạng UDP cổng 53 (DNS):** Bị chặn hoặc timeout!")
-
-        # 5. Test outbound UDP High Port (STUN NAT / Voice)
-        udp_stun_ok = False
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(3.0)
-            stun_req = b"\x00\x01\x00\x00\x21\x12\xa4\x42" + b"\x00" * 12
-            sock.sendto(stun_req, ("stun.cloudflare.com", 3478))
-            data, _ = sock.recvfrom(512)
-            sock.close()
-            if data:
-                udp_stun_ok = True
-        except Exception as e:
-            logger.warning("STUN UDP probe failed: %s", e)
-
-        if udp_stun_ok:
-            lines.append("✅ **Mạng UDP cổng cao (Voice/STUN):** Mở (Gửi & nhận tốt)")
-        else:
-            lines.append("❌ **Mạng UDP cổng cao (Voice/STUN):** BỊ CHẶN hoặc TIMEOUT!")
-
-        if not udp_stun_ok:
-            lines.append(
-                "\n🚨 **Kết luận:** Tường lửa của host (PIKAMC) chỉ cho phép cổng 53 (DNS) "
-                "nhưng chặn các cổng UDP cao mà Discord Voice yêu cầu (50000-65535). "
-                "Cần gửi ticket cho bên hỗ trợ PIKAMC mở outbound UDP cho máy chủ này."
-            )
-
-        content = "\n".join(lines)
-        if isinstance(target, discord.Interaction):
-            await target.followup.send(content)
-        else:
-            await target.send(content)
 
     # ── Message listener ───────────────────────────────────────────────────────
 
