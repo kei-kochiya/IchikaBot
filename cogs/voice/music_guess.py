@@ -288,6 +288,10 @@ class MusicGuess(commands.Cog):
             )
 
         # ── Connect to voice ────────────────────────────────────────────────
+        from utils.media.opus_helper import ensure_opus_loaded
+
+        ensure_opus_loaded()
+
         try:
             guild_vc = user.guild.voice_client
             if guild_vc and guild_vc.channel == user.voice.channel and guild_vc.is_connected():
@@ -424,10 +428,12 @@ class MusicGuess(commands.Cog):
             lines.append("❌ **FFmpeg:** Chưa cài đặt hoặc chưa có trong PATH!")
 
         # 2. Opus
-        if discord.opus.is_loaded():
+        from utils.media.opus_helper import ensure_opus_loaded
+
+        if ensure_opus_loaded():
             lines.append("✅ **Libopus:** Đã nạp thành công")
         else:
-            lines.append("⚠️ **Libopus:** Chưa nạp (cần libopus trên Linux)")
+            lines.append("❌ **Libopus:** Không thể nạp libopus (thư viện codec voice)!")
 
         # 3. Test outbound UDP
         udp_dns_ok = False

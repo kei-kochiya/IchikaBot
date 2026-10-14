@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from config import SharedResources
 from utils.core import database
+from utils.media.opus_helper import ensure_opus_loaded
 
 # Configure logging
 logging.basicConfig(
@@ -57,7 +58,7 @@ intents.message_content = True
 intents.voice_states = True
 
 bot = commands.Bot(
-    command_prefix="!",
+    command_prefix=commands.when_mentioned_or("!", "-"),
     intents=intents,
     help_command=None,
     tree_cls=DefaultContextTree,  # use our tree with default contexts
@@ -137,6 +138,7 @@ async def update_yt_dlp():
 
 async def main():
     async with bot:
+        ensure_opus_loaded()
         await update_yt_dlp()
         await database.init_db()
         await load_cogs()

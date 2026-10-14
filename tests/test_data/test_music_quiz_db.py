@@ -59,4 +59,3 @@ def test_build_reveal():
 
     info_jp = {"title_en": None, "romaji_title": None, "title_jp": "ロウワー"}
     assert MusicQuizDB.build_reveal(info_jp) == "🎵 **ロウワー**"
-
