@@ -3,12 +3,22 @@ Centralized configuration for the Discord bot.
 Contains all constants, paths, and shared resources.
 """
 
+import os
 from pathlib import Path
 
 import aiohttp
 
 # --- Paths ---
 BASE_DIR = Path(__file__).resolve().parent
+
+# Ensure local bin directories are in PATH for container/Pterodactyl environments
+for _extra_bin in [
+    os.path.expanduser("~/.local/bin"),
+    "/home/container/.local/bin",
+    str(BASE_DIR / "bin"),
+]:
+    if os.path.isdir(_extra_bin) and _extra_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = f"{_extra_bin}{os.pathsep}{os.environ.get('PATH', '')}"
 
 DB_FILE = BASE_DIR / "ichika.db"
 

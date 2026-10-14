@@ -4,6 +4,7 @@ import glob
 import logging
 import os
 import random
+import shutil
 from pathlib import Path
 
 import discord
@@ -234,6 +235,13 @@ class MusicGuess(commands.Cog):
             available = self._refresh_available_songs(pool_type, eligible_files)
             played = set()
 
+        # ── Check ffmpeg ───────────────────────────────────────────────────
+        if not shutil.which("ffmpeg"):
+            await send_msg(
+                "❌ Máy chủ chưa có công cụ `ffmpeg`! Vui lòng cài `ffmpeg` vào host để bot có thể phát nhạc."
+            )
+            return
+
         # ── Pick a song ─────────────────────────────────────────────────────
         chosen_file = None
         clip_path = None
@@ -281,14 +289,34 @@ class MusicGuess(commands.Cog):
 
         # ── Connect to voice ────────────────────────────────────────────────
         try:
-            voice_client = await user.voice.channel.connect()
-        except discord.errors.ClientException:
-            voice_client = user.guild.voice_client
-            if voice_client and voice_client.channel != user.voice.channel:
-                await voice_client.move_to(user.voice.channel)
-            elif not voice_client:
-                await send_msg("Bot đang bị kẹt voice. Hãy kick bot ra.")
-                return
+            guild_vc = user.guild.voice_client
+            if guild_vc and guild_vc.channel == user.voice.channel and guild_vc.is_connected():
+                voice_client = guild_vc
+            elif guild_vc and guild_vc.channel != user.voice.channel and guild_vc.is_connected():
+                await guild_vc.move_to(user.voice.channel)
+                voice_client = guild_vc
+            else:
+                if guild_vc and not guild_vc.is_connected():
+                    await guild_vc.disconnect(force=True)
+                voice_client = await user.voice.channel.connect(
+                    self_deaf=True, timeout=20.0, reconnect=False
+                )
+        except TimeoutError:
+            logger.error("Voice connection timed out on %s", user.voice.channel.name)
+            await send_msg(
+                "❌ Không thể kết nối Voice (Hết thời gian chờ handshake UDP).\n"
+                "👉 **Nguyên nhân:** Máy chủ host có thể đang chặn luồng mạng UDP (Voice Discord yêu cầu cổng UDP).\n"
+                "👉 **Khắc phục thử:** Vào Discord -> Chỉnh sửa kênh Voice -> Đổi **Region Override** sang Singapore hoặc Hong Kong."
+            )
+            if clip_path and os.path.exists(clip_path):
+                os.remove(clip_path)
+            return
+        except discord.errors.ClientException as e:
+            logger.error("Voice client exception: %s", e)
+            await send_msg(f"Lỗi vào voice: {e}")
+            if clip_path and os.path.exists(clip_path):
+                os.remove(clip_path)
+            return
         except Exception as e:
             logger.error("Voice connection error: %s", e)
             await send_msg(f"Lỗi vào voice: {e}")
