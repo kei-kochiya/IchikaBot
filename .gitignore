@@ -17,6 +17,7 @@ env/
 # Bot specific - user data
 pityData.json
 birthdaySettings.json
+gas_price_cache.json
 .gachacache/
 
 # Music folder
