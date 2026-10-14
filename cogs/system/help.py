@@ -29,12 +29,9 @@ COMMAND_CATEGORIES = {
             ("/guess", "!guess", "Chơi đoán nhân vật"),
         ],
     },
-    "Stamps & Profiles": {
-        "description": "Stamp và thông tin nhân vật",
+    "Profiles": {
+        "description": "Thông tin nhân vật",
         "commands": [
-            ("/stamp search <keyword>", "!stamp <keyword>", "Tìm stamp"),
-            ("/stamp character <name>", "!stampc <name>", "Stamp của nhân vật"),
-            ("/stamp random", "!stampr", "Stamp ngẫu nhiên"),
             ("/profile info <name>", "!profile <name>", "Thông tin nhân vật"),
         ],
     },
@@ -71,13 +68,6 @@ COMMAND_CATEGORIES = {
             ("/cotd now", "-", "Gửi card ngay lập tức (Admin)"),
             ("/cotd disable", "-", "Tắt Card of the Day (Admin)"),
             ("/cotd status", "-", "Xem trạng thái hiện tại"),
-        ],
-    },
-    "Tournament": {
-        "description": "Tournament đoán card (5 vòng)",
-        "commands": [
-            ("/tournament", "!tournament", "Bắt đầu tournament"),
-            ("/tournament_stop", "!tourstop", "Dừng tournament (Admin)"),
         ],
     },
     "Mercari": {
@@ -146,12 +136,11 @@ class HelpCog(commands.Cog):
         category=[
             app_commands.Choice(name="Card & Gacha", value="Card & Gacha"),
             app_commands.Choice(name="Music & Games", value="Music & Games"),
-            app_commands.Choice(name="Stamps & Profiles", value="Stamps & Profiles"),
+            app_commands.Choice(name="Profiles", value="Profiles"),
             app_commands.Choice(name="Events", value="Events"),
             app_commands.Choice(name="Birthday", value="Birthday"),
             app_commands.Choice(name="Utility", value="Utility"),
             app_commands.Choice(name="Card of the Day", value="Card of the Day"),
-            app_commands.Choice(name="Tournament", value="Tournament"),
             app_commands.Choice(name="Mercari", value="Mercari"),
         ]
     )

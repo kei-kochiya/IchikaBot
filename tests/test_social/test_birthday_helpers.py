@@ -6,6 +6,7 @@ from utils.social.birthday_helpers import (
     get_characters_with_birthday,
     get_next_birthday,
     get_upcoming_birthdays,
+    resolve_character_and_countdown,
 )
 
 
@@ -48,3 +49,29 @@ def test_build_birthday_calendar_embed():
     )
     assert isinstance(embed, discord.Embed)
     assert len(embed.fields) >= 2
+
+
+def test_resolve_character_and_countdown():
+    # Test with None
+    res_none = resolve_character_and_countdown(None)
+    assert res_none is not None
+    days_ahead, char = res_none
+    assert 1 <= days_ahead <= 365
+    assert "id" in char
+
+    # Test with name
+    res_name = resolve_character_and_countdown("Ichika")
+    assert res_name is not None
+    days_ahead, char = res_name
+    assert char["id"] == "1"
+    assert 0 <= days_ahead <= 365
+
+    # Test with ID string
+    res_id = resolve_character_and_countdown("1")
+    assert res_id is not None
+    assert res_id[1]["id"] == "1"
+
+    # Test with unknown character query fallback
+    res_unknown = resolve_character_and_countdown("UnknownNameXYZ")
+    assert res_unknown is not None
+    assert 1 <= res_unknown[0] <= 365

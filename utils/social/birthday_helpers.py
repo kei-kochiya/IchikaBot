@@ -102,3 +102,32 @@ def build_birthday_calendar_embed(
 
     embed.set_footer(text=f"Ngày hiện tại: {today} (JST)")
     return embed
+
+
+def resolve_character_and_countdown(
+    character_query: str | None = None,
+) -> tuple[int, dict] | None:
+    """Resolve character and days until birthday.
+
+    If character_query is provided, looks up by ID or name and calculates days until next birthday.
+    If omitted or not found, falls back to the nearest upcoming birthday.
+    """
+    if character_query:
+        target_char = None
+        cid = None
+        if character_query.isdigit():
+            cid = int(character_query)
+            target_char = game_data.get_character(cid)
+        else:
+            cid, target_char = game_data.get_character_by_name(character_query)
+
+        if target_char and cid is not None:
+            char_with_id = {**target_char, "id": str(cid)}
+            bday = target_char.get("birthday")
+            if bday:
+                now = datetime.now(JST)
+                for days_ahead in range(0, 366):
+                    d_str = (now + timedelta(days=days_ahead)).strftime("%m-%d")
+                    if bday == d_str:
+                        return (days_ahead, char_with_id)
+    return get_next_birthday()

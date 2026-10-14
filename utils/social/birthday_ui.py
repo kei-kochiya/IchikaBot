@@ -237,3 +237,52 @@ class BirthdayCardView(discord.ui.View):
         if hasattr(self, "message") and self.message:
             with contextlib.suppress(discord.HTTPException):
                 await self.message.edit(view=self)
+
+
+async def prepare_birthday_message(
+    character: dict,
+) -> tuple[discord.Embed, discord.File | None, discord.ui.View | None]:
+    """Prepare embed, cached card image file, and view (if multiple cards) for a birthday announcement."""
+    from utils.media.image_helper import get_card_image_path, get_character_trim_path
+    from utils.social.birthday_helpers import get_birthday_cards_for_character
+
+    cards = get_birthday_cards_for_character(character["id"])
+    if len(cards) > 1:
+        view = BirthdayCardView(character, cards, current_index=0)
+        img_path = await get_card_image_path(cards[0]["assetbundleName"], is_trained=False)
+        file = discord.File(img_path, filename="card.png") if img_path else None
+        embed = view._create_embed(attachment_url="attachment://card.png" if file else None)
+        return embed, file, view
+
+    card = cards[0] if cards else None
+    if card:
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
+    else:
+        img_path = await get_character_trim_path(character["id"])
+
+    file = discord.File(img_path, filename="card.png") if img_path else None
+    attachment_url = "attachment://card.png" if file else None
+    embed = create_birthday_embed(character, card, attachment_url=attachment_url)
+    return embed, file, None
+
+
+async def prepare_daily_card_message(
+    character: dict, days_until_bday: int
+) -> tuple[discord.Embed | None, discord.File | None, discord.ui.View | None]:
+    """Prepare embed, cached card image file, and toggle view for a countdown daily card announcement."""
+    from utils.data.card_data import card_data
+    from utils.game.cards import CardToggleView, get_random_card
+    from utils.media.image_helper import get_card_image_path
+
+    card = get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
+    if not card:
+        return None, None, None
+
+    is_trained = supports_trained_art(card)
+    img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+    file = discord.File(img_path, filename="card.png") if img_path else None
+    attachment_url = "attachment://card.png" if file else None
+
+    embed = create_daily_card_embed(character, card, days_until_bday, attachment_url=attachment_url)
+    view = CardToggleView(embed, card, default_trained=is_trained) if is_trained else None
+    return embed, file, view

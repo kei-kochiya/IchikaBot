@@ -7,7 +7,6 @@ from utils.data.game_data import (
     get_unit_color,
 )
 from utils.data.song_data import song_data
-from utils.data.stamp_data import stamp_data
 
 
 def test_game_data_singleton():
@@ -63,13 +62,3 @@ def test_song_data_singleton():
 
     choices = song_data.get_autocomplete_choices("Tell Your World")
     assert len(choices) >= 1
-
-
-def test_stamp_data_singleton():
-    assert len(stamp_data.stamps_jp) >= 1
-    random_stamp = stamp_data.get_random_stamp()
-    assert random_stamp is not None
-    assert "id" in random_stamp
-
-    char_stamps = stamp_data.get_stamps_by_character(1)
-    assert len(char_stamps) >= 1

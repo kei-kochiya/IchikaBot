@@ -224,10 +224,6 @@ async def register_all_sources():
         MUSICS_DATA_URL_JP,
         MUSICS_FILE_EN,
         MUSICS_FILE_JP,
-        STAMPS_DATA_URL_EN,
-        STAMPS_DATA_URL_JP,
-        STAMPS_FILE_EN,
-        STAMPS_FILE_JP,
     )
 
     sources = [
@@ -235,13 +231,11 @@ async def register_all_sources():
         DataSource("cards_jp", CARD_DATA_URL_JP, CARDS_FILE_JP),
         DataSource("musics_jp", MUSICS_DATA_URL_JP, MUSICS_FILE_JP),
         DataSource("music_difficulties_jp", MUSIC_DIFFICULTIES_URL_JP, MUSIC_DIFFICULTIES_FILE_JP),
-        DataSource("stamps_jp", STAMPS_DATA_URL_JP, STAMPS_FILE_JP),
         DataSource("events_jp", EVENTS_DATA_URL_JP, EVENTS_FILE_JP),
         # EN Sources
         DataSource("cards_en", CARD_DATA_URL_EN, CARDS_FILE_EN),
         DataSource("musics_en", MUSICS_DATA_URL_EN, MUSICS_FILE_EN),
         DataSource("music_difficulties_en", MUSIC_DIFFICULTIES_URL_EN, MUSIC_DIFFICULTIES_FILE_EN),
-        DataSource("stamps_en", STAMPS_DATA_URL_EN, STAMPS_FILE_EN),
         DataSource("events_en", EVENTS_DATA_URL_EN, EVENTS_FILE_EN),
     ]
 

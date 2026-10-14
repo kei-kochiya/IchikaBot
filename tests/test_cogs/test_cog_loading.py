@@ -25,7 +25,7 @@ async def test_all_cogs_load(mock_bot):
                     failed_cogs.append((module_name, str(e)))
 
     assert len(failed_cogs) == 0, f"Failed to load cogs: {failed_cogs}"
-    assert len(loaded_cogs) >= 15, f"Expected at least 15 cogs, but loaded {len(loaded_cogs)}"
+    assert len(loaded_cogs) >= 13, f"Expected at least 13 cogs, but loaded {len(loaded_cogs)}"
 
     # Test clean cog unloading
     for module_name in loaded_cogs:

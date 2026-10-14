@@ -47,7 +47,6 @@ def ensure_game_data_fixtures():
     from utils.data.event_data import event_data
     from utils.data.game_data import game_data
     from utils.data.song_data import song_data
-    from utils.data.stamp_data import stamp_data
 
     fixtures = {
         Path("gameData/JP_data/cards.json"): [
@@ -119,16 +118,6 @@ def ensure_game_data_fixtures():
         Path("gameData/JP_data/musicDifficulties.json"): [
             {"musicId": 1, "musicDifficulty": "master", "playLevel": 26, "totalNoteCount": 800}
         ],
-        Path("gameData/JP_data/stamps.json"): [
-            {
-                "id": 1,
-                "name": "Test Stamp",
-                "characterId1": 1,
-                "stampType": "illustration",
-                "assetbundleName": "stamp_001",
-            }
-        ],
-        Path("gameData/EN_data/stamps.json"): [{"id": 1, "name": "Test Stamp EN"}],
     }
 
     reloaded = False
@@ -143,7 +132,6 @@ def ensure_game_data_fixtures():
         card_data.reload()
         event_data.reload()
         song_data.reload()
-        stamp_data.reload()
         game_data.reload()
 
 

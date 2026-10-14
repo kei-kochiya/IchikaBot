@@ -43,9 +43,8 @@ def test_needs_update_logic():
 @pytest.mark.asyncio
 async def test_register_all_sources():
     await register_all_sources()
-    assert len(auto_updater.sources) >= 10
+    assert len(auto_updater.sources) >= 8
     assert "cards_jp" in auto_updater.sources
     assert "cards_en" in auto_updater.sources
     assert "musics_jp" in auto_updater.sources
     assert "events_jp" in auto_updater.sources
-    assert "stamps_jp" in auto_updater.sources

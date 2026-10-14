@@ -15,7 +15,6 @@ from utils.core.autoupdater import auto_updater, register_all_sources, run_all_u
 from utils.data.card_data import card_data
 from utils.data.event_data import event_data
 from utils.data.song_data import song_data
-from utils.data.stamp_data import stamp_data
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +81,6 @@ class DataUpdaterCog(commands.Cog):
                 "ProfileCog",
                 "GachaCog",
                 "CardOfDayCog",
-                "TournamentCog",
             },
             "cards_en": {
                 "CardCog",
@@ -91,14 +89,11 @@ class DataUpdaterCog(commands.Cog):
                 "ProfileCog",
                 "GachaCog",
                 "CardOfDayCog",
-                "TournamentCog",
             },
             "musics_jp": {"SongsCog"},
             "musics_en": {"SongsCog"},
             "music_difficulties_jp": {"SongsCog"},
             "music_difficulties_en": {"SongsCog"},
-            "stamps_jp": {"StampsCog"},
-            "stamps_en": {"StampsCog"},
             "events_jp": {"EventsCog"},
             "events_en": {"EventsCog"},
         }
@@ -137,13 +132,6 @@ class DataUpdaterCog(commands.Cog):
                 logger.info("DataUpdater: event_data singleton reloaded.")
             except Exception as e:
                 logger.error("DataUpdater: Failed to reload event_data: %s", e)
-
-        if updated_sources & {"stamps_jp", "stamps_en"}:
-            try:
-                stamp_data.reload()
-                logger.info("DataUpdater: stamp_data singleton reloaded.")
-            except Exception as e:
-                logger.error("DataUpdater: Failed to reload stamp_data: %s", e)
 
         for cog_name in cogs_to_reload:
             cog = self.bot.get_cog(cog_name)
