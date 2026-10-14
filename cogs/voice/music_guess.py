@@ -189,8 +189,38 @@ class MusicGuess(commands.Cog):
 
         eligible_files = self._filter_eligible_songs(pool_type, song_files)
         if not eligible_files:
+            db = MusicQuizDB.get_instance()
+            # Retry loading once in case song.xlsx was recently updated or added on disk
+            if len(db._db) == 0 or (pool_type == "comm" and len(db.get_commission_ids()) == 0):
+                db.load_db()
+                eligible_files = self._filter_eligible_songs(pool_type, song_files)
+
+        if not eligible_files:
+            db = MusicQuizDB.get_instance()
+            if db.last_error:
+                await send_msg(f"❌ Lỗi nạp dữ liệu `song.xlsx`: {db.last_error}")
+                return
+            if len(db._db) == 0:
+                await send_msg(
+                    "❌ Cơ sở dữ liệu bài hát đang trống. "
+                    "Vui lòng kiểm tra file `gameData/static/song.xlsx` hoặc cài `openpyxl`."
+                )
+                return
+            comm_ids = db.get_commission_ids()
+            if pool_type == "comm" and len(comm_ids) == 0:
+                await send_msg(
+                    "❌ Dữ liệu commission chưa có trong `song.xlsx`. "
+                    "Vui lòng `git pull` để nhận file `song.xlsx` mới nhất có đánh dấu commission."
+                )
+                return
+
+            sample_files = ", ".join(song_files[:3])
             pool_desc = "commission" if pool_type == "comm" else "hợp lệ"
-            await send_msg(f"Không tìm thấy bài hát {pool_desc} nào trong thư mục nhạc.")
+            await send_msg(
+                f"Không tìm thấy bài hát {pool_desc} nào trong thư mục nhạc.\n"
+                f"Đã phát hiện {len(song_files)} file nhạc (ví dụ: `{sample_files}`), "
+                f"nhưng tên file cần đặt theo ID bài hát (ví dụ: `54.mp3`, `101.mp3`)."
+            )
             return
 
         variant = random.choice(["fast", "slow", "reverse"]) if variant_mode else None

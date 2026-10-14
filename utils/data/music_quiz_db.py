@@ -33,6 +33,7 @@ def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
 class MusicQuizDB:
     _instance = None
     _db: dict[str, dict] = {}
+    last_error: str | None = None
 
     @classmethod
     def get_instance(cls):
@@ -41,9 +42,16 @@ class MusicQuizDB:
             cls._instance.load_db()
         return cls._instance
 
+    @classmethod
+    def reload(cls):
+        cls._instance = cls()
+        cls._instance.load_db()
+        return cls._instance
+
     def load_db(self) -> None:
         """Load song.xlsx into _db keyed by song index (as string)."""
         if not SONG_DB_PATH.exists():
+            self.last_error = f"File không tồn tại: {SONG_DB_PATH}"
             logger.warning("MusicQuizDB: song.xlsx not found at %s", SONG_DB_PATH)
             return
         try:
@@ -53,9 +61,16 @@ class MusicQuizDB:
             ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
             wb.close()
+        except ImportError:
+            self.last_error = "Thiếu thư viện openpyxl (cần chạy: pip install openpyxl)"
+            logger.error("MusicQuizDB: openpyxl is not installed!")
+            return
         except Exception as e:
+            self.last_error = f"Lỗi đọc song.xlsx: {e}"
             logger.error("MusicQuizDB: Failed to load song.xlsx: %s", e)
             return
+
+        self.last_error = None
 
         if not rows:
             return
