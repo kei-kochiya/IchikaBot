@@ -32,9 +32,6 @@ gameData/EN_data/
 *.md
 !README.md
 !ARCHITECT.md
-!CONTRIBUTING.md
-!CHANGELOG.md
-!SECURITY.md
 !docs/**/*.md
 !.github/**/*.md
 AGENTS.md
