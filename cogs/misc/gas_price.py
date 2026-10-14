@@ -119,7 +119,7 @@ async def fetch_prices(session: aiohttp.ClientSession) -> list[dict]:
 def _build_embed(products: list[dict]) -> discord.Embed:
     """Build a Discord embed from the list of price products."""
     updated_times = [
-        datetime.fromisoformat(o["LastModified"].rstrip("Z")).replace(tzinfo=UTC)
+        datetime.fromisoformat(o["LastModified"].rstrip("Z")).replace(tzinfo=UTC).astimezone(_VN_TZ)
         for o in products
         if o.get("LastModified")
     ]
@@ -144,7 +144,7 @@ def _build_embed(products: list[dict]) -> discord.Embed:
 
     if last_update:
         embed.set_footer(
-            text=f"Cập nhật lần cuối: {last_update.strftime('%d/%m/%Y %H:%M')} UTC • Nguồn: Petrolimex"
+            text=f"Kỳ điều hành: {last_update.strftime('%d/%m/%Y %H:%M')} (GMT+7) • Nguồn: Petrolimex"
         )
     else:
         embed.set_footer(text="Nguồn: Petrolimex")
