@@ -397,6 +397,71 @@ class MusicGuess(commands.Cog):
     ):
         await self.start_game_logic(interaction, variant_mode=(mode == "hard"), pool_type=pool)
 
+    @commands.command(name="checkvoice")
+    async def check_voice_cmd(self, ctx):
+        """Kiểm tra môi trường mạng và hệ thống cho Discord Voice (-checkvoice)."""
+        await self._run_voice_check(ctx)
+
+    @app_commands.command(
+        name="checkvoice", description="Kiểm tra FFmpeg, Opus và kết nối mạng UDP của bot."
+    )
+    async def slash_checkvoice(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._run_voice_check(interaction)
+
+    async def _run_voice_check(self, target):
+        import socket
+
+        import discord.opus
+
+        lines = ["**🔍 Báo cáo kiểm tra môi trường Voice của Bot:**\n"]
+
+        # 1. FFmpeg
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            lines.append(f"✅ **FFmpeg:** Đã sẵn sàng (`{ffmpeg_path}`)")
+        else:
+            lines.append("❌ **FFmpeg:** Chưa cài đặt hoặc chưa có trong PATH!")
+
+        # 2. Opus
+        if discord.opus.is_loaded():
+            lines.append("✅ **Libopus:** Đã nạp thành công")
+        else:
+            lines.append("⚠️ **Libopus:** Chưa nạp (cần libopus trên Linux)")
+
+        # 3. Test outbound UDP
+        udp_dns_ok = False
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(3.0)
+            sock.sendto(
+                b"\xaa\xaa\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07discord\x02gg\x00\x00\x01\x00\x01",
+                ("8.8.8.8", 53),
+            )
+            data, _ = sock.recvfrom(512)
+            sock.close()
+            if data:
+                udp_dns_ok = True
+        except Exception as e:
+            logger.warning("DNS UDP probe failed: %s", e)
+
+        if udp_dns_ok:
+            lines.append("✅ **Mạng UDP cơ bản (Cổng 53):** Gửi & nhận tốt")
+        else:
+            lines.append("❌ **Mạng UDP cơ bản:** Bị chặn hoặc timeout!")
+
+        lines.append(
+            "\n💡 *Lưu ý:* Discord Voice bắt buộc phải dùng UDP (cổng cao 50000-65535). "
+            "Nếu máy chủ host (như PIKAMC / Pikashield) chặn outbound UDP, "
+            "bot sẽ không thể kết nối vào voice."
+        )
+
+        content = "\n".join(lines)
+        if isinstance(target, discord.Interaction):
+            await target.followup.send(content)
+        else:
+            await target.send(content)
+
     # ── Message listener ───────────────────────────────────────────────────────
 
     @commands.Cog.listener()
