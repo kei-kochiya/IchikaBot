@@ -18,7 +18,6 @@
 IchikaBot brings the world of Project Sekai directly to your Discord server with a suite of interactive, automated, and entertainment modules:
 
 ### 🎮 Minigames & Entertainment
-- **Card Tournament**: A multi-round guessing game with progressive visual hints (grayscale -> colour -> full art).
 - **Character Guess**: Guess the character from cropped, blurred, pixelated, or inverted card images.
 - **Music Quiz**: Test your knowledge with audio snippets of game songs, featuring modifiers like 1.5x speed, 0.75x slow, and reverse playback!
 - **Gacha Simulator**: Pull for cards with realistic rates and an integrated pity system that saves to your profile.
@@ -28,7 +27,6 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 - **Character Profiles & Cards**: Detailed lookups for character lore, stats, and high-resolution card artwork with normal/trained toggle.
 - **Song Database**: Browse the game's discography including BPM, difficulties, notes, and duration with interactive pagination.
 - **Event Tracker**: Stay updated with current, upcoming, and historical in-game events.
-- **Stamps**: Search and browse in-game stamps by keyword or character.
 - **Mercari Lookup & Search**: Real-time product search and details from Mercari Japan (supporting both individual C2C sellers and Mercari Shops).
 - **Gas Price**: Real-time retail fuel prices in Vietnam (Zone 1 & Zone 2) with daily caching.
 
