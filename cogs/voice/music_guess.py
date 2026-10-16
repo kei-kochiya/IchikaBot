@@ -18,12 +18,15 @@ logger = logging.getLogger(__name__)
 
 WRONG_EMOJI = "❌"
 CORRECT_EMOJI = "✅"
+IDLE_TIMEOUT = 180.0  # Keep bot in voice for 3 minutes before auto-disconnect
 
 
 class MusicGuess(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_games = {}
+        self.starting_channels: dict[int, float] = {}
+        self.idle_tasks: dict[int, asyncio.Task] = {}
         # Independent per-session song tracking for comm and all modes
         self.played_songs_comm: set = set()
         self.available_songs_comm: set = set()
@@ -87,6 +90,36 @@ class MusicGuess(commands.Cog):
         if count > 0:
             logger.info("Music: Cleaned up %d temp files.", count)
 
+    def cog_unload(self):
+        for task in self.idle_tasks.values():
+            if not task.done():
+                task.cancel()
+        self.idle_tasks.clear()
+
+    def _schedule_idle_disconnect(self, guild_id: int, voice_client: discord.VoiceClient):
+        """Schedule disconnecting from voice after IDLE_TIMEOUT (3 minutes) of inactivity."""
+        if guild_id in self.idle_tasks:
+            t = self.idle_tasks.pop(guild_id)
+            if not t.done():
+                t.cancel()
+
+        async def _idle_disconnect():
+            try:
+                await asyncio.sleep(IDLE_TIMEOUT)
+                if voice_client and voice_client.is_connected() and not voice_client.is_playing():
+                    logger.info(
+                        "Music: Voice client idle for %ds in guild %d, disconnecting.",
+                        IDLE_TIMEOUT,
+                        guild_id,
+                    )
+                    await voice_client.disconnect()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self.idle_tasks.pop(guild_id, None)
+
+        self.idle_tasks[guild_id] = asyncio.create_task(_idle_disconnect())
+
     # ── Game lifecycle ─────────────────────────────────────────────────────────
 
     async def cleanup_game(self, channel_id: int):
@@ -95,22 +128,26 @@ class MusicGuess(commands.Cog):
         game = self.active_games.pop(channel_id)
 
         current_task = asyncio.current_task()
-        if game["timer_task"] and game["timer_task"] != current_task:
+        if game.get("timer_task") and game["timer_task"] != current_task:
             game["timer_task"].cancel()
 
-        if game["voice_client"] and game["voice_client"].is_connected():
-            game["voice_client"].stop()
-            await game["voice_client"].disconnect()
+        vc = game.get("voice_client")
+        if vc and vc.is_connected():
+            vc.stop()
+            # Do NOT disconnect immediately! Keep bot in voice for 3 minutes
+            guild = vc.guild
+            if guild:
+                self._schedule_idle_disconnect(guild.id, vc)
 
         await asyncio.sleep(0.5)
 
         try:
-            if game["clip_path"] and os.path.exists(game["clip_path"]):
+            if game.get("clip_path") and os.path.exists(game["clip_path"]):
                 os.remove(game["clip_path"])
         except OSError as e:
-            logger.warning("Failed to remove temp file %s: %s", game["clip_path"], e)
+            logger.warning("Failed to remove temp file %s: %s", game.get("clip_path"), e)
 
-        for msg in game["wrong_reactions"]:
+        for msg in game.get("wrong_reactions", []):
             with contextlib.suppress(discord.HTTPException):
                 await msg.remove_reaction(WRONG_EMOJI, self.bot.user)
 
@@ -118,6 +155,9 @@ class MusicGuess(commands.Cog):
         await asyncio.sleep(GUESS_TIME_LIMIT)
         if channel_id in self.active_games:
             game = self.active_games[channel_id]
+            if game.get("ended"):
+                return
+            game["ended"] = True
             await channel.send(f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**")
             await self.cleanup_game(channel_id)
 
@@ -148,16 +188,38 @@ class MusicGuess(commands.Cog):
             async def send_msg(content, **kwargs):
                 await ctx.send(content, **kwargs)
 
-        if channel.id in self.active_games:
+        channel_id = channel.id
+        if channel_id in self.active_games:
             await send_msg(
                 "Kênh này đang có người thử tài rồi. Vào chơi cùng họ đi!", delete_after=10
             )
             return
 
-        if not user.voice:
+        now = asyncio.get_running_loop().time()
+        if channel_id in self.starting_channels:
+            if now - self.starting_channels[channel_id] < 45.0:
+                await send_msg("Đang chuẩn bị ván chơi rồi, bạn đợi một chút nhé!", delete_after=10)
+                return
+            logger.warning("Stale starting lock for channel %s, auto-recovering", channel_id)
+            self.starting_channels.pop(channel_id, None)
+
+        if not user.voice or not user.voice.channel:
             await send_msg("Mời bạn vào kênh voice để chơi nhé!", delete_after=10)
             return
 
+        self.starting_channels[channel_id] = now
+        guild_id = user.guild.id
+        if guild_id in self.idle_tasks:
+            task = self.idle_tasks.pop(guild_id)
+            if not task.done():
+                task.cancel()
+
+        try:
+            await self._run_game_start(user, channel, send_msg, pool_type, variant_mode)
+        finally:
+            self.starting_channels.pop(channel_id, None)
+
+    async def _run_game_start(self, user, channel, send_msg, pool_type, variant_mode):
         # ── Scan song files ─────────────────────────────────────────────────
         try:
             audio_path = Path(AUDIO_DIR)
@@ -245,7 +307,7 @@ class MusicGuess(commands.Cog):
                 return
             chosen_file = random.choice(list(available))
             full_path = os.path.join(str(audio_path), chosen_file)
-            clip_path, effect_name = await self.bot.loop.run_in_executor(
+            clip_path, effect_name = await asyncio.get_running_loop().run_in_executor(
                 None, prepare_clip, full_path, variant
             )
             if clip_path is not None:
@@ -312,7 +374,7 @@ class MusicGuess(commands.Cog):
                 os.remove(clip_path)
             return
 
-        timer_task = self.bot.loop.create_task(self.end_game_timer(channel, channel.id))
+        timer_task = asyncio.create_task(self.end_game_timer(channel, channel.id))
 
         self.active_games[channel.id] = {
             "norm_targets": norm_targets,  # normalized strings to match against
@@ -323,6 +385,7 @@ class MusicGuess(commands.Cog):
             "voice_client": voice_client,
             "clip_path": clip_path,
             "timer_task": timer_task,
+            "ended": False,
         }
 
         pool_label = "Commission" if pool_type == "comm" else "Tất cả bài hát"
@@ -397,6 +460,9 @@ class MusicGuess(commands.Cog):
             return
 
         game = self.active_games[channel_id]
+        if game.get("ended"):
+            return
+
         user_id = message.author.id
 
         if game["guesses"].get(user_id, 0) >= MAX_GUESSES:
@@ -407,6 +473,14 @@ class MusicGuess(commands.Cog):
             return
 
         if is_correct_guess(guess_input, game["norm_targets"]):
+            # Synchronously check and mark ended BEFORE any await to prevent race conditions
+            if game.get("ended"):
+                return
+            game["ended"] = True
+
+            if game.get("timer_task") and not game["timer_task"].done():
+                game["timer_task"].cancel()
+
             asyncio.create_task(message.add_reaction(CORRECT_EMOJI))
 
             info = game["info"]
@@ -414,12 +488,41 @@ class MusicGuess(commands.Cog):
             await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}")
             await self.cleanup_game(channel_id)
         else:
+            if game.get("ended"):
+                return
             game["guesses"][user_id] = game["guesses"].get(user_id, 0) + 1
             asyncio.create_task(message.add_reaction(WRONG_EMOJI))
             game["wrong_reactions"].append(message)
 
             if game["guesses"][user_id] >= MAX_GUESSES:
                 await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
+    ):
+        """Auto-disconnect if bot is left alone in voice channel."""
+        guild = member.guild
+        vc = guild.voice_client
+        if not vc or not vc.channel:
+            return
+
+        non_bot_members = [m for m in vc.channel.members if not m.bot]
+        if len(non_bot_members) == 0:
+            if guild.id in self.idle_tasks:
+                t = self.idle_tasks.pop(guild.id)
+                if not t.done():
+                    t.cancel()
+            for ch_id, game in list(self.active_games.items()):
+                if game.get("voice_client") == vc:
+                    await self.cleanup_game(ch_id)
+                    break
+            if vc.is_connected():
+                logger.info(
+                    "Music: Bot left alone in voice channel %s, disconnecting.",
+                    vc.channel.name,
+                )
+                await vc.disconnect()
 
     # ── Error handlers ─────────────────────────────────────────────────────────
 

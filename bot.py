@@ -126,7 +126,7 @@ async def load_cogs():
     for root, _dirs, files in os.walk("./cogs"):
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("__"):
-                # Convert path to module notation: cogs/voice/streaming.py -> cogs.voice.streaming
+                # Convert path to module notation: cogs/voice/music_guess.py -> cogs.voice.music_guess
                 relative_path = os.path.relpath(os.path.join(root, filename), ".")
                 module_name = relative_path.replace(os.path.sep, ".")[:-3]
 
@@ -137,29 +137,12 @@ async def load_cogs():
                     logger.error(f"Failed to load extension {module_name}: {e}")
 
 
-async def update_yt_dlp():
-    """Auto-update yt-dlp on startup to prevent YouTube streaming issues."""
-    logger.info("Checking for yt-dlp updates...")
-    try:
-        process = await asyncio.create_subprocess_shell(
-            "pip install -U yt-dlp", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode == 0:
-            logger.info(f"yt-dlp update successful:\n{stdout.decode().strip()}")
-        else:
-            logger.error(f"yt-dlp update failed:\n{stderr.decode().strip()}")
-    except Exception as e:
-        logger.error(f"Error during yt-dlp update: {e}")
-
-
 async def main():
     if not TOKEN:
         logger.error("DISCORD_TOKEN not found in .env file.")
         return
 
     async with bot:
-        await update_yt_dlp()
         await database.init_db()
         await load_cogs()
         try:

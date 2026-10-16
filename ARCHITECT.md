@@ -35,7 +35,6 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 - **`utils/game/`**: Card filtering, random sampling, and trained/untrained art validation (`cards.py`).
 - **`utils/social/`**: Date calculations and Embed generation for social features (`birthday_helpers.py`, `birthday_ui.py`).
 - **`utils/info/`**: Shared Embed generation and Pagination Views (`songs_ui.py`, `events_ui.py`).
-- **`utils/voice/`**: Streaming player models (`GuildPlayer`), YouTube downloader logic (`yt-dlp`), and UI (`NowPlayingView`).
 - **`utils/mercari_scraper/`**: High-performance, low-RAM Mercari Japan scraper library supporting both individual C2C listings (`c2c_client.py`) and Mercari Shops products (`shops_client.py`).
 
 ---
@@ -46,7 +45,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 
 | Module Area | Feature Description | Key Dependencies |
 |:---|:---|:---|
-| **`cogs/voice/`** | Music streaming (`streaming.py`) & Music Guessing minigame (`music_guess.py`). | `utils.voice.*`, `utils.media.audio_fx`, `utils.data.music_quiz_db` |
+| **`cogs/voice/`** | Music Guessing minigame (`music_guess.py`). | `utils.media.audio_fx`, `utils.data.music_quiz_db` |
 | **`cogs/game/`** | Character Guessing game (`guess.py`) & Gacha simulator (`gacha.py`). | `utils.data.*`, `utils.game.*`, `utils.core.database` |
 | **`cogs/info/`** | Database lookups (Cards, Profiles, Songs, Events). | `utils.info.*`, `utils.data.*`, `utils.core.romaji` |
 | **`cogs/social/`** | Server engagement (Character Birthdays, Scheduled Card of the Day). | `utils.social.*`, `utils.data.*`, `utils.core.database` |

@@ -21,7 +21,6 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 - **Character Guess**: Guess the character from cropped, blurred, pixelated, or inverted card images.
 - **Music Quiz**: Test your knowledge with audio snippets of game songs, featuring modifiers like 1.5x speed, 0.75x slow, and reverse playback!
 - **Gacha Simulator**: Pull for cards with realistic rates and an integrated pity system that saves to your profile.
-- **YouTube Streaming**: High-quality music streaming with playlist support, looping, volume control, and a persistent interactive Now-Playing UI.
 
 ### 📚 Game Data & Market Lookup
 - **Character Profiles & Cards**: Detailed lookups for character lore, stats, and high-resolution card artwork with normal/trained toggle.
@@ -39,7 +38,7 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 <h2 id="permissions--invite">🔑 Permissions & Invite</h2>
 
 - **Text:** `Send Messages`, `Embed Links`, `Attach Files`, `Add Reactions`, `Read Message History`.
-- **Voice:** `Connect`, `Speak` (For Music streaming).
+- **Voice:** `Connect`, `Speak` (For Music Quiz minigame).
 - **Advanced:** `Use Application Commands` (To use slash command `/`).
 
 > **Link Invite:**  
@@ -61,7 +60,7 @@ cd IchikaBot
 ```bash
 pip install -r requirements.txt
 ```
-*(Ensure `FFmpeg` is installed and added to your system PATH for the music streaming module to function).*
+*(Ensure `FFmpeg` is installed and added to your system PATH for the music quiz module to function).*
 
 ### 3. Configuration
 Copy `.env.example` to `.env` (or create a `.env` file) in the root directory and add your Discord bot token:
