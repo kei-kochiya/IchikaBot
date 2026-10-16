@@ -92,6 +92,10 @@ class CardToggleView(discord.ui.View):
     async def toggle_callback(self, interaction: discord.Interaction):
         from utils.media.image_helper import get_card_image_path
 
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
+
         self.is_trained = not self.is_trained
         self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
 
@@ -108,17 +112,24 @@ class CardToggleView(discord.ui.View):
             for att in (interaction.message.attachments if interaction.message else [])
             if att.filename != "card.png"
         ]
-        if img_path:
-            file = discord.File(img_path, filename="card.png")
-            embed.set_image(url="attachment://card.png")
-            await interaction.response.edit_message(
-                embed=embed, attachments=[*keep_attachments, file], view=self
-            )
-        else:
-            embed.set_image(url=self.get_current_image_url())
-            await interaction.response.edit_message(
-                embed=embed, attachments=keep_attachments, view=self
-            )
+
+        with contextlib.suppress(discord.HTTPException):
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                embed.set_image(url="attachment://card.png")
+                target_attachments = [*keep_attachments, file]
+            else:
+                embed.set_image(url=self.get_current_image_url())
+                target_attachments = keep_attachments
+
+            if interaction.response.is_done():
+                await interaction.edit_original_response(
+                    embed=embed, attachments=target_attachments, view=self
+                )
+            else:
+                await interaction.response.edit_message(
+                    embed=embed, attachments=target_attachments, view=self
+                )
 
     async def on_timeout(self):
         for item in self.children:

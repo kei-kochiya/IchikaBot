@@ -147,6 +147,10 @@ class BirthdayCardView(discord.ui.View):
     async def prev_callback(self, interaction: discord.Interaction):
         from utils.media.image_helper import get_card_image_path
 
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
+
         self.current_index = min(self.current_index + 1, len(self.cards) - 1)
         self.update_buttons()
         card = self.cards[self.current_index]
@@ -156,20 +160,31 @@ class BirthdayCardView(discord.ui.View):
             for att in (interaction.message.attachments if interaction.message else [])
             if att.filename != "card.png"
         ]
-        if img_path:
-            file = discord.File(img_path, filename="card.png")
-            embed = self._create_embed(attachment_url="attachment://card.png")
-            await interaction.response.edit_message(
-                embed=embed, attachments=[*keep_attachments, file], view=self
-            )
-        else:
-            embed = self._create_embed()
-            await interaction.response.edit_message(
-                embed=embed, attachments=keep_attachments, view=self
-            )
+
+        with contextlib.suppress(discord.HTTPException):
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                embed = self._create_embed(attachment_url="attachment://card.png")
+                target_attachments = [*keep_attachments, file]
+            else:
+                embed = self._create_embed()
+                target_attachments = keep_attachments
+
+            if interaction.response.is_done():
+                await interaction.edit_original_response(
+                    embed=embed, attachments=target_attachments, view=self
+                )
+            else:
+                await interaction.response.edit_message(
+                    embed=embed, attachments=target_attachments, view=self
+                )
 
     async def next_callback(self, interaction: discord.Interaction):
         from utils.media.image_helper import get_card_image_path
+
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
 
         self.current_index = max(self.current_index - 1, 0)
         self.update_buttons()
@@ -180,17 +195,24 @@ class BirthdayCardView(discord.ui.View):
             for att in (interaction.message.attachments if interaction.message else [])
             if att.filename != "card.png"
         ]
-        if img_path:
-            file = discord.File(img_path, filename="card.png")
-            embed = self._create_embed(attachment_url="attachment://card.png")
-            await interaction.response.edit_message(
-                embed=embed, attachments=[*keep_attachments, file], view=self
-            )
-        else:
-            embed = self._create_embed()
-            await interaction.response.edit_message(
-                embed=embed, attachments=keep_attachments, view=self
-            )
+
+        with contextlib.suppress(discord.HTTPException):
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                embed = self._create_embed(attachment_url="attachment://card.png")
+                target_attachments = [*keep_attachments, file]
+            else:
+                embed = self._create_embed()
+                target_attachments = keep_attachments
+
+            if interaction.response.is_done():
+                await interaction.edit_original_response(
+                    embed=embed, attachments=target_attachments, view=self
+                )
+            else:
+                await interaction.response.edit_message(
+                    embed=embed, attachments=target_attachments, view=self
+                )
 
     def _create_embed(self, attachment_url: str | None = None) -> discord.Embed:
         return create_birthday_embed(

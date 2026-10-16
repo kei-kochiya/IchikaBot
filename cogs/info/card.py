@@ -43,13 +43,24 @@ class CardView(discord.ui.View):
         self.add_item(self.switch_button)
 
     async def switch_callback(self, interaction: discord.Interaction):
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
+
         self.is_normal = not self.is_normal
         self.switch_button.label = "Trained" if self.is_normal else "Normal"
         self.switch_button.style = (
             discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
         )
 
-        embed = interaction.message.embeds[0]
+        embed = (
+            interaction.message.embeds[0]
+            if interaction.message and interaction.message.embeds
+            else None
+        )
+        if not embed:
+            return
+
         is_trained = not self.is_normal
         img_path = await get_card_image_path(
             self.card_data["assetbundleName"], is_trained=is_trained
@@ -59,19 +70,26 @@ class CardView(discord.ui.View):
             for att in (interaction.message.attachments if interaction.message else [])
             if att.filename != "card.png"
         ]
-        if img_path:
-            file = discord.File(img_path, filename="card.png")
-            embed.set_image(url="attachment://card.png")
-            await interaction.response.edit_message(
-                embed=embed, attachments=[*keep_attachments, file], view=self
-            )
-        else:
-            suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
-            new_image_url = f"{self.base_image_url}/{suffix}"
-            embed.set_image(url=new_image_url)
-            await interaction.response.edit_message(
-                embed=embed, attachments=keep_attachments, view=self
-            )
+
+        with contextlib.suppress(discord.HTTPException):
+            if img_path:
+                file = discord.File(img_path, filename="card.png")
+                embed.set_image(url="attachment://card.png")
+                target_attachments = [*keep_attachments, file]
+            else:
+                suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
+                new_image_url = f"{self.base_image_url}/{suffix}"
+                embed.set_image(url=new_image_url)
+                target_attachments = keep_attachments
+
+            if interaction.response.is_done():
+                await interaction.edit_original_response(
+                    embed=embed, attachments=target_attachments, view=self
+                )
+            else:
+                await interaction.response.edit_message(
+                    embed=embed, attachments=target_attachments, view=self
+                )
 
     async def on_timeout(self):
         for item in self.children:
