@@ -22,10 +22,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-if TOKEN is None:
-    logger.error("DISCORD_TOKEN not found in .env file.")
-    exit()
-
 
 # --- Default context/install tree -------------------------------------------
 # Applies allowed_contexts and allowed_installs to ALL commands by default,
@@ -86,6 +82,28 @@ async def on_close():
     await SharedResources.close_session()
 
 
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    # Skip command processing for game guesses so discord.py doesn't look for command 'g'
+    content_lower = message.content.lower()
+    if content_lower == "-g" or content_lower.startswith("-g "):
+        return
+
+    await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    """Global error handler for prefix commands."""
+    if isinstance(error, commands.CommandNotFound):
+        return  # Silently ignore invalid or unrecognized commands
+
+    logger.error("Command error in %s: %s", ctx.command, error)
+
+
 # --- SYNC COMMAND ---
 @bot.command()
 async def sync(ctx):
@@ -136,6 +154,10 @@ async def update_yt_dlp():
 
 
 async def main():
+    if not TOKEN:
+        logger.error("DISCORD_TOKEN not found in .env file.")
+        return
+
     async with bot:
         await update_yt_dlp()
         await database.init_db()
