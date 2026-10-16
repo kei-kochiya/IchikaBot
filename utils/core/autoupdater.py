@@ -8,7 +8,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import aiofiles
 
@@ -39,7 +39,7 @@ class AutoUpdater:
     """
 
     # Whitelisted URL prefixes for security
-    ALLOWED_URL_PREFIXES = [
+    ALLOWED_URL_PREFIXES: ClassVar[list[str]] = [
         "https://raw.githubusercontent.com/Sekai-World/",
     ]
 

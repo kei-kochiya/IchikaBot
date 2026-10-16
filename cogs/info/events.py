@@ -31,7 +31,6 @@ class EventsCog(commands.Cog):
 
     def load_data(self):
         """Event data is managed by utils.event_data singleton."""
-        pass
 
     def get_event_by_id(self, event_id: int) -> dict | None:
         """Get event by ID from JP data (for correct timing)."""
@@ -148,7 +147,7 @@ class EventsCog(commands.Cog):
         view.message = msg
 
     @commands.command(name="eventsearch", aliases=["evsearch"])
-    async def event_search_prefix(self, ctx: commands.Context, *, name: str = None):
+    async def event_search_prefix(self, ctx: commands.Context, *, name: str | None = None):
         """Search events: !eventsearch <name>"""
         if not name:
             await ctx.send("Vui lòng nhập tên sự kiện: `!eventsearch <name>`")

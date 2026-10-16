@@ -102,10 +102,10 @@ class GuessCog(commands.Cog):
             return []
         fn = char.get("firstName", "").lower()
         gn = char.get("givenName", "").lower()
-        answers = {fn, gn, f"{fn} {gn}".strip(), f"{gn} {fn}".strip()}
+        answers = [fn, gn, f"{fn} {gn}".strip(), f"{gn} {fn}".strip()]
         for nick in game_data.nicknames.get(str(char_id), []):
-            answers.add(nick.lower())
-        return list(answers)
+            answers.append(nick.lower())
+        return [a for a in dict.fromkeys(answers) if a]
 
     async def process_game_image(
         self, asset_name: str, is_trained: bool, mode: str
@@ -161,17 +161,9 @@ class GuessCog(commands.Cog):
                 self.active_channels.discard(channel_id)
                 return
 
-            possible_answers = [
-                char_data["firstName"].lower(),
-                char_data["givenName"].lower(),
-                f"{char_data['firstName']} {char_data['givenName']}".lower(),
-                f"{char_data['givenName']} {char_data['firstName']}".lower(),
-            ]
-            nicks = game_data.nicknames.get(str(card["characterId"]), [])
-            if nicks:
-                possible_answers.extend([n.lower() for n in nicks])
-
-            logger.debug(f"Guess answer: {possible_answers[2]}")
+            possible_answers = self.build_answer_list(card["characterId"])
+            full_name = f"{char_data['firstName']} {char_data['givenName']}".strip()
+            logger.debug(f"Guess answer: {full_name}")
 
             file = discord.File(game_img, filename="guess.png")
             embed = discord.Embed(

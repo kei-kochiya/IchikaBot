@@ -29,7 +29,7 @@ def supports_trained_art(card: dict) -> bool:
     return card.get("cardRarityType") in ["rarity_3", "rarity_4"]
 
 
-def get_random_card(cards: list, char_id: int, rarity: list[str] = None) -> dict | None:
+def get_random_card(cards: list, char_id: int, rarity: list[str] | None = None) -> dict | None:
     """Get a random card for a character from a list of cards.
 
     Args:

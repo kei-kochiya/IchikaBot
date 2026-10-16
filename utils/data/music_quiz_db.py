@@ -32,8 +32,10 @@ def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
 
 class MusicQuizDB:
     _instance = None
-    _db: dict[str, dict] = {}
-    last_error: str | None = None
+
+    def __init__(self) -> None:
+        self._db: dict[str, dict] = {}
+        self.last_error: str | None = None
 
     @classmethod
     def get_instance(cls):

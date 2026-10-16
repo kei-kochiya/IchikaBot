@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from typing import ClassVar
 
 import discord
 
@@ -10,7 +11,7 @@ class GuildPlayer:
     LOOP_OFF = 0
     LOOP_TRACK = 1
     LOOP_QUEUE = 2
-    LOOP_LABEL = {0: "Off", 1: "🔂 Track", 2: "🔁 Queue"}
+    LOOP_LABEL: ClassVar[dict[int, str]] = {0: "Off", 1: "🔂 Track", 2: "🔁 Queue"}
 
     def __init__(self):
         self.queue: deque = deque()

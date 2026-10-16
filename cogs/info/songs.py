@@ -21,7 +21,6 @@ class SongsCog(commands.Cog):
 
     def load_data(self):
         """Song data is managed by utils.song_data singleton."""
-        pass
 
     @property
     def difficulties(self):
@@ -79,7 +78,10 @@ class SongsCog(commands.Cog):
     @song_group.command(name="random", description="Gợi ý bài hát ngẫu nhiên")
     @app_commands.describe(min_level="Level Master tối thiểu", max_level="Level Master tối đa")
     async def song_random(
-        self, interaction: discord.Interaction, min_level: int = None, max_level: int = None
+        self,
+        interaction: discord.Interaction,
+        min_level: int | None = None,
+        max_level: int | None = None,
     ):
         await interaction.response.defer()
 
@@ -132,7 +134,7 @@ class SongsCog(commands.Cog):
 
     # ===== PREFIX COMMANDS =====
     @commands.command(name="song", aliases=["music", "s"])
-    async def song_prefix(self, ctx: commands.Context, *, query: str = None):
+    async def song_prefix(self, ctx: commands.Context, *, query: str | None = None):
         """Search for a song: !song <name>"""
         if not query:
             await ctx.send("Vui lòng nhập tên bài hát: `!song <name>`")

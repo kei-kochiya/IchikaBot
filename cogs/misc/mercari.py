@@ -159,7 +159,7 @@ class MercariCog(commands.Cog):
     # Prefix command: !mercari
     @commands.command(name="mercari", aliases=["mer", "merca"])
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def prefix_mercari(self, ctx: commands.Context, *, link: str = None):
+    async def prefix_mercari(self, ctx: commands.Context, *, link: str | None = None):
         if not link:
             await ctx.send("Vui lòng cung cấp link hoặc ID sản phẩm: `!mercari <link>`")
             return
@@ -229,7 +229,7 @@ class MercariCog(commands.Cog):
     # Prefix search: !mercarisearch
     @commands.command(name="mercarisearch", aliases=["msearch", "mersearch"])
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def prefix_mercarisearch(self, ctx: commands.Context, *, query: str = None):
+    async def prefix_mercarisearch(self, ctx: commands.Context, *, query: str | None = None):
         if not query:
             await ctx.send("Vui lòng cung cấp từ khóa: `!mercarisearch <từ khóa>`")
             return

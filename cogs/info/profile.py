@@ -41,12 +41,13 @@ class ProfileCog(commands.Cog):
 
     def load_data(self):
         """Profile and card data are managed by shared singletons."""
-        pass
 
     def get_display_prefix(self, card: dict) -> str:
         return card_data.get_display_prefix(card)
 
-    def get_random_card_for_character(self, char_id: int, rarity: list[str] = None) -> dict | None:
+    def get_random_card_for_character(
+        self, char_id: int, rarity: list[str] | None = None
+    ) -> dict | None:
         """Get a random 3-star or 4-star card for a character."""
         if rarity is None:
             rarity = ["rarity_3", "rarity_4"]
@@ -160,7 +161,7 @@ class ProfileCog(commands.Cog):
 
     # ===== PREFIX COMMANDS =====
     @commands.command(name="profile", aliases=["char", "character"])
-    async def profile_prefix(self, ctx: commands.Context, *, name: str = None):
+    async def profile_prefix(self, ctx: commands.Context, *, name: str | None = None):
         """Get character profile: !profile <name>"""
         if not name:
             await ctx.send("Vui lòng nhập tên nhân vật: `!profile <name>`")

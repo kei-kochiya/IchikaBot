@@ -90,7 +90,7 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def create_help_embed(self, category: str = None) -> discord.Embed:
+    def create_help_embed(self, category: str | None = None) -> discord.Embed:
         """Create the help embed."""
         if category and category in COMMAND_CATEGORIES:
             # Show specific category
@@ -124,7 +124,7 @@ class HelpCog(commands.Cog):
 
     # --- Prefix Command ---
     @commands.command(name="help", aliases=["h", "commands"])
-    async def help_prefix(self, ctx: commands.Context, *, category: str = None):
+    async def help_prefix(self, ctx: commands.Context, *, category: str | None = None):
         """Show help information."""
         embed = self.create_help_embed(category)
         await ctx.send(embed=embed)
@@ -144,7 +144,7 @@ class HelpCog(commands.Cog):
             app_commands.Choice(name="Mercari", value="Mercari"),
         ]
     )
-    async def help_slash(self, interaction: discord.Interaction, category: str = None):
+    async def help_slash(self, interaction: discord.Interaction, category: str | None = None):
         """Show help information via slash command."""
         embed = self.create_help_embed(category)
         await interaction.response.send_message(embed=embed, ephemeral=True)

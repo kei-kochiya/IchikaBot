@@ -87,7 +87,6 @@ class CardCog(commands.Cog):
 
     def load_data(self):
         """Card data is managed by utils.card_data singleton — nothing to do here."""
-        pass
 
     def get_card_by_id(self, card_id: int) -> dict | None:
         """O(1) lookup via shared singleton."""

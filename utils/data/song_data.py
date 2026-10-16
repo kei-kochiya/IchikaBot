@@ -166,7 +166,9 @@ class SongDataManager:
 
         return results
 
-    def get_random_song(self, min_level: int = None, max_level: int = None) -> dict | None:
+    def get_random_song(
+        self, min_level: int | None = None, max_level: int | None = None
+    ) -> dict | None:
         """Get a random song optionally filtered by Master level range."""
         valid_songs = []
         for song in self.songs_jp:

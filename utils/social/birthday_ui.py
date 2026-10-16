@@ -20,7 +20,7 @@ UNIT_NAMES = {
 
 
 def create_birthday_embed(
-    character: dict, card: dict = None, attachment_url: str | None = None
+    character: dict, card: dict | None = None, attachment_url: str | None = None
 ) -> discord.Embed:
     """Create birthday embed with optional specific card."""
     full_name = get_character_name(character["id"], full=True)
@@ -63,40 +63,6 @@ def create_birthday_embed(
         embed.set_image(url=trim_url)
         embed.set_footer(text="Project Sekai Birthday Announcement")
 
-    embed.timestamp = datetime.now(JST)
-    return embed
-
-
-def create_countdown_embed(
-    days_until: int, character: dict, card: dict, attachment_url: str | None = None
-) -> discord.Embed:
-    """Create a countdown embed for an upcoming birthday with card image."""
-    full_name = get_character_name(character["id"], full=True)
-    char_id = character.get("id")
-    unit = character.get("unit", "virtual_singer")
-    unit_display = UNIT_NAMES.get(unit, unit)
-
-    if days_until == 1:
-        countdown_text = "**Ngày mai**"
-        title = f"Ngày mai là sinh nhật của {full_name}!"
-    else:
-        countdown_text = f"**{days_until} ngày**"
-        title = f"Còn {days_until} ngày nữa là sinh nhật của {full_name}!"
-
-    embed = discord.Embed(
-        title=title,
-        description=f"Đừng quên chúc mừng sinh nhật **{full_name}** từ **{unit_display}** nhé!",
-        color=get_unit_color(char_id),
-    )
-    embed.add_field(name="Countdown", value=countdown_text, inline=True)
-    embed.add_field(name="Birthday", value=character.get("birthday", "Unknown"), inline=True)
-
-    # Use card image (default trained for 3/4 star)
-    is_trained = supports_trained_art(card)
-    card_url = attachment_url or get_card_image_url(card["assetbundleName"], trained=is_trained)
-
-    embed.set_image(url=card_url)
-    embed.set_footer(text=card.get("prefix", "Card"))
     embed.timestamp = datetime.now(JST)
     return embed
 

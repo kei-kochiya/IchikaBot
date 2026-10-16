@@ -226,7 +226,7 @@ class BirthdayCog(commands.Cog):
     @birthday_group.command(name="countdown", description="Xem đếm ngược sinh nhật kèm card")
     @app_commands.describe(character="Chọn nhân vật hoặc để trống cho sinh nhật gần nhất")
     @app_commands.autocomplete(character=char_autocomplete)
-    async def countdown_slash(self, interaction: discord.Interaction, character: str = None):
+    async def countdown_slash(self, interaction: discord.Interaction, character: str | None = None):
         await interaction.response.defer()
         res = resolve_character_and_countdown(character)
         if not res:
@@ -275,7 +275,7 @@ class BirthdayCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name="bdayu", aliases=["countdown", "upcoming", "bdaycountdown"])
-    async def bday_countdown_prefix(self, ctx: commands.Context, *, character: str = None):
+    async def bday_countdown_prefix(self, ctx: commands.Context, *, character: str | None = None):
         """Check upcoming birthday countdown with card: !bdayu [character]"""
         res = resolve_character_and_countdown(character)
         if not res:

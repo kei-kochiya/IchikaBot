@@ -49,7 +49,6 @@ class CardOfDayCog(commands.Cog):
 
     def load_data(self):
         """Card pool comes from shared card_data singleton — nothing to load."""
-        pass
 
     # --- Settings persistence ---
 
@@ -75,7 +74,6 @@ class CardOfDayCog(commands.Cog):
 
     async def save_settings(self):
         """Deprecated — DB writes happen directly in the command handlers."""
-        pass
 
     async def _save_guild_cfg(self, guild_id: int, cfg: dict) -> None:
         """Persist a single guild's cotd config to the DB."""

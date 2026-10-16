@@ -332,7 +332,7 @@ class StreamingCog(commands.Cog, name="Streaming"):
 
     @staticmethod
     async def _safe_send(
-        player: GuildPlayer, content: str = None, *, embed=None, delete_after=None
+        player: GuildPlayer, content: str | None = None, *, embed=None, delete_after=None
     ):
         if not player.text_channel:
             return

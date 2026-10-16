@@ -126,7 +126,7 @@ def resolve_character_and_countdown(
             bday = target_char.get("birthday")
             if bday:
                 now = datetime.now(JST)
-                for days_ahead in range(0, 366):
+                for days_ahead in range(366):
                     d_str = (now + timedelta(days=days_ahead)).strftime("%m-%d")
                     if bday == d_str:
                         return (days_ahead, char_with_id)

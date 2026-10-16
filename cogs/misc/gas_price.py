@@ -20,12 +20,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import BASE_DIR
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_CACHE_FILE = Path("gas_price_cache.json")
+_CACHE_FILE = BASE_DIR / "gas_price_cache.json"
 _VN_TZ = timezone(timedelta(hours=7))
 
 # Petrolimex CMS API — discovered from the portals.petrolimex.com.vn JS bundle.
