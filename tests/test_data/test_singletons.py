@@ -28,7 +28,7 @@ def test_game_data_singleton():
     assert any("Ichika" in c.name or "一歌" in c.name for c in choices)
 
 
-def test_card_data_singleton():
+def test_card_data_singleton(tmp_path):
     assert len(card_data.cards) >= 1
     assert len(card_data.pool_2) >= 1
     assert len(card_data.pool_3) >= 1
@@ -37,6 +37,22 @@ def test_card_data_singleton():
     sample_card = card_data.cards[0]
     prefix = card_data.get_display_prefix(sample_card)
     assert isinstance(prefix, str)
+
+    # Verify that heavy nested tables were excluded to save RAM
+    assert "cardParameters" not in sample_card
+    assert "specialTrainingCosts" not in sample_card
+    assert "masterLessonAchieveResources" not in sample_card
+
+    # Test fallback on minified single-line json
+    minified_file = tmp_path / "minified.json"
+    minified_file.write_text(
+        '[{"id": 9999, "cardRarityType": "rarity_4", "prefix": "Test", "cardParameters": [1, 2]}]',
+        encoding="utf-8",
+    )
+    res = card_data._stream_cards(minified_file, excluded_keys={"cardParameters"})
+    assert len(res) == 1
+    assert res[0]["id"] == 9999
+    assert "cardParameters" not in res[0]
 
 
 def test_event_data_singleton():

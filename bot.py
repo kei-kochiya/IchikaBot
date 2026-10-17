@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import logging
 import os
 
@@ -56,6 +57,7 @@ bot = commands.Bot(
     command_prefix=commands.when_mentioned_or("!", "-"),
     intents=intents,
     help_command=None,
+    max_messages=100,
     tree_cls=DefaultContextTree,  # use our tree with default contexts
 )
 
@@ -145,6 +147,7 @@ async def main():
     async with bot:
         await database.init_db()
         await load_cogs()
+        gc.collect()
         try:
             await bot.start(TOKEN)
         finally:
