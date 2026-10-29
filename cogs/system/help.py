@@ -15,9 +15,9 @@ COMMAND_CATEGORIES = {
     "Card & Gacha": {
         "description": "Thẻ và quay gacha",
         "commands": [
-            ("/card <name>", "!card <name>", "Xem thông tin thẻ"),
-            ("/gacha pull", "!gacha", "Quay gacha 10 lần"),
-            ("/gacha pity", "!pity", "Kiểm tra pity"),
+            ("/card <name>", "-", "Xem thông tin thẻ"),
+            ("/gacha pull", "-", "Quay gacha 10 lần"),
+            ("/gacha pity", "-", "Kiểm tra pity"),
         ],
     },
     "Music & Games": {
@@ -26,7 +26,7 @@ COMMAND_CATEGORIES = {
             ("/song search <query>", "!song <query>", "Tìm bài hát"),
             ("/song random", "!songr", "Bài hát ngẫu nhiên"),
             ("/songguess", "!songguess", "Chơi đoán nhạc"),
-            ("/guess", "!guess", "Chơi đoán nhân vật"),
+            ("/guess", "-", "Chơi đoán nhân vật"),
         ],
     },
     "Profiles": {
@@ -56,7 +56,7 @@ COMMAND_CATEGORIES = {
         "commands": [
             ("/help", "!help", "Hiển thị trợ giúp"),
             ("/gasprice", "!gasprice", "Tra cứu giá xăng dầu PVOIL"),
-            ("-", "!sync", "Đồng bộ slash commands"),
+            ("-", "!sync", "Đồng bộ slash commands (chủ bot)"),
             ("/update_data", "-", "Cập nhật dữ liệu (Admin)"),
         ],
     },

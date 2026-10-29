@@ -3,6 +3,7 @@ Data Updater Cog - Centralized scheduled updates for all game data files.
 This replaces the individual check_updates tasks in each cog.
 """
 
+import asyncio
 import contextlib
 import logging
 
@@ -106,10 +107,11 @@ class DataUpdaterCog(commands.Cog):
         for source_name in updated_sources:
             cogs_to_reload.update(source_to_cogs.get(source_name, set()))
 
-        # Reload singletons
+        # Reload singletons (in a worker thread: parsing the card files takes a while and
+        # would otherwise freeze every command and the gateway heartbeat)
         if updated_sources & {"cards_jp", "cards_en"}:
             try:
-                card_data.reload()
+                await asyncio.to_thread(card_data.reload)
                 logger.info("DataUpdater: card_data singleton reloaded.")
             except Exception as e:
                 logger.error("DataUpdater: Failed to reload card_data: %s", e)
@@ -121,14 +123,14 @@ class DataUpdaterCog(commands.Cog):
             "music_difficulties_en",
         }:
             try:
-                song_data.reload()
+                await asyncio.to_thread(song_data.reload)
                 logger.info("DataUpdater: song_data singleton reloaded.")
             except Exception as e:
                 logger.error("DataUpdater: Failed to reload song_data: %s", e)
 
         if updated_sources & {"events_jp", "events_en"}:
             try:
-                event_data.reload()
+                await asyncio.to_thread(event_data.reload)
                 logger.info("DataUpdater: event_data singleton reloaded.")
             except Exception as e:
                 logger.error("DataUpdater: Failed to reload event_data: %s", e)
@@ -138,8 +140,6 @@ class DataUpdaterCog(commands.Cog):
             if cog and hasattr(cog, "load_data"):
                 try:
                     # Handle both sync and async load_data methods
-                    import asyncio
-
                     result = cog.load_data()
                     if asyncio.iscoroutine(result):
                         await result
@@ -152,11 +152,23 @@ class DataUpdaterCog(commands.Cog):
     )
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
+    # Any server admin can run this, but the update is global: one run per minute, bot-wide
+    @app_commands.checks.cooldown(1, 60.0, key=None)
     async def manual_update(self, interaction: discord.Interaction):
         """Manually trigger data update check."""
         await interaction.response.defer(ephemeral=True)
 
+        if auto_updater.busy:
+            await interaction.followup.send(
+                "⏳ Đang có một lượt cập nhật khác chạy, hãy thử lại sau ít phút.", ephemeral=True
+            )
+            return
+
         results = await run_all_updates()
+
+        # Mirror the scheduled task: refresh singletons and cogs if anything changed
+        if any(success and "Updated" in msg for success, msg in results.values()):
+            await self._notify_cogs_to_reload(results)
 
         # Build response
         lines = []
@@ -180,6 +192,11 @@ class DataUpdaterCog(commands.Cog):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
                 "❌ Bạn cần quyền **Administrator** để sử dụng lệnh này.", ephemeral=True
+            )
+        elif isinstance(error, app_commands.CommandOnCooldown):
+            await interaction.response.send_message(
+                f"⏳ Vừa mới cập nhật xong, hãy thử lại sau **{error.retry_after:.0f}s**.",
+                ephemeral=True,
             )
 
 

@@ -76,6 +76,9 @@ BIRTHDAY_SETTINGS_FILE = GAME_DATA_PATH / "birthdaySettings.json"
 # Card of the Day
 CARD_OF_DAY_SETTINGS_FILE = GAME_DATA_PATH / "cardOfDaySettings.json"
 
+# Auto-updater bookkeeping (per-source ETag / content hash / item count)
+UPDATER_STATE_FILE = GAME_DATA_PATH / "updaterState.json"
+
 # --- Gacha Settings ---
 PITY_THRESHOLD = 50
 GACHA_RATES = {"rarity_4": 0.06, "rarity_3": 0.15, "rarity_2": 0.79}

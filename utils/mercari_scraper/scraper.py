@@ -27,6 +27,11 @@ def extract_item_info(text: str) -> tuple[str, ItemSource | None]:
     return item_id, None
 
 
+async def _empty_page() -> tuple[list[MercariItem], bool, str | None]:
+    """Placeholder result for a marketplace that is not being queried."""
+    return [], False, None
+
+
 def _sort_items(items: list[MercariItem], sort_by: SortBy) -> list[MercariItem]:
     """Sort a unified list of items based on requested order."""
     if sort_by == SortBy.PRICE_ASC:
@@ -54,6 +59,7 @@ class AsyncMercariScraper:
 
     async def close(self):
         """Release underlying HTTP client resources."""
+        await self._c2c_client.close()
         await self._shops_client.close()
 
     async def __aenter__(self):
@@ -91,42 +97,46 @@ class AsyncMercariScraper:
 
             batch: list[MercariItem] = []
 
-            c2c_items: list[MercariItem] = []
-            shops_items: list[MercariItem] = []
-
-            # 1. Fetch individual C2C listings if active
-            if c2c_has_next:
+            async def fetch_c2c(page_token: str | None):
                 try:
-                    c2c_items, c2c_has_next, c2c_token = await self._c2c_client.search_page(
+                    return await self._c2c_client.search_page(
                         query=query,
                         status=status,
                         price_min=price_min,
                         price_max=price_max,
                         sort_by=sort_by,
-                        page_token=c2c_token,
+                        page_token=page_token,
                     )
                 except Exception as e:
                     log.warning(f"Error fetching C2C page: {e}")
-                    c2c_has_next = False
+                    return [], False, None
 
-            # 2. Fetch Mercari Shops listings if active
-            if shops_has_next:
+            async def fetch_shops(cursor: str | None):
                 try:
-                    (
-                        shops_items,
-                        shops_has_next,
-                        shops_cursor,
-                    ) = await self._shops_client.search_page(
+                    return await self._shops_client.search_page(
                         query=query,
                         status=status,
                         price_min=price_min,
                         price_max=price_max,
                         sort_by=sort_by,
-                        cursor=shops_cursor,
+                        cursor=cursor,
                     )
                 except Exception as e:
                     log.warning(f"Error fetching Shops page: {e}")
-                    shops_has_next = False
+                    return [], False, None
+
+            # Query both marketplaces at the same time: page latency is the slower of the
+            # two requests instead of their sum.
+            c2c_items: list[MercariItem] = []
+            shops_items: list[MercariItem] = []
+            c2c_result, shops_result = await asyncio.gather(
+                fetch_c2c(c2c_token) if c2c_has_next else _empty_page(),
+                fetch_shops(shops_cursor) if shops_has_next else _empty_page(),
+            )
+            if c2c_has_next:
+                c2c_items, c2c_has_next, c2c_token = c2c_result
+            if shops_has_next:
+                shops_items, shops_has_next, shops_cursor = shops_result
 
             if not c2c_items and not shops_items:
                 break

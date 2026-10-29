@@ -25,6 +25,7 @@ async def temp_db(monkeypatch, tmp_path):
 
     await database.init_db()
     yield db_file
+    await database.close_db()
 
 
 @pytest.fixture

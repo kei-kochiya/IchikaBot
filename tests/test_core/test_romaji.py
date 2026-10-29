@@ -44,3 +44,14 @@ def test_matches_query():
 
     # Non-matching
     assert not matches_query("kanade", "Hoshino Ichika")
+
+
+def test_normalization_is_cached_for_repeated_searches():
+    normalize_for_search.cache_clear()
+
+    for _ in range(3):
+        assert matches_query("teo", "テオ")
+
+    info = normalize_for_search.cache_info()
+    assert info.hits >= 4  # query and field are both served from the cache after the first scan
+    assert normalize_for_search("テオ") == "teo"

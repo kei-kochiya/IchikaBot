@@ -27,6 +27,8 @@ music.rar
 # Game data - auto-updated (JP and EN)
 gameData/JP_data/
 gameData/EN_data/
+gameData/updaterState.json
+*.part
 
 # Markdown files (documentation/notes)
 *.md
@@ -60,4 +62,6 @@ Thumbs.db
 ~$*.xlsx
 ~$*.xls
 *.db
+*.db-wal
+*.db-shm
 ichika.db

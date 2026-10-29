@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import AUDIO_DIR, GUESS_TIME_LIMIT, MAX_GUESSES, TEMP_DIR
+from utils.core.tasks import react_in_background
 from utils.data.music_quiz_db import MusicQuizDB, is_correct_guess
 from utils.media.audio_fx import TEMP_CLIP_PREFIX, prepare_clip
 
@@ -75,7 +76,7 @@ class MusicGuess(commands.Cog):
 
         logger.info("Music: Checking for leftover temp files...")
         count = 0
-        for file in TEMP_DIR.glob(f"{TEMP_CLIP_PREFIX}*.mp3"):
+        for file in TEMP_DIR.glob(f"{TEMP_CLIP_PREFIX}*"):
             try:
                 file.unlink()
                 count += 1
@@ -406,26 +407,31 @@ class MusicGuess(commands.Cog):
     # ── Commands ───────────────────────────────────────────────────────────────
 
     @commands.command(name="songguess", aliases=["sg", "sgc"])
+    @commands.guild_only()
     async def guess_music(self, ctx, pool: str = "comm"):
         """Đoán nhạc. Mặc định là commission (-sg), hoặc tất cả (-sg all)"""
         await self.start_game_logic(ctx, variant_mode=False, pool_type=pool)
 
     @commands.command(name="songguessv", aliases=["sgv"])
+    @commands.guild_only()
     async def guess_music_variant(self, ctx, pool: str = "comm"):
         """Đoán nhạc có hiệu ứng (-sgv hoặc -sgv all)"""
         await self.start_game_logic(ctx, variant_mode=True, pool_type=pool)
 
     @commands.command(name="songguessall", aliases=["sga"])
+    @commands.guild_only()
     async def guess_music_all(self, ctx):
         """Đoán nhạc toàn bộ bài hát (-sga)"""
         await self.start_game_logic(ctx, variant_mode=False, pool_type="all")
 
     @commands.command(name="songguessallv", aliases=["sgav"])
+    @commands.guild_only()
     async def guess_music_all_variant(self, ctx):
         """Đoán nhạc toàn bộ bài hát có hiệu ứng (-sgav)"""
         await self.start_game_logic(ctx, variant_mode=True, pool_type="all")
 
     @app_commands.command(name="songguess", description="Bắt đầu game đoán bài hát!")
+    @app_commands.guild_only()  # needs the caller's voice channel; DMs have none
     @app_commands.describe(
         mode="Chế độ hiệu ứng âm thanh",
         pool="Gói bài hát muốn đoán (Commission hoặc Tất cả)",
@@ -481,7 +487,7 @@ class MusicGuess(commands.Cog):
             if game.get("timer_task") and not game["timer_task"].done():
                 game["timer_task"].cancel()
 
-            asyncio.create_task(message.add_reaction(CORRECT_EMOJI))
+            react_in_background(message, CORRECT_EMOJI)
 
             info = game["info"]
             reveal = MusicQuizDB.build_reveal(info)
@@ -491,7 +497,7 @@ class MusicGuess(commands.Cog):
             if game.get("ended"):
                 return
             game["guesses"][user_id] = game["guesses"].get(user_id, 0) + 1
-            asyncio.create_task(message.add_reaction(WRONG_EMOJI))
+            react_in_background(message, WRONG_EMOJI)
             game["wrong_reactions"].append(message)
 
             if game["guesses"][user_id] >= MAX_GUESSES:

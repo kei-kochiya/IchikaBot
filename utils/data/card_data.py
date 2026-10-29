@@ -8,11 +8,11 @@ Memory comparison:
   OPTIMIZED (streaming + pruning heavy tables): JP (~4.7MB) + EN (~1MB) ≈ ~5.7 MB (96% RAM reduction)
 """
 
-import json
 import logging
 from pathlib import Path
 
 from config import CARDS_FILE_EN, CARDS_FILE_JP
+from utils.core.jsonstream import iter_json_array
 
 logger = logging.getLogger(__name__)
 
@@ -61,91 +61,25 @@ class CardDataManager:
     @staticmethod
     def _stream_cards(filepath: Path | str, excluded_keys: set[str] | None = None) -> list[dict]:
         """
-        Stream and parse JSON cards array one-by-one to avoid allocating
-        the entire 37MB file and hundreds of thousands of dicts all at once in memory.
-        Falls back to standard json.load if file does not match formatted array indentation.
+        Stream the cards array one element at a time so the full multi-megabyte parse
+        tree (hundreds of thousands of per-level parameter dicts) never exists in memory.
+        Works for pretty-printed and minified files alike.
         """
-        cards = []
-        card_lines = []
-        in_card = False
-
-        try:
-            with open(filepath, encoding="utf-8") as f:
-                for line in f:
-                    if not in_card:
-                        if line.startswith("  {"):
-                            in_card = True
-                            card_lines = ["{\n"]
-                    else:
-                        if line.startswith("  }") or line.startswith("  },"):
-                            card_lines.append("}\n")
-                            card_raw = json.loads("".join(card_lines))
-                            if excluded_keys:
-                                cards.append(
-                                    {k: v for k, v in card_raw.items() if k not in excluded_keys}
-                                )
-                            else:
-                                cards.append(card_raw)
-                            in_card = False
-                            card_lines = []
-                        else:
-                            card_lines.append(line)
-        except Exception as e:
-            logger.warning(
-                "CardData: Streaming error on %s: %s, falling back to full read", filepath, e
-            )
-            cards = []
-
-        if not cards:
-            # Fallback for unexpected JSON formatting (e.g. minified single-line)
-            with open(filepath, encoding="utf-8") as f:
-                raw = json.load(f)
-                if excluded_keys:
-                    cards = [{k: v for k, v in c.items() if k not in excluded_keys} for c in raw]
-                else:
-                    cards = raw
-
-        return cards
+        if excluded_keys:
+            return [
+                {k: v for k, v in card.items() if k not in excluded_keys}
+                for card in iter_json_array(filepath)
+            ]
+        return list(iter_json_array(filepath))
 
     @staticmethod
     def _stream_en_prefixes(filepath: Path | str) -> dict[int, str]:
-        """
-        Stream EN cards file and extract only {id: prefix} without loading
-        the full 30MB+ JSON into memory.
-        """
-        en_prefix = {}
-        card_lines = []
-        in_card = False
-
-        try:
-            with open(filepath, encoding="utf-8") as f:
-                for line in f:
-                    if not in_card:
-                        if line.startswith("  {"):
-                            in_card = True
-                            card_lines = ["{\n"]
-                    else:
-                        if line.startswith("  }") or line.startswith("  },"):
-                            card_lines.append("}\n")
-                            card_raw = json.loads("".join(card_lines))
-                            prefix = card_raw.get("prefix")
-                            if prefix and "id" in card_raw:
-                                en_prefix[card_raw["id"]] = prefix
-                            in_card = False
-                            card_lines = []
-                        else:
-                            card_lines.append(line)
-        except Exception as e:
-            logger.warning("CardData: Streaming error on EN file %s: %s, falling back", filepath, e)
-            en_prefix = {}
-
-        if not en_prefix:
-            # Fallback for unexpected JSON formatting
-            with open(filepath, encoding="utf-8") as f:
-                raw = json.load(f)
-                en_prefix = {c["id"]: c["prefix"] for c in raw if c.get("prefix")}
-
-        return en_prefix
+        """Stream the EN cards file and keep only {id: prefix}."""
+        return {
+            card["id"]: card["prefix"]
+            for card in iter_json_array(filepath)
+            if card.get("prefix") and "id" in card
+        }
 
     def _load(self):
         # ── JP cards ────────────────────────────────────────────────────────

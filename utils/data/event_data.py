@@ -4,14 +4,17 @@ Shared event data singleton.
 Loads JP event data ONCE and keeps only lightweight EN name strings to minimize RAM.
 """
 
-import json
 import logging
 from datetime import UTC, datetime
 
 from config import EVENTS_FILE_EN, EVENTS_FILE_JP
+from utils.core.jsonstream import iter_json_array
 from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
+
+# Large nested tables the bot never reads (event ranking reward tiers).
+EXCLUDED_EVENT_KEYS = {"eventRankingRewardRanges"}
 
 
 class EventDataManager:
@@ -38,17 +41,22 @@ class EventDataManager:
         EventDataManager._initialized = True
 
     def _load(self):
-        """Load JP events and lightweight EN name mappings atomically."""
-        new_events_jp = []
-        new_events_jp_by_id = {}
-        new_events_en_names = {}
+        """Load JP events and lightweight EN name mappings atomically.
+
+        Each file is streamed one event at a time and unused heavy tables are dropped,
+        so neither load ever holds a full parse tree. If a file fails to load, the
+        previously loaded data for it is kept.
+        """
+        new_events_jp: list[dict] | None = None
+        new_events_en_names: dict[int, str] | None = None
 
         # ── JP Events ───────────────────────────────────────────────────────
         try:
-            with open(EVENTS_FILE_JP, encoding="utf-8") as f:
-                new_events_jp = json.load(f)
+            new_events_jp = [
+                {k: v for k, v in e.items() if k not in EXCLUDED_EVENT_KEYS}
+                for e in iter_json_array(EVENTS_FILE_JP)
+            ]
             new_events_jp.sort(key=lambda e: e.get("startAt", 0), reverse=True)
-            new_events_jp_by_id = {e["id"]: e for e in new_events_jp}
             logger.info("EventData: %d JP events loaded", len(new_events_jp))
         except FileNotFoundError as e:
             logger.error("EventData: Missing JP file: %s", e.filename)
@@ -56,11 +64,10 @@ class EventDataManager:
             logger.error("EventData: Failed to load JP event data: %s", e)
 
         # ── EN Events (names only to save RAM) ──────────────────────────────
-        events_en_raw = None
         try:
-            with open(EVENTS_FILE_EN, encoding="utf-8") as f:
-                events_en_raw = json.load(f)
-            new_events_en_names = {e["id"]: e["name"] for e in events_en_raw if e.get("name")}
+            new_events_en_names = {
+                e["id"]: e["name"] for e in iter_json_array(EVENTS_FILE_EN) if e.get("name")
+            }
             logger.info(
                 "EventData: %d EN event names loaded (lightweight)", len(new_events_en_names)
             )
@@ -68,13 +75,13 @@ class EventDataManager:
             logger.warning("EventData: Missing EN file: %s", e.filename)
         except Exception as e:
             logger.error("EventData: Failed to load EN event data: %s", e)
-        finally:
-            del events_en_raw
 
-        # Atomic assignment
-        self.events_jp = new_events_jp
-        self.events_jp_by_id = new_events_jp_by_id
-        self.events_en_names = new_events_en_names
+        # Atomic assignment (only for files that loaded successfully)
+        if new_events_jp is not None:
+            self.events_jp = new_events_jp
+            self.events_jp_by_id = {e["id"]: e for e in new_events_jp}
+        if new_events_en_names is not None:
+            self.events_en_names = new_events_en_names
 
     def reload(self):
         """Reload from disk. Called by DataUpdater after file updates."""

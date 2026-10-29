@@ -4,13 +4,13 @@ Shared song and music difficulties data singleton.
 Loads JP music data ONCE and keeps only lightweight EN search/display strings to minimize RAM.
 """
 
-import json
 import logging
 import random
 
 from discord import app_commands
 
 from config import MUSIC_DIFFICULTIES_FILE_JP, MUSICS_FILE_EN, MUSICS_FILE_JP
+from utils.core.jsonstream import iter_json_array
 from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
@@ -41,17 +41,18 @@ class SongDataManager:
         SongDataManager._initialized = True
 
     def _load(self):
-        """Load JP songs, difficulties, and lightweight EN metadata atomically."""
-        new_songs_jp = []
-        new_songs_jp_by_id = {}
-        new_songs_en_meta = {}
-        new_difficulties = {}
+        """Load JP songs, difficulties, and lightweight EN metadata atomically.
+
+        Files are streamed element by element; if a file fails to load, the
+        previously loaded data for it is kept.
+        """
+        new_songs_jp: list[dict] | None = None
+        new_songs_en_meta: dict[int, dict] | None = None
+        new_difficulties: dict[int, dict] | None = None
 
         # ── JP Songs ────────────────────────────────────────────────────────
         try:
-            with open(MUSICS_FILE_JP, encoding="utf-8") as f:
-                new_songs_jp = json.load(f)
-            new_songs_jp_by_id = {s["id"]: s for s in new_songs_jp}
+            new_songs_jp = list(iter_json_array(MUSICS_FILE_JP))
             logger.info("SongData: %d JP songs loaded", len(new_songs_jp))
         except FileNotFoundError as e:
             logger.error("SongData: Missing JP file: %s", e.filename)
@@ -59,17 +60,14 @@ class SongDataManager:
             logger.error("SongData: Failed to load JP songs: %s", e)
 
         # ── EN Songs (lightweight metadata only) ─────────────────────────────
-        songs_en_raw = None
         try:
-            with open(MUSICS_FILE_EN, encoding="utf-8") as f:
-                songs_en_raw = json.load(f)
             new_songs_en_meta = {
                 s["id"]: {
                     "title": s.get("title", ""),
                     "pronunciation": s.get("pronunciation", ""),
                     "composer": s.get("composer", ""),
                 }
-                for s in songs_en_raw
+                for s in iter_json_array(MUSICS_FILE_EN)
                 if s.get("title")
             }
             logger.info(
@@ -79,30 +77,28 @@ class SongDataManager:
             logger.warning("SongData: Missing EN file: %s", e.filename)
         except Exception as e:
             logger.error("SongData: Failed to load EN songs: %s", e)
-        finally:
-            del songs_en_raw
 
         # ── Music Difficulties ──────────────────────────────────────────────
         try:
-            with open(MUSIC_DIFFICULTIES_FILE_JP, encoding="utf-8") as f:
-                raw_diffs = json.load(f)
-            for diff in raw_diffs:
-                music_id = diff["musicId"]
-                if music_id not in new_difficulties:
-                    new_difficulties[music_id] = {}
-                new_difficulties[music_id][diff["musicDifficulty"]] = {
+            difficulties: dict[int, dict] = {}
+            for diff in iter_json_array(MUSIC_DIFFICULTIES_FILE_JP):
+                difficulties.setdefault(diff["musicId"], {})[diff["musicDifficulty"]] = {
                     "playLevel": diff["playLevel"],
                     "noteCount": diff["totalNoteCount"],
                 }
-            logger.info("SongData: Difficulties for %d songs loaded", len(new_difficulties))
+            new_difficulties = difficulties
+            logger.info("SongData: Difficulties for %d songs loaded", len(difficulties))
         except Exception as e:
             logger.error("SongData: Failed to load difficulties: %s", e)
 
-        # Atomic assignment
-        self.songs_jp = new_songs_jp
-        self.songs_jp_by_id = new_songs_jp_by_id
-        self.songs_en_meta = new_songs_en_meta
-        self.difficulties = new_difficulties
+        # Atomic assignment (only for files that loaded successfully)
+        if new_songs_jp is not None:
+            self.songs_jp = new_songs_jp
+            self.songs_jp_by_id = {s["id"]: s for s in new_songs_jp}
+        if new_songs_en_meta is not None:
+            self.songs_en_meta = new_songs_en_meta
+        if new_difficulties is not None:
+            self.difficulties = new_difficulties
 
     def reload(self):
         """Reload from disk. Called by DataUpdater after file updates."""

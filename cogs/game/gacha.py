@@ -2,8 +2,10 @@
 Gacha Cog - Gacha simulation for Project Sekai.
 """
 
+import asyncio
 import logging
 import random
+import weakref
 from io import BytesIO
 
 import discord
@@ -51,7 +53,7 @@ def _compose_10pull_image(results: list[dict], image_paths: list[str | None]) ->
         if path:
             try:
                 with Image.open(path) as thumb:
-                    thumb = thumb.resize((THUMB_W, THUMB_H))
+                    thumb = thumb.resize((THUMB_W, THUMB_H), reducing_gap=2.0)
                     bg.paste(thumb, (x, y))
             except OSError as e:
                 logger.warning(f"Failed to open thumbnail: {e}")
@@ -69,6 +71,17 @@ class GachaCog(commands.Cog):
         self.cards_2 = card_data.pool_2
         self.cards_3 = card_data.pool_3
         self.cards_4 = card_data.pool_4
+        # Per-user locks so two concurrent pulls can't both read the same pity value.
+        # Weak values: a lock disappears as soon as nobody is using it.
+        self._pity_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = (
+            weakref.WeakValueDictionary()
+        )
+
+    def _pity_lock(self, user_id: int) -> asyncio.Lock:
+        lock = self._pity_locks.get(user_id)
+        if lock is None:
+            lock = self._pity_locks[user_id] = asyncio.Lock()
+        return lock
 
     def load_data(self):
         """Card data managed by utils.card_data singleton. Refresh pool refs."""
@@ -113,9 +126,10 @@ class GachaCog(commands.Cog):
 
     async def pull_one_card(self, user_id: int, is_guaranteed_slot: bool = False) -> dict:
         """Pull a single card with pity system."""
-        current_pity = await self.get_user_pity(user_id)
-        card, new_pity = self._simulate_single_pull(current_pity, is_guaranteed_slot)
-        await self.update_user_pity(user_id, new_pity)
+        async with self._pity_lock(user_id):
+            current_pity = await self.get_user_pity(user_id)
+            card, new_pity = self._simulate_single_pull(current_pity, is_guaranteed_slot)
+            await self.update_user_pity(user_id, new_pity)
         return card
 
     gacha_group = app_commands.Group(name="gacha", description="Mô phỏng Gacha Project Sekai")
@@ -131,20 +145,25 @@ class GachaCog(commands.Cog):
         await interaction.response.defer()
         user_id = interaction.user.id
 
-        current_pity = await self.get_user_pity(user_id)
         results = []
 
-        if amount == 1:
-            card, final_pity = self._simulate_single_pull(current_pity)
-            results.append(card)
-            await self.update_user_pity(user_id, final_pity)
-        else:
-            for _ in range(9):
-                card, current_pity = self._simulate_single_pull(current_pity)
+        # Read-modify-write of the pity counter must be atomic per user
+        async with self._pity_lock(user_id):
+            current_pity = await self.get_user_pity(user_id)
+
+            if amount == 1:
+                card, final_pity = self._simulate_single_pull(current_pity)
                 results.append(card)
-            card, current_pity = self._simulate_single_pull(current_pity, is_guaranteed_slot=True)
-            results.append(card)
-            final_pity = current_pity
+            else:
+                for _ in range(9):
+                    card, current_pity = self._simulate_single_pull(current_pity)
+                    results.append(card)
+                card, current_pity = self._simulate_single_pull(
+                    current_pity, is_guaranteed_slot=True
+                )
+                results.append(card)
+                final_pity = current_pity
+
             await self.update_user_pity(user_id, final_pity)
 
         best_card = max(results, key=lambda x: x["cardRarityType"])
@@ -173,10 +192,10 @@ class GachaCog(commands.Cog):
             await interaction.followup.send(embed=embed, file=f)
 
         else:
-            image_paths = []
-            for card in results:
-                path = await get_card_image_path(card["assetbundleName"])
-                image_paths.append(path)
+            # Fetch all ten images concurrently (duplicates share one download)
+            image_paths = await asyncio.gather(
+                *(get_card_image_path(card["assetbundleName"]) for card in results)
+            )
 
             out_buffer = await self.bot.loop.run_in_executor(
                 None, _compose_10pull_image, results, image_paths

@@ -72,3 +72,55 @@ async def test_get_all_settings_prefix(temp_db):
     assert results[guild_id]["interval_hours"] == "24"
     assert results[guild_id]["last_post_ts"] == "1700000000"
     assert "other_channel" not in results[guild_id]
+
+
+@pytest.mark.asyncio
+async def test_single_connection_is_reused_across_calls(temp_db):
+    conn = await database._get_conn()
+
+    await database.set_pity(1, 5)
+    await database.get_pity(1)
+    await database.set_setting(1, "a", "b")
+
+    assert await database._get_conn() is conn
+
+
+@pytest.mark.asyncio
+async def test_connection_reopens_when_db_file_changes(temp_db, tmp_path, monkeypatch):
+    first = await database._get_conn()
+    await database.set_pity(42, 7)
+
+    other = tmp_path / "other.db"
+    monkeypatch.setattr(database, "DB_FILE", other)
+    await database.init_db()
+
+    assert await database._get_conn() is not first
+    assert other.exists()
+    assert await database.get_pity(42) == 0  # data lives in the old file only
+
+
+@pytest.mark.asyncio
+async def test_close_db_is_idempotent_and_reconnects(temp_db):
+    await database.set_pity(1, 3)
+    await database.close_db()
+    await database.close_db()
+
+    assert await database.get_pity(1) == 3  # transparently reopened, data persisted
+
+
+@pytest.mark.asyncio
+async def test_set_settings_writes_every_value_at_once(temp_db):
+    await database.set_settings(5, {"cotd_channel_id": "1", "cotd_interval_hours": "2.5"})
+    await database.set_settings(5, {"cotd_channel_id": "9"})  # upsert
+    await database.set_settings(5, {})  # no-op
+
+    assert await database.get_setting(5, "cotd_channel_id") == "9"
+    assert await database.get_setting(5, "cotd_interval_hours") == "2.5"
+
+
+@pytest.mark.asyncio
+async def test_prefix_lookup_treats_underscore_literally(temp_db):
+    await database.set_setting(1, "cotd_channel_id", "real")
+    await database.set_setting(1, "cotdXchannel_id", "lookalike")  # '_' must not act as a wildcard
+
+    assert await database.get_all_settings_prefix("cotd_") == {1: {"channel_id": "real"}}

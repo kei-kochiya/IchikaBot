@@ -3,6 +3,8 @@ Romaji conversion utilities for Japanese text search support.
 Converts between hiragana, katakana, and romaji.
 """
 
+from functools import lru_cache
+
 # Hiragana to Romaji mapping
 HIRAGANA_TO_ROMAJI = {
     # Basic vowels
@@ -392,6 +394,10 @@ def to_romaji(text: str) -> str:
     return result.lower()
 
 
+# Search scans the same few thousand song/event titles on every query and autocomplete
+# keystroke; caching the (pure) normalization turns each scan into dict lookups.
+# Sized to hold every title/pronunciation/composer string with room to spare (~1 MB).
+@lru_cache(maxsize=16384)
 def normalize_for_search(text: str) -> str:
     """
     Normalize text for search comparison.

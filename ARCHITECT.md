@@ -23,13 +23,15 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 - **Depended on by**: Almost all game and info cogs (e.g., `birthday.py`, `guess.py`, `profile.py`, `card.py`, `events.py`, `songs.py`).
 
 ### `utils/core/` (System Core)
-- **`database.py`**: Handles all asynchronous interactions with `ichika.db` (user settings, gacha history, and server configurations).
-- **`autoupdater.py`**: Validates, fetches, and syncs new assets/data from upstream Sekai-World repositories with atomic writes.
+- **`database.py`**: Handles all asynchronous interactions with `ichika.db` (user settings, gacha history, and server configurations) over one shared, long-lived SQLite connection (WAL). Call `close_db()` on shutdown.
+- **`autoupdater.py`**: Validates, fetches, and syncs new data from upstream Sekai-World repositories. Uses conditional requests (ETag, stored in `gameData/updaterState.json`) so unchanged files cost one tiny 304 response, streams downloads to disk and validates them without building the parse tree, and replaces files atomically. Only one update run at a time.
+- **`jsonstream.py`**: `iter_json_array()` yields the elements of a huge top-level JSON array one at a time (any formatting). Use it instead of `json.load` for the game-data files.
+- **`tasks.py`**: `spawn()` / `react_in_background()` for fire-and-forget work that must not be garbage collected or leak "exception never retrieved" noise.
 - **`romaji.py`**: Normalization and romaji conversion logic for search features.
 
 ### `utils/media/` (Media Processing)
-- **`image_helper.py`**: Asynchronous image caching and fetching.
-- **`audio_fx.py`**: Audio manipulation logic (FFmpeg/Pydub).
+- **`image_helper.py`**: Asynchronous image caching and fetching. Writes are atomic, concurrent requests for one image share a single download, and CDN 404s are remembered.
+- **`audio_fx.py`**: Audio manipulation logic (FFmpeg/Pydub). Clips are cut with an ffmpeg seek, so a whole track is never decoded into RAM.
 
 ### Domain-Specific Helpers
 - **`utils/game/`**: Card filtering, random sampling, and trained/untrained art validation (`cards.py`).
@@ -65,7 +67,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 
 ## 🛠️ Contribution Guidelines
 
-1. **Memory**: Use singletons from `utils.data` instead of manually loading JSONs.
+1. **Memory**: Use singletons from `utils.data` instead of manually loading JSONs. When a loader must read a large data file, stream it with `utils.core.jsonstream.iter_json_array` and drop the keys the bot never reads.
 2. **Separation of Concerns**: Keep Cogs small. Move Embed generation, Pagination UI, and complex calculations to the corresponding `utils/` subdirectory.
 3. **Persistence**: Use `utils.core.database.py` schema for new user data.
 4. **Async Execution**: Heavy tasks (Pillow/Pydub) must use `await bot.loop.run_in_executor()`.

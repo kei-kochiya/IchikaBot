@@ -62,26 +62,26 @@ bot = commands.Bot(
 )
 
 
+_commands_synced = False
+
+
 @bot.event
 async def on_ready():
+    global _commands_synced
     logger.info(f"Logged in as {bot.user.name}!")
     logger.info("--------------------------------")
 
-    # Auto-sync slash commands on startup
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"Auto-synced {len(synced)} slash command(s).")
-    except Exception as e:
-        logger.error(f"Failed to auto-sync commands: {e}")
+    # Auto-sync slash commands once per process. on_ready fires again after every gateway
+    # reconnect, and re-syncing each time wastes API calls (and rate limit) for no change.
+    if not _commands_synced:
+        try:
+            synced = await bot.tree.sync()
+            _commands_synced = True
+            logger.info(f"Auto-synced {len(synced)} slash command(s).")
+        except Exception as e:
+            logger.error(f"Failed to auto-sync commands: {e}")
 
     logger.info("Bot is ready.")
-
-
-@bot.event
-async def on_close():
-    """Cleanup shared resources on bot shutdown."""
-    logger.info("Bot shutting down, cleaning up resources...")
-    await SharedResources.close_session()
 
 
 @bot.event
@@ -103,11 +103,19 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
         return  # Silently ignore invalid or unrecognized commands
 
+    if isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("Lệnh này chỉ dùng được trong server.")
+        return
+
+    if isinstance(error, commands.CheckFailure):
+        return  # e.g. owner-only commands used by someone else: ignore quietly
+
     logger.error("Command error in %s: %s", ctx.command, error)
 
 
 # --- SYNC COMMAND ---
 @bot.command()
+@commands.is_owner()  # a global sync is rate limited by Discord: never let anyone trigger it
 async def sync(ctx):
     """Manually sync slash commands."""
     try:
@@ -152,6 +160,7 @@ async def main():
             await bot.start(TOKEN)
         finally:
             await SharedResources.close_session()
+            await database.close_db()
 
 
 if __name__ == "__main__":

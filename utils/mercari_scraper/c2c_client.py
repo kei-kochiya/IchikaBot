@@ -65,6 +65,12 @@ class AsyncC2CClient:
     def __init__(self):
         self._mercapi = Mercapi()
 
+    async def close(self):
+        """Close the HTTP client owned by the underlying Mercapi instance."""
+        client = getattr(self._mercapi, "_client", None)
+        if client is not None and not client.is_closed:
+            await client.aclose()
+
     async def get_item(self, item_id: str) -> MercariItem | None:
         """Fetch a single C2C item by ID asynchronously."""
         try:

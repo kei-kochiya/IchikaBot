@@ -10,6 +10,7 @@ from discord.ext import commands
 from PIL import Image, ImageFilter, ImageOps
 
 from config import SONG_GUESS_DURATION
+from utils.core.tasks import react_in_background
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
 from utils.game.cards import is_pre_trained_card, supports_trained_art
@@ -19,24 +20,25 @@ logger = logging.getLogger(__name__)
 
 GUESS_PREFIX = "-g "
 MAX_FAILS = 4
+MAX_PUZZLE_WIDTH = 1280
 
 
-def _process_game_image_sync(
-    local_path: str, mode: str
-) -> tuple[BytesIO | None, BytesIO | None, str]:
-    """Synchronous helper for image processing with effects."""
+def _process_game_image_sync(local_path: str, mode: str) -> tuple[BytesIO | None, str | None, str]:
+    """Synchronous helper for image processing with effects.
+
+    Returns (puzzle_png, reveal_path, effect_name).  The reveal image is the untouched
+    cached card file, so it is never decoded/re-encoded or held in memory during a game.
+    """
     CROP_SIZE = 250
     try:
-        with Image.open(local_path) as full_img:
-            full_img = full_img.convert("RGBA")
-            w, h = full_img.size
+        with Image.open(local_path) as img:
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA")
+            w, h = img.size
 
             if w < CROP_SIZE or h < CROP_SIZE:
-                full_img = full_img.resize((max(w, CROP_SIZE), max(h, CROP_SIZE)))
-                w, h = full_img.size
-
-            effect_used = "Normal"
-            game_img = None
+                img = img.resize((max(w, CROP_SIZE), max(h, CROP_SIZE)))
+                w, h = img.size
 
             if mode == "random":
                 effect = random.choice(["crop_bw", "pixelate", "blur", "negative"])
@@ -44,38 +46,48 @@ def _process_game_image_sync(
                 effect = "crop"
 
             if effect == "crop" or effect == "crop_bw":
+                # Crop first: only the 250x250 region is ever copied/converted
                 x = random.randint(0, w - CROP_SIZE)
                 y = random.randint(0, h - CROP_SIZE)
-                game_img = full_img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
+                game_img = img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
                 if effect == "crop_bw":
                     game_img = ImageOps.grayscale(game_img)
                     effect_used = "Trắng đen"
                 else:
                     effect_used = "Crop"
 
-            elif effect == "pixelate":
-                small = full_img.resize((48, 48), Image.NEAREST)
-                game_img = small.resize((w, h), Image.NEAREST)
-                effect_used = "Pixelate"
+            else:
+                # Whole-image effects don't need the 2520px source art: cap the width so
+                # encoding is faster and the upload to Discord is several times smaller.
+                if w > MAX_PUZZLE_WIDTH:
+                    img = img.resize(
+                        (MAX_PUZZLE_WIDTH, round(h * MAX_PUZZLE_WIDTH / w)),
+                        Image.BILINEAR,
+                        reducing_gap=2.0,
+                    )
+                    w, h = img.size
 
-            elif effect == "blur":
-                game_img = full_img.filter(ImageFilter.GaussianBlur(radius=25))
-                effect_used = "Blur"
+                if effect == "pixelate":
+                    small = img.resize((48, 48), Image.NEAREST)
+                    game_img = small.resize((w, h), Image.NEAREST)
+                    effect_used = "Pixelate"
 
-            elif effect == "negative":
-                rgb_img = full_img.convert("RGB")
-                game_img = ImageOps.invert(rgb_img)
-                effect_used = "Âm bản"
+                elif effect == "blur":
+                    # Blurring a quarter-size copy and scaling back up looks the same as a
+                    # big blur but costs a fraction of the time.
+                    small = img.reduce(4).filter(ImageFilter.GaussianBlur(radius=25 / 4))
+                    game_img = small.resize((w, h), Image.BILINEAR)
+                    effect_used = "Blur"
+
+                else:  # negative
+                    game_img = ImageOps.invert(img.convert("RGB"))
+                    effect_used = "Âm bản"
 
             game_io = BytesIO()
-            game_img.save(game_io, format="PNG")
+            game_img.save(game_io, format="PNG", compress_level=1)
             game_io.seek(0)
 
-            full_io = BytesIO()
-            full_img.save(full_io, format="PNG")
-            full_io.seek(0)
-
-        return game_io, full_io, effect_used
+        return game_io, local_path, effect_used
 
     except OSError as e:
         logger.error(f"Failed to process image: {e}")
@@ -125,8 +137,8 @@ class GuessCog(commands.Cog):
 
     async def process_game_image(
         self, asset_name: str, is_trained: bool, mode: str
-    ) -> tuple[BytesIO | None, BytesIO | None, str]:
-        """Process card image for guessing game in executor. Returns (game_img_io, full_img_io, effect_name)."""
+    ) -> tuple[BytesIO | None, str | None, str]:
+        """Process card image for guessing game in executor. Returns (game_img_io, reveal_path, effect_name)."""
         try:
             async with asyncio.timeout(15.0):
                 local_path = await get_card_image_path(asset_name, is_trained)
@@ -237,11 +249,11 @@ class GuessCog(commands.Cog):
                         ):
                             winner = guess_msg.author
                             reason = "win"
-                            asyncio.create_task(guess_msg.add_reaction("✅"))
+                            react_in_background(guess_msg, "✅")
                             break
                         else:
                             fails += 1
-                            asyncio.create_task(guess_msg.add_reaction("❌"))
+                            react_in_background(guess_msg, "❌")
                             if fails >= MAX_FAILS:
                                 reason = "failed"
                                 break
@@ -252,8 +264,7 @@ class GuessCog(commands.Cog):
                 if view.gave_up:
                     reason = "gave_up"
 
-                # Prepare result
-                full_img.seek(0)
+                # Prepare result (full_img is the cached card file's path)
                 result_file = discord.File(full_img, filename="reveal.png")
                 result_embed = discord.Embed(
                     description=f"Đáp án: **{char_data['firstName']} {char_data['givenName']}**"
@@ -292,9 +303,7 @@ class GuessCog(commands.Cog):
 class GiveUpView(discord.ui.View):
     """View with a working Give Up button."""
 
-    def __init__(
-        self, channel_id: int, cog: GuessCog, char_data: dict, card: dict, full_img: BytesIO
-    ):
+    def __init__(self, channel_id: int, cog: GuessCog, char_data: dict, card: dict, full_img: str):
         super().__init__(timeout=SONG_GUESS_DURATION + 5)
         self.channel_id = channel_id
         self.cog = cog

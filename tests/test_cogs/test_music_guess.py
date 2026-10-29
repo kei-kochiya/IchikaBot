@@ -167,3 +167,50 @@ async def test_idle_disconnect_scheduled_and_cancelled_on_new_game(mock_bot):
 
     assert idle_task.cancelling() or idle_task.cancelled() or idle_task.done()
     assert guild_id not in cog.idle_tasks
+
+
+def test_song_guess_commands_cannot_be_used_in_dms(mock_bot):
+    cog = MusicGuess(mock_bot)
+
+    # Starting a round needs the caller's voice channel and guild: DMs have neither
+    assert cog.slash_songguess.guild_only is True
+    for command in (
+        cog.guess_music,
+        cog.guess_music_variant,
+        cog.guess_music_all,
+        cog.guess_music_all_variant,
+    ):
+        assert len(command.checks) == 1, f"{command.name} must carry the guild_only check"
+
+
+@pytest.mark.asyncio
+async def test_correct_guess_reaction_is_sent_in_the_background(mock_bot):
+    cog = MusicGuess(mock_bot)
+    channel_id = 66666
+    cog.active_games[channel_id] = {
+        "norm_targets": ["needle"],
+        "display_answer": "needLe",
+        "info": {"title_en": "needLe"},
+        "guesses": {},
+        "wrong_reactions": [],
+        "voice_client": None,
+        "clip_path": None,
+        "timer_task": None,
+        "ended": False,
+    }
+    message = MagicMock(spec=discord.Message)
+    message.channel.id = channel_id
+    message.author.bot = False
+    message.author.id = 1
+    message.author.mention = "<@1>"
+    message.content = "-g needle"
+    message.reply = AsyncMock()
+    # A deleted message / missing permission must not leak an unretrieved task exception
+    message.add_reaction = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "gone"))
+
+    with patch.object(cog, "cleanup_game", new_callable=AsyncMock):
+        await cog.on_message(message)
+        await asyncio.sleep(0)  # let the background reaction task run
+
+    message.add_reaction.assert_awaited_once()
+    message.reply.assert_awaited_once()

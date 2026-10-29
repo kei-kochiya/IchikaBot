@@ -27,6 +27,7 @@ import never runs again.
 
 import json
 import logging
+from pathlib import Path
 
 import aiosqlite
 
@@ -115,16 +116,59 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
     logger.info("DB migration: complete.")
 
 
+# ── Connection management ──────────────────────────────────────────────────────
+#
+# A single long-lived connection is reused for every query.  Opening a fresh
+# aiosqlite connection per call spawns a worker thread and re-opens the file each
+# time (~1-4 ms of pure overhead per query); aiosqlite already serialises work on
+# the connection's own thread, so sharing one connection is safe.
+
+_conn: aiosqlite.Connection | None = None
+_conn_path: Path | None = None
+
+
+async def _connect() -> aiosqlite.Connection:
+    pending = aiosqlite.connect(DB_FILE)
+    # The worker thread is non-daemon by default; make sure a missed close_db()
+    # (crash, KeyboardInterrupt) can never keep the interpreter from exiting.
+    worker = getattr(pending, "_thread", None)
+    if worker is not None:
+        worker.daemon = True
+    conn = await pending
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    # Safe with WAL: a crash can lose the last transaction but never corrupts the file.
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+async def _get_conn() -> aiosqlite.Connection:
+    """Return the shared connection, (re)opening it if it is missing or DB_FILE changed."""
+    global _conn, _conn_path
+    if _conn is not None and _conn_path != Path(DB_FILE):
+        await close_db()
+    if _conn is None:
+        _conn = await _connect()
+        _conn_path = Path(DB_FILE)
+    return _conn
+
+
+async def close_db() -> None:
+    """Close the shared connection.  Call on bot shutdown."""
+    global _conn, _conn_path
+    conn, _conn, _conn_path = _conn, None, None
+    if conn is not None:
+        await conn.close()
+
+
 # ── Public API — lifecycle ─────────────────────────────────────────────────────
 
 
 async def init_db() -> None:
     """Create tables and run one-time JSON migration.  Call before loading cogs."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        conn.row_factory = aiosqlite.Row
-        await conn.execute("PRAGMA journal_mode=WAL")
-        await _create_tables(conn)
-        await _migrate_json(conn)
+    conn = await _get_conn()
+    await _create_tables(conn)
+    await _migrate_json(conn)
     logger.info("DB: initialised at %s", DB_FILE)
 
 
@@ -133,22 +177,21 @@ async def init_db() -> None:
 
 async def get_pity(user_id: int) -> int:
     """Return the user's current pity count (0 if not found)."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        conn.row_factory = aiosqlite.Row
-        async with conn.execute("SELECT count FROM pity WHERE user_id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return int(row["count"]) if row else 0
+    conn = await _get_conn()
+    async with conn.execute("SELECT count FROM pity WHERE user_id = ?", (user_id,)) as cur:
+        row = await cur.fetchone()
+        return int(row["count"]) if row else 0
 
 
 async def set_pity(user_id: int, count: int) -> None:
     """Upsert the user's pity count."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        await conn.execute(
-            "INSERT INTO pity (user_id, count) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET count=excluded.count",
-            (user_id, count),
-        )
-        await conn.commit()
+    conn = await _get_conn()
+    await conn.execute(
+        "INSERT INTO pity (user_id, count) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET count=excluded.count",
+        (user_id, count),
+    )
+    await conn.commit()
 
 
 # ── Public API — guild settings ────────────────────────────────────────────────
@@ -156,47 +199,58 @@ async def set_pity(user_id: int, count: int) -> None:
 
 async def get_setting(guild_id: int, setting: str) -> str | None:
     """Return the value for (guild_id, setting), or None if absent."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        conn.row_factory = aiosqlite.Row
-        async with conn.execute(
-            "SELECT value FROM guild_settings WHERE guild_id=? AND setting=?",
-            (guild_id, setting),
-        ) as cur:
-            row = await cur.fetchone()
-            return row["value"] if row else None
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT value FROM guild_settings WHERE guild_id=? AND setting=?",
+        (guild_id, setting),
+    ) as cur:
+        row = await cur.fetchone()
+        return row["value"] if row else None
 
 
 async def set_setting(guild_id: int, setting: str, value: str) -> None:
     """Upsert a guild setting."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        await conn.execute(
-            "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
-            "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
-            (guild_id, setting, value),
-        )
-        await conn.commit()
+    conn = await _get_conn()
+    await conn.execute(
+        "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
+        "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
+        (guild_id, setting, value),
+    )
+    await conn.commit()
+
+
+async def set_settings(guild_id: int, values: dict[str, str]) -> None:
+    """Upsert several settings for one guild in a single transaction."""
+    if not values:
+        return
+    conn = await _get_conn()
+    await conn.executemany(
+        "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
+        "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
+        [(guild_id, setting, value) for setting, value in values.items()],
+    )
+    await conn.commit()
 
 
 async def delete_setting(guild_id: int, setting: str) -> None:
     """Delete a guild setting (no-op if not found)."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        await conn.execute(
-            "DELETE FROM guild_settings WHERE guild_id=? AND setting=?",
-            (guild_id, setting),
-        )
-        await conn.commit()
+    conn = await _get_conn()
+    await conn.execute(
+        "DELETE FROM guild_settings WHERE guild_id=? AND setting=?",
+        (guild_id, setting),
+    )
+    await conn.commit()
 
 
 async def get_all_settings(setting: str) -> dict[int, str]:
     """Return {guild_id: value} for all guilds that have the given setting key."""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        conn.row_factory = aiosqlite.Row
-        async with conn.execute(
-            "SELECT guild_id, value FROM guild_settings WHERE setting=? AND guild_id != 0",
-            (setting,),
-        ) as cur:
-            rows = await cur.fetchall()
-            return {int(row["guild_id"]): row["value"] for row in rows}
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT guild_id, value FROM guild_settings WHERE setting=? AND guild_id != 0",
+        (setting,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return {int(row["guild_id"]): row["value"] for row in rows}
 
 
 async def get_all_settings_prefix(prefix: str) -> dict[int, dict[str, str]]:
@@ -205,14 +259,13 @@ async def get_all_settings_prefix(prefix: str) -> dict[int, dict[str, str]]:
     starts with *prefix*.  Used by CardOfDay which stores multiple keys
     per guild (cotd_channel_id, cotd_interval_hours, cotd_last_post_ts).
     """
-    async with aiosqlite.connect(DB_FILE) as conn:
-        conn.row_factory = aiosqlite.Row
-        async with conn.execute(
-            "SELECT guild_id, setting, value FROM guild_settings "
-            "WHERE setting LIKE ? AND guild_id != 0",
-            (f"{prefix}%",),
-        ) as cur:
-            rows = await cur.fetchall()
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT guild_id, setting, value FROM guild_settings "
+        "WHERE substr(setting, 1, ?) = ? AND guild_id != 0",
+        (len(prefix), prefix),
+    ) as cur:
+        rows = await cur.fetchall()
 
     result: dict[int, dict[str, str]] = {}
     p_len = len(prefix)

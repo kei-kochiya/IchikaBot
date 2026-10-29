@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INTERVAL_HOURS = 1
 MIN_INTERVAL_HOURS = 0.5
 MAX_INTERVAL_HOURS = 24
+FAILURE_BACKOFF_SECONDS = 600  # don't hammer a guild whose channel we can't post to
 
 
 class CardOfDayCog(commands.Cog):
@@ -36,6 +37,7 @@ class CardOfDayCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.settings = {}  # guild_id_str -> {channel_id, interval_hours, last_post_ts}
+        self._retry_after: dict[str, float] = {}  # guild_id_str -> earliest next attempt (ts)
 
     async def cog_load(self):
         await self.load_settings()
@@ -76,9 +78,8 @@ class CardOfDayCog(commands.Cog):
         """Deprecated — DB writes happen directly in the command handlers."""
 
     async def _save_guild_cfg(self, guild_id: int, cfg: dict) -> None:
-        """Persist a single guild's cotd config to the DB."""
-        for key, val in cfg.items():
-            await database.set_setting(guild_id, f"cotd_{key}", str(val))
+        """Persist a single guild's cotd config to the DB (one transaction)."""
+        await database.set_settings(guild_id, {f"cotd_{key}": str(val) for key, val in cfg.items()})
 
     # --- Helpers ---
 
@@ -123,6 +124,8 @@ class CardOfDayCog(commands.Cog):
 
             if now_ts - last_post < interval_hours * 3600:
                 continue  # Not time yet
+            if now_ts < self._retry_after.get(guild_id_str, 0):
+                continue  # Recent failure, wait before retrying
 
             channel = self.bot.get_channel(int(channel_id))
             if not channel:
@@ -144,9 +147,12 @@ class CardOfDayCog(commands.Cog):
                 view.message = msg
 
                 cfg["last_post_ts"] = now_ts
+                self._retry_after.pop(guild_id_str, None)
                 await database.set_setting(int(guild_id_str), "cotd_last_post_ts", str(now_ts))
                 logger.info("CardOfDay: Posted card %d in guild %s", card["id"], guild_id_str)
             except Exception as e:
+                # e.g. missing permissions: without a backoff this retries (and logs) every minute
+                self._retry_after[guild_id_str] = now_ts + FAILURE_BACKOFF_SECONDS
                 logger.error("CardOfDay: Failed to post in guild %s: %s", guild_id_str, e)
 
     @card_loop.before_loop
@@ -256,6 +262,7 @@ class CardOfDayCog(commands.Cog):
         guild_id = str(interaction.guild_id)
         if guild_id in self.settings:
             del self.settings[guild_id]
+            self._retry_after.pop(guild_id, None)
             for key in ("channel_id", "interval_hours", "last_post_ts"):
                 await database.delete_setting(interaction.guild_id, f"cotd_{key}")
             await interaction.response.send_message("Đã tắt Card of the Day.", ephemeral=True)
