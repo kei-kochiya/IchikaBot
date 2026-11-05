@@ -57,7 +57,7 @@ def test_build_item_embed_c2c():
     # 5000 * 182 + 10_000 = 920,000
     assert embed.fields[1].value == "920,000 VND"
     assert embed.fields[2].name == "Trạng thái"
-    assert embed.fields[2].value == "🟢 Còn hàng"
+    assert embed.fields[2].value == "Còn hàng"
     assert "Mercari C2C" in embed.footer.text
 
 
@@ -79,7 +79,7 @@ def test_build_item_embed_shops_sold():
     assert embed.color == discord.Color.red()
     # Preferred user: 10000 * 180 + 10_000 = 1,810,000
     assert embed.fields[1].value == "1,810,000 VND"
-    assert embed.fields[2].value == "🔴 Sold"
+    assert embed.fields[2].value == "Đã bán"
     assert "Mercari Shops" in embed.footer.text
 
 
@@ -162,7 +162,7 @@ async def test_search_embed_empty(mock_bot):
 
     result = await cog._search_embed("nonexistent_item_xyz", "all", 123)
     assert isinstance(result, str)
-    assert "Không tìm thấy" in result
+    assert "Không có sản phẩm" in result
 
 
 async def test_unexpected_slash_errors_are_left_to_the_global_handler(mock_bot):

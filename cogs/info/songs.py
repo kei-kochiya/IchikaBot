@@ -69,7 +69,7 @@ class SongsCog(commands.Cog):
                 return f"• **{title}** (Master Lv.{master_level})"
 
             view = SearchPaginationView(
-                results, f"🔍 Kết quả tìm kiếm: {query}", formatter, items_per_page=10
+                results, f"Kết quả tìm kiếm: {query}", formatter, items_per_page=10
             )
             embed = view._create_embed()
             msg = await interaction.followup.send(embed=embed, view=view)
@@ -95,7 +95,7 @@ class SongsCog(commands.Cog):
 
         title = self.get_display_title(chosen, chosen["id"])
         embed = create_song_embed(chosen, title, self.difficulties)
-        embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"
+        embed.title = f"Bài hát ngẫu nhiên: {title}"
         await interaction.followup.send(embed=embed)
 
     @song_group.command(name="info", description="Xem chi tiết bài hát")
@@ -158,7 +158,7 @@ class SongsCog(commands.Cog):
                 return f"• **{title}** (Master Lv.{master_level})"
 
             view = SearchPaginationView(
-                results, f"🔍 Kết quả tìm kiếm: {query}", formatter, items_per_page=10
+                results, f"Kết quả tìm kiếm: {query}", formatter, items_per_page=10
             )
             embed = view._create_embed()
             msg = await ctx.send(embed=embed, view=view)
@@ -174,7 +174,7 @@ class SongsCog(commands.Cog):
 
         title = self.get_display_title(chosen, chosen["id"])
         embed = create_song_embed(chosen, title, self.difficulties)
-        embed.title = f"🎲 Bài hát ngẫu nhiên: {title}"
+        embed.title = f"Bài hát ngẫu nhiên: {title}"
         await ctx.send(embed=embed)
 
 

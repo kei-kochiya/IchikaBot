@@ -25,8 +25,9 @@ COMMAND_CATEGORIES = {
         "commands": [
             ("/song search <query>", "!song <query>", "Tìm bài hát"),
             ("/song random", "!songr", "Bài hát ngẫu nhiên"),
-            ("/songguess", "!songguess", "Chơi đoán nhạc"),
-            ("/guess", "-", "Chơi đoán nhân vật"),
+            ("/songguess", "!sg", "Đoán tên bài hát qua đoạn nhạc trong kênh voice"),
+            ("-", "!sgv / !sga", "Đoán nhạc có hiệu ứng / với tất cả bài hát"),
+            ("/guess", "-", "Đoán nhân vật qua hình ảnh"),
         ],
     },
     "Profiles": {
@@ -56,8 +57,7 @@ COMMAND_CATEGORIES = {
         "commands": [
             ("/help", "!help", "Hiển thị trợ giúp"),
             ("/gasprice", "!gasprice", "Tra cứu giá xăng dầu PVOIL"),
-            ("-", "!sync", "Đồng bộ slash commands (chủ bot)"),
-            ("/update_data", "-", "Cập nhật dữ liệu (Admin)"),
+            ("/update_data", "-", "Cập nhật dữ liệu game ngay (Admin)"),
         ],
     },
     "Card of the Day": {
@@ -90,36 +90,54 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @staticmethod
+    def _find_category(name: str | None) -> str | None:
+        """Category by name, ignoring case and spaces ("card & gacha", "mercari")."""
+        if not name:
+            return None
+        wanted = name.replace(" ", "").lower()
+        return next((c for c in COMMAND_CATEGORIES if c.replace(" ", "").lower() == wanted), None)
+
+    @staticmethod
+    def _forms(slash: str, prefix: str) -> str:
+        """`/song search` · `!song`: only the forms that exist (no dangling "-"), each
+        alias ("!mercari / !mer") as its own code span."""
+        forms = [alias for form in (slash, prefix) if form != "-" for alias in form.split(" / ")]
+        return " · ".join(f"`{form}`" for form in forms)
+
     def create_help_embed(self, category: str | None = None) -> discord.Embed:
-        """Create the help embed."""
-        if category and category in COMMAND_CATEGORIES:
-            # Show specific category
-            cat_data = COMMAND_CATEGORIES[category]
+        """The overview of every command, or one category in detail."""
+        found = self._find_category(category)
+        if found:
+            cat_data = COMMAND_CATEGORIES[found]
             embed = discord.Embed(
-                title=f"{category}", description=cat_data["description"], color=discord.Color.blue()
+                title=found, description=cat_data["description"], color=discord.Color.blue()
             )
-
             for slash, prefix, desc in cat_data["commands"]:
-                embed.add_field(name=f"`{slash}` / `{prefix}`", value=desc, inline=False)
-        else:
-            # Show all categories
-            embed = discord.Embed(
-                title="📚 Trợ giúp - Project Sekai Bot",
-                description="Dưới đây là danh sách các lệnh. Sử dụng `/` cho slash commands hoặc `!` cho prefix commands.",
-                color=discord.Color.blue(),
+                embed.add_field(name=desc, value=self._forms(slash, prefix), inline=False)
+            return embed
+
+        embed = discord.Embed(
+            title="Danh sách lệnh",
+            description=(
+                "Gõ `/` để dùng lệnh slash, hoặc `!` cho lệnh thường.\n"
+                "Xem chi tiết một mục: `/help <mục>` hoặc `!help <mục>`."
+            ),
+            color=discord.Color.blue(),
+        )
+        for cat_name, cat_data in COMMAND_CATEGORIES.items():
+            # The commands themselves (slash form, else the prefix aliases), so the
+            # overview alone is enough to find one
+            names = [
+                name.split(" <")[0]
+                for slash, prefix, _ in cat_data["commands"]
+                for name in ([slash] if slash != "-" else prefix.split(" / "))
+            ]
+            embed.add_field(
+                name=f"{cat_name} · {cat_data['description']}",
+                value=" ".join(f"`{name}`" for name in names),
+                inline=False,
             )
-
-            for cat_name, cat_data in COMMAND_CATEGORIES.items():
-                # Get first 3 commands as preview
-                preview = [cmd[2] for cmd in cat_data["commands"][:3]]
-                embed.add_field(
-                    name=cat_name,
-                    value=f"{cat_data['description']}\n" + ", ".join(preview),
-                    inline=False,
-                )
-
-            embed.set_footer(text="Tip: Sử dụng !help <category> để xem chi tiết từng danh mục")
-
         return embed
 
     # --- Prefix Command ---

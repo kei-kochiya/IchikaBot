@@ -90,7 +90,7 @@ class CardOfDayCog(commands.Cog):
         """Create a Card of the Day embed (trained art by default if supported)."""
         char_id = card["characterId"]
         char_name = get_character_name(char_id, full=True)
-        rarity = f"{card['cardRarityType'][-1]}⭐"
+        rarity = f"{card['cardRarityType'][-1]}★"
         display_name = self.get_display_prefix(card)
 
         embed = discord.Embed(

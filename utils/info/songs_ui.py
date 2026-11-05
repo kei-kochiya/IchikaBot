@@ -1,17 +1,13 @@
 import contextlib
 import math
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 
 import discord
 
-DIFFICULTY_EMOJI = {
-    "easy": "🟢",
-    "normal": "🔵",
-    "hard": "🟡",
-    "expert": "🔴",
-    "master": "🟣",
-    "append": "⚪",
-}
+# Release times are set in Japan time: in UTC, songs released at JST midnight showed the
+# previous day.
+JST = timezone(timedelta(hours=9))
+DIFFICULTIES = ("easy", "normal", "hard", "expert", "master", "append")
 
 
 def create_song_embed(song: dict, display_title: str, difficulties: dict) -> discord.Embed:
@@ -19,16 +15,15 @@ def create_song_embed(song: dict, display_title: str, difficulties: dict) -> dis
     diff_info = difficulties.get(song_id, {})
 
     diff_lines = []
-    for diff_name in ["easy", "normal", "hard", "expert", "master", "append"]:
+    for diff_name in DIFFICULTIES:
         if diff_name in diff_info:
             level = diff_info[diff_name]["playLevel"]
             notes = diff_info[diff_name]["noteCount"]
-            emoji = DIFFICULTY_EMOJI.get(diff_name, "⚪")
-            diff_lines.append(f"{emoji} **{diff_name.title()}**: Lv.{level} ({notes} notes)")
+            diff_lines.append(f"**{diff_name.title()}**: Lv.{level} ({notes} notes)")
 
     release_ts = song.get("publishedAt", 0) / 1000
     release_date = (
-        datetime.fromtimestamp(release_ts, tz=UTC).strftime("%Y-%m-%d")
+        datetime.fromtimestamp(release_ts, tz=JST).strftime("%Y-%m-%d")
         if release_ts > 0
         else "Unknown"
     )
@@ -47,7 +42,7 @@ def create_song_embed(song: dict, display_title: str, difficulties: dict) -> dis
         name="Info",
         value=f"**ID**: {song_id}\n"
         f"**Released**: {release_date}\n"
-        f"**Has MV**: {'✅' if 'mv' in song.get('categories', []) else '❌'}",
+        f"**Has MV**: {'Yes' if 'mv' in song.get('categories', []) else 'No'}",
         inline=True,
     )
 

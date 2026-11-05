@@ -42,21 +42,18 @@ PROFILES_FILE = STATIC_DATA_PATH / "characterProfiles.json"
 CARDS_FILE_JP = JP_DATA_PATH / "cards.json"
 MUSICS_FILE_JP = JP_DATA_PATH / "musics.json"
 MUSIC_DIFFICULTIES_FILE_JP = JP_DATA_PATH / "musicDifficulties.json"
-STAMPS_FILE_JP = JP_DATA_PATH / "stamps.json"
 EVENTS_FILE_JP = JP_DATA_PATH / "events.json"
 
 # EN Data files
 CARDS_FILE_EN = EN_DATA_PATH / "cards.json"
 MUSICS_FILE_EN = EN_DATA_PATH / "musics.json"
 MUSIC_DIFFICULTIES_FILE_EN = EN_DATA_PATH / "musicDifficulties.json"
-STAMPS_FILE_EN = EN_DATA_PATH / "stamps.json"
 EVENTS_FILE_EN = EN_DATA_PATH / "events.json"
 
 # Legacy aliases for backwards compatibility
 CARDS_FILE = CARDS_FILE_JP
 MUSICS_FILE = MUSICS_FILE_JP
 MUSIC_DIFFICULTIES_FILE = MUSIC_DIFFICULTIES_FILE_JP
-STAMPS_FILE = STAMPS_FILE_JP
 EVENTS_FILE = EVENTS_FILE_JP
 
 PITY_FILE = BASE_DIR / "pityData.json"
@@ -67,7 +64,7 @@ RARITY_ICONS = {
     "rarity_2": "★★☆☆",
     "rarity_3": "★★★☆",
     "rarity_4": "★★★★",
-    "rarity_birthday": "🎂 Birthday",
+    "rarity_birthday": "Birthday",
 }
 
 # Birthday Announcements
@@ -106,9 +103,6 @@ MUSICS_DATA_URL_JP = (
 MUSIC_DIFFICULTIES_URL_JP = (
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musicDifficulties.json"
 )
-STAMPS_DATA_URL_JP = (
-    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/stamps.json"
-)
 EVENTS_DATA_URL_JP = (
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/events.json"
 )
@@ -121,9 +115,6 @@ MUSICS_DATA_URL_EN = (
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/musics.json"
 )
 MUSIC_DIFFICULTIES_URL_EN = "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/musicDifficulties.json"
-STAMPS_DATA_URL_EN = (
-    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/stamps.json"
-)
 EVENTS_DATA_URL_EN = (
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-en-diff/main/events.json"
 )
@@ -132,7 +123,6 @@ EVENTS_DATA_URL_EN = (
 CARD_DATA_URL = CARD_DATA_URL_JP
 MUSICS_DATA_URL = MUSICS_DATA_URL_JP
 MUSIC_DIFFICULTIES_URL = MUSIC_DIFFICULTIES_URL_JP
-STAMPS_DATA_URL = STAMPS_DATA_URL_JP
 EVENTS_DATA_URL = EVENTS_DATA_URL_JP
 
 

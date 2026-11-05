@@ -175,7 +175,7 @@ class BirthdayCog(commands.Cog):
 
         if birthday_chars:
             await interaction.followup.send(
-                f"Today is birthday! Sending {len(birthday_chars)} announcement(s)..."
+                f"Hôm nay có sinh nhật: đang gửi {len(birthday_chars)} thông báo."
             )
             for char in birthday_chars:
                 await self.send_birthday_message(interaction.channel, char)
@@ -183,12 +183,12 @@ class BirthdayCog(commands.Cog):
 
         res = resolve_character_and_countdown(None)
         if not res:
-            await interaction.followup.send("No upcoming birthdays found.")
+            await interaction.followup.send("Không tìm thấy sinh nhật sắp tới.")
             return
 
         days_until, char = res
         full_name = get_character_name(char["id"], full=True)
-        await interaction.followup.send(f"Next birthday: {full_name} in {days_until} day(s)")
+        await interaction.followup.send(f"Sinh nhật tiếp theo: {full_name}, còn {days_until} ngày.")
         await self.send_daily_card_message(interaction.channel, char, days_until)
 
     @birthday_group.command(name="disable", description="Tắt thông báo sinh nhật")
@@ -225,7 +225,7 @@ class BirthdayCog(commands.Cog):
         await self.send_birthday_message(
             interaction.followup,
             target_char,
-            prefix_content="**📋 Xem trước thông báo sinh nhật:**",
+            prefix_content="**Xem trước thông báo sinh nhật**",
         )
 
     @birthday_group.command(name="countdown", description="Xem đếm ngược sinh nhật kèm card")
@@ -240,7 +240,7 @@ class BirthdayCog(commands.Cog):
 
         days_until, target_char = res
         if not await self.send_daily_card_message(interaction.followup, target_char, days_until):
-            await interaction.followup.send("Không tìm thấy card 3/4⭐ của nhân vật này.")
+            await interaction.followup.send("Nhân vật này chưa có card 3★ hoặc 4★ nào.")
 
     @birthday_group.command(name="check", description="Xem sinh nhật hôm nay và sắp tới")
     async def check_birthday_slash(self, interaction: discord.Interaction):

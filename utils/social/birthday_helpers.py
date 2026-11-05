@@ -78,7 +78,7 @@ def build_birthday_calendar_embed(
     # Today section
     if birthday_chars:
         today_names = [f"**{get_character_name(c['id'], full=True)}**" for c in birthday_chars]
-        embed.add_field(name="🎉 Hôm nay!", value="\n".join(today_names), inline=False)
+        embed.add_field(name="Hôm nay", value="\n".join(today_names), inline=False)
     else:
         embed.add_field(name="Hôm nay", value="Không có sinh nhật", inline=False)
 
@@ -89,14 +89,14 @@ def build_birthday_calendar_embed(
             name = get_character_name(char["id"], full=True)
             date_str = char.get("birthday", "")
             if days_until == 1:
-                upcoming_lines.append(f"⏰ **Ngày mai** - {name}")
+                upcoming_lines.append(f"**Ngày mai** · {name}")
             else:
-                upcoming_lines.append(f"📌 **{days_until} ngày** ({date_str}) - {name}")
+                upcoming_lines.append(f"**{days_until} ngày nữa** ({date_str}) · {name}")
 
         if len(upcoming) > 10:
             upcoming_lines.append(f"*...và {len(upcoming) - 10} sinh nhật khác*")
 
-        embed.add_field(name="📆 Sắp tới (30 ngày)", value="\n".join(upcoming_lines), inline=False)
+        embed.add_field(name="Sắp tới (30 ngày)", value="\n".join(upcoming_lines), inline=False)
     else:
         embed.add_field(name="Sắp tới", value="Không có sinh nhật trong 30 ngày tới", inline=False)
 

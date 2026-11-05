@@ -26,13 +26,13 @@ def get_event_status(event: dict) -> tuple[str, str]:
     aggregate = event.get("aggregateAt", 0)
 
     if now_ms < start:
-        return "⏳ Sắp diễn ra", format_timestamp(start, "R")
+        return "Sắp diễn ra", format_timestamp(start, "R")
     elif now_ms < aggregate:
-        return "🟢 Đang diễn ra", f"Kết thúc {format_timestamp(aggregate, 'R')}"
+        return "Đang diễn ra", f"Kết thúc {format_timestamp(aggregate, 'R')}"
     elif now_ms < end:
-        return "🟡 Đang xếp hạng", "Đang tổng hợp kết quả"
+        return "Đang xếp hạng", "Đang tổng hợp kết quả"
     else:
-        return "⚫ Đã kết thúc", format_timestamp(end, "R")
+        return "Đã kết thúc", format_timestamp(end, "R")
 
 
 def create_event_embed(event: dict, display_name: str, show_details: bool = True) -> discord.Embed:
@@ -41,7 +41,7 @@ def create_event_embed(event: dict, display_name: str, show_details: bool = True
     status, status_info = get_event_status(event)
 
     embed = discord.Embed(
-        title=f"🎉 {display_name}", color=0xFF69B4 if "Đang diễn ra" in status else 0x5865F2
+        title=display_name, color=0xFF69B4 if "Đang diễn ra" in status else 0x5865F2
     )
 
     embed.add_field(name="Loại sự kiện", value=event_type, inline=True)

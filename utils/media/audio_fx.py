@@ -125,13 +125,13 @@ def prepare_clip(file_path: str, variant: str | None = None) -> tuple[str | None
     effect_name = "Bình thường"
     if variant == "fast":
         clip = speedup(clip, playback_speed=1.5)
-        effect_name = "Tua nhanh 1.5x ⏩"
+        effect_name = "Tua nhanh 1.5x"
     elif variant == "slow":
         clip = clip._spawn(clip.raw_data, overrides={"frame_rate": int(clip.frame_rate * 0.75)})
-        effect_name = "Tua chậm 0.75x ⏪"
+        effect_name = "Tua chậm 0.75x"
     elif variant == "reverse":
         clip = clip.reverse()
-        effect_name = "Phát ngược 🔄"
+        effect_name = "Phát ngược"
 
     # WAV is written directly by Python (no second ffmpeg encode pass) and is cheaper for
     # ffmpeg to decode again when streaming to Discord; the file only lives for one round.

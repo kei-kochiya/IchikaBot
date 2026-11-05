@@ -160,7 +160,7 @@ class DataUpdaterCog(commands.Cog):
 
         if auto_updater.busy:
             await interaction.followup.send(
-                "⏳ Đang có một lượt cập nhật khác chạy, hãy thử lại sau ít phút.", ephemeral=True
+                "Đang có một lượt cập nhật khác chạy. Thử lại sau ít phút nhé.", ephemeral=True
             )
             return
 
@@ -173,11 +173,12 @@ class DataUpdaterCog(commands.Cog):
         # Build response
         lines = []
         for source_name, (success, msg) in results.items():
-            status = "✅" if success else "❌"
-            lines.append(f"{status} **{source_name}**: {msg}")
+            lines.append(
+                f"**{source_name}**: {msg}" if success else f"**{source_name}**: lỗi, {msg}"
+            )
 
         embed = discord.Embed(
-            title="📊 Data Update Results",
+            title="Kết quả cập nhật dữ liệu",
             description="\n".join(lines),
             color=discord.Color.green()
             if all(s for s, _ in results.values())
@@ -191,11 +192,11 @@ class DataUpdaterCog(commands.Cog):
         """Handle permission errors."""
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
-                "❌ Bạn cần quyền **Administrator** để sử dụng lệnh này.", ephemeral=True
+                "Bạn cần quyền **Administrator** để dùng lệnh này.", ephemeral=True
             )
         elif isinstance(error, app_commands.CommandOnCooldown):
             await interaction.response.send_message(
-                f"⏳ Vừa mới cập nhật xong, hãy thử lại sau **{error.retry_after:.0f}s**.",
+                f"Dữ liệu vừa được cập nhật. Thử lại sau **{error.retry_after:.0f} giây** nhé.",
                 ephemeral=True,
             )
 

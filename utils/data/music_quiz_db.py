@@ -201,4 +201,4 @@ class MusicQuizDB:
     @staticmethod
     def build_reveal(info: dict) -> str:
         title = info.get("title_en") or info.get("title_jp") or "???"
-        return f"🎵 **{title}**"
+        return f"**{title}**"

@@ -169,9 +169,7 @@ class MusicGuess(commands.Cog):
                 return
             game["ended"] = True
             try:
-                await channel.send(
-                    f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**"
-                )
+                await channel.send(f"Hết giờ! Đáp án là **{game['display_answer']}**")
             except discord.HTTPException as e:
                 logger.warning("Music: Could not announce timeout in %s: %s", channel_id, e)
             finally:
@@ -301,18 +299,18 @@ class MusicGuess(commands.Cog):
         if not eligible_files:
             db = MusicQuizDB.get_instance()
             if db.last_error:
-                await send_msg(f"❌ Lỗi nạp dữ liệu `song.xlsx`: {db.last_error}")
+                await send_msg(f"Không đọc được `song.xlsx`: {db.last_error}")
                 return
             if len(db._db) == 0:
                 await send_msg(
-                    "❌ Cơ sở dữ liệu bài hát đang trống. "
+                    "Danh sách bài hát đang trống. "
                     "Vui lòng kiểm tra file `gameData/static/song.xlsx` hoặc cài `openpyxl`."
                 )
                 return
             comm_ids = db.get_commission_ids()
             if pool_type == "comm" and len(comm_ids) == 0:
                 await send_msg(
-                    "❌ Dữ liệu commission chưa có trong `song.xlsx`. "
+                    "`song.xlsx` chưa đánh dấu bài commission nào. "
                     "Vui lòng `git pull` để nhận file `song.xlsx` mới nhất có đánh dấu commission."
                 )
                 return
@@ -398,7 +396,9 @@ class MusicGuess(commands.Cog):
                 )
         except TimeoutError:
             logger.error("Voice connection timed out on %s", user.voice.channel.name)
-            await send_msg("❌ Hết thời gian chờ kết nối Voice (máy chủ bị chặn UDP).")
+            await send_msg(
+                "Không vào được kênh voice: hết thời gian chờ (mạng của bot có thể đang chặn UDP)."
+            )
             if clip_path and os.path.exists(clip_path):
                 os.remove(clip_path)
             return
@@ -433,7 +433,7 @@ class MusicGuess(commands.Cog):
         pool_label = "Commission" if pool_type == "comm" else "Tất cả bài hát"
         mode_text = f"\n(Hiệu ứng: {effect_name})" if variant_mode else ""
         await send_msg(
-            f"**Đoán Tên Bài Hát!** 🎧 [Gói: **{pool_label}**]{mode_text}\n"
+            f"**Đoán tên bài hát** · Gói **{pool_label}**{mode_text}\n"
             f"Thời gian: {GUESS_TIME_LIMIT}s | Số lượt đoán: {MAX_GUESSES}\n"
             f"Gõ `-g [tên bài hát]` để trả lời!"
         )
@@ -533,7 +533,7 @@ class MusicGuess(commands.Cog):
             info = game["info"]
             reveal = MusicQuizDB.build_reveal(info)
             try:
-                await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}")
+                await message.reply(f"Chính xác! {message.author.mention} giỏi quá!\n{reveal}")
             except discord.HTTPException as e:
                 # e.g. the winning message was deleted before the reply went out
                 logger.warning("Music: Could not announce winner in %s: %s", channel_id, e)

@@ -54,6 +54,7 @@ def _pull_interaction(user_id=7):
     interaction = MagicMock()
     interaction.user.id = user_id
     interaction.user.name = "tester"
+    interaction.user.display_name = "Tester"
     interaction.response.defer = AsyncMock()
     interaction.followup.send = AsyncMock()
     return interaction
@@ -78,16 +79,20 @@ def _patch_rendering(monkeypatch, tmp_path, art_available=True):
     monkeypatch.setitem(g, "render_single_pull", lambda *a: BytesIO(b"jpeg"))
 
 
-async def test_ten_pull_sends_the_result_image(mock_bot, monkeypatch, tmp_path, temp_db):
+async def test_ten_pull_sends_the_result_as_a_plain_image(mock_bot, monkeypatch, tmp_path, temp_db):
     _patch_rendering(monkeypatch, tmp_path)
     cog = GachaCog(mock_bot)
     interaction = _pull_interaction()
+    interaction.user.display_name = "Saki_fan"
 
     await cog.pull.callback(cog, interaction, amount=10)
 
     (sent,) = interaction.followup.send.call_args_list
     assert sent.kwargs["file"].filename == "gacha_10.jpg"
-    assert sent.kwargs["embed"].image.url == "attachment://gacha_10.jpg"
+    assert "embed" not in sent.kwargs  # an embed shrinks the image to ~400 px
+    content = sent.kwargs["content"]
+    assert r"Saki\_fan" in content  # markdown in names is escaped
+    assert "4★" in content and "3★" in content and "Pity" in content
 
 
 async def test_single_pull_sends_the_result_image(mock_bot, monkeypatch, tmp_path, temp_db):
@@ -99,6 +104,7 @@ async def test_single_pull_sends_the_result_image(mock_bot, monkeypatch, tmp_pat
 
     (sent,) = interaction.followup.send.call_args_list
     assert sent.kwargs["file"].filename == "card.jpg"
+    assert "embed" not in sent.kwargs and "Pity" in sent.kwargs["content"]
 
 
 async def test_single_pull_without_art_still_shows_the_result(
@@ -114,3 +120,4 @@ async def test_single_pull_without_art_still_shows_the_result(
 
     (sent,) = interaction.followup.send.call_args_list
     assert sent.kwargs["file"].filename == "card.jpg"
+    assert "embed" not in sent.kwargs and "Pity" in sent.kwargs["content"]

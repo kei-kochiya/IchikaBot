@@ -168,7 +168,7 @@ async def test_price_embed_error_handling_no_cache(mock_bot, tmp_path):
     ):
         result = await cog._price_embed()
         assert isinstance(result, str)
-        assert "❌" in result
+        assert "Thử lại" in result  # says how to recover, not just that it failed
 
 
 def test_prices_fetched_before_15h_are_refreshed_after_15h():

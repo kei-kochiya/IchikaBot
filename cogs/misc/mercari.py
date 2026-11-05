@@ -46,7 +46,7 @@ def _build_item_embed(item: MercariItem, user_id: int) -> discord.Embed:
     jpy = item.price
     vnd = _compute_vnd_price(jpy, user_id)
 
-    status_text = "🔴 Sold" if item.is_sold else "🟢 Còn hàng"
+    status_text = "Đã bán" if item.is_sold else "Còn hàng"
     embed_color = discord.Color.red() if item.is_sold else discord.Color.green()
     source_label = "Mercari Shops" if item.source == ItemSource.SHOPS else "Mercari C2C"
 
@@ -260,10 +260,10 @@ class MercariCog(commands.Cog):
             return f"Lỗi khi tìm kiếm: `{e}`"
 
         if not items:
-            return f"🔍 Không tìm thấy sản phẩm nào đang bán cho từ khóa `{query}`."
+            return f"Không có sản phẩm nào đang bán cho từ khóa `{query}`. Thử từ khóa khác nhé."
 
         embed = discord.Embed(
-            title=f"🔍 Kết quả tìm kiếm: {query}",
+            title=f"Kết quả tìm kiếm: {query}",
             color=discord.Color.blue(),
         )
 

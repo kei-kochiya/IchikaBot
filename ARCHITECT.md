@@ -2,7 +2,7 @@
 
 Welcome to the IchikaBot source code! This document provides an overview of the bot's internal architecture, file structure, and module dependencies. It is intended for developers who wish to understand or contribute to the project.
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 IchikaBot is built using `discord.py` and follows a modular **Cog-based architecture**. Each major feature is encapsulated in its own class (a "Cog") within organized subdirectories under `cogs/`.
 
@@ -10,7 +10,7 @@ To ensure performance and low RAM usage, the bot heavily utilizes the **Singleto
 
 ---
 
-## 📂 Utilities & Core Logic (`utils/`)
+## Utilities & Core Logic (`utils/`)
 
 The `utils/` directory acts as the backbone of the bot. Cogs should rely on these utilities rather than implementing complex logic or loading raw JSON data themselves.
 
@@ -42,7 +42,7 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 
 ---
 
-## 🧩 Features & Modules (`cogs/`)
+## Features & Modules (`cogs/`)
 
 Cogs are organized into subdirectories by category. The bot recursively loads all `.py` files in this tree.
 
@@ -57,7 +57,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 
 ---
 
-## 🔄 Data Flow Example: Updating Game Assets
+## Data Flow Example: Updating Game Assets
 
 1. `cogs/system/data_updater.py` runs its scheduled task.
 2. It calls `utils/core/autoupdater.py` to fetch new assets from Sekai-World repositories.
@@ -66,7 +66,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 
 ---
 
-## 🛠️ Contribution Guidelines
+## Contribution Guidelines
 
 1. **Memory**: Use singletons from `utils.data` instead of manually loading JSONs. When a loader must read a large data file, stream it with `utils.core.jsonstream.iter_json_array` and drop the keys the bot never reads. Import heavy libraries that only one command needs lazily (see `utils/mercari_scraper/__init__.py`): Python never unloads a module, so an eager import costs RAM for the bot's whole lifetime.
 2. **Separation of Concerns**: Keep Cogs small. Move Embed generation, Pagination UI, and complex calculations to the corresponding `utils/` subdirectory.

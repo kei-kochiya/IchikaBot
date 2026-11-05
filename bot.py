@@ -12,17 +12,17 @@ from dotenv import load_dotenv
 from config import SharedResources
 from utils.core import database
 
-# Configure logging
+# Load the .env file first: it can set LOG_LEVEL
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+# Configure logging (LOG_LEVEL: DEBUG, INFO, WARNING or ERROR; INFO if unset or unknown)
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").strip().upper(), logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-# Load the .env file
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
 
 
 # --- Default context/install tree -------------------------------------------
@@ -69,17 +69,17 @@ class DefaultContextTree(app_commands.CommandTree):
         await send_ephemeral(interaction, GENERIC_ERROR_MESSAGE)
 
 
-GENERIC_ERROR_MESSAGE = "❌ Đã có lỗi xảy ra khi chạy lệnh này. Vui lòng thử lại sau."
+GENERIC_ERROR_MESSAGE = "Lệnh này gặp lỗi. Bạn thử lại sau ít phút nhé."
 
 
 def _check_failure_message(error: app_commands.CheckFailure) -> str:
     if isinstance(error, app_commands.CommandOnCooldown):
-        return f"⏳ Bạn thao tác nhanh quá, thử lại sau **{error.retry_after:.0f}s** nhé."
+        return f"Bạn thao tác nhanh quá. Thử lại sau **{error.retry_after:.0f} giây** nhé."
     if isinstance(error, app_commands.NoPrivateMessage):
         return "Lệnh này chỉ dùng được trong server."
     if isinstance(error, app_commands.BotMissingPermissions):
-        return "❌ Bot chưa có đủ quyền trong kênh này để chạy lệnh."
-    return "❌ Bạn không có quyền sử dụng lệnh này."
+        return "Bot chưa có đủ quyền trong kênh này. Nhờ admin cấp quyền rồi thử lại nhé."
+    return "Bạn không có quyền dùng lệnh này."
 
 
 async def send_ephemeral(interaction: discord.Interaction, content: str) -> None:
@@ -172,10 +172,10 @@ async def sync(ctx):
     """Manually sync slash commands."""
     try:
         synced = await bot.tree.sync()
-        await ctx.send(f"✅ Synced {len(synced)} command(s)!")
+        await ctx.send(f"Đã đồng bộ {len(synced)} lệnh slash.")
         logger.info(f"Synced {len(synced)} commands.")
     except Exception as e:
-        await ctx.send(f"❌ Error syncing: {e}")
+        await ctx.send(f"Đồng bộ thất bại: {e}")
         logger.error(f"Sync error: {e}")
 
 

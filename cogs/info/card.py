@@ -138,7 +138,9 @@ class CardCog(commands.Cog):
                         break
 
         if not selected_card:
-            await interaction.followup.send("Card not found.", ephemeral=True)
+            await interaction.followup.send(
+                "Không tìm thấy card. Thử gõ một phần tên card hoặc chọn từ gợi ý.", ephemeral=True
+            )
             return
 
         card_id = selected_card["id"]
@@ -147,7 +149,7 @@ class CardCog(commands.Cog):
         char_info = game_data.get_character(char_id)
 
         if not char_info:
-            await interaction.followup.send("Character data missing for this card.", ephemeral=True)
+            await interaction.followup.send("Thiếu dữ liệu nhân vật của card này.", ephemeral=True)
             return
 
         # Asset URLs always use JP storage
@@ -225,7 +227,9 @@ class CardCog(commands.Cog):
             char_id = card["characterId"]
             char_name = get_character_name(char_id, full=True)
             rarity_str = (
-                "🎂" if "birthday" in card["cardRarityType"] else f"{card['cardRarityType'][-1]}⭐"
+                "Birthday"
+                if "birthday" in card["cardRarityType"]
+                else f"{card['cardRarityType'][-1]}★"
             )
             display_name = f"{rarity_str} // {en_pfx} [{char_name}]"
             if current_lower in display_name.lower():
@@ -245,9 +249,9 @@ class CardCog(commands.Cog):
                 char_id = card["characterId"]
                 char_name = get_character_name(char_id, full=True)
                 rarity_str = (
-                    "🎂"
+                    "Birthday"
                     if "birthday" in card["cardRarityType"]
-                    else f"{card['cardRarityType'][-1]}⭐"
+                    else f"{card['cardRarityType'][-1]}★"
                 )
                 display_name = f"{rarity_str} // {card['prefix']} [{char_name}]"
                 if current_lower in display_name.lower() or current_lower in card["prefix"].lower():

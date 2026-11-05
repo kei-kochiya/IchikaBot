@@ -143,7 +143,7 @@ def _build_embed(products: list[dict]) -> discord.Embed:
     last_update = max(updated_times) if updated_times else None
 
     embed = discord.Embed(
-        title="⛽ Giá xăng dầu bán lẻ",
+        title="Giá xăng dầu bán lẻ",
         url="https://www.pvoil.com.vn/tin-gia-xang-dau",
         color=discord.Color.orange(),
     )
@@ -225,19 +225,19 @@ class GasPriceCog(commands.Cog):
                 fallback = self._cache or disk_cache
                 if fallback and fallback.get("products"):
                     return _build_embed(fallback["products"])
-                return f"❌ Không thể lấy dữ liệu (HTTP {exc.status}). Thử lại sau nhé."
+                return f"Chưa lấy được giá từ PVOIL (HTTP {exc.status}). Thử lại sau ít phút nhé."
             except Exception as exc:
                 logger.error("GasPrice: Unexpected error: %s", exc, exc_info=True)
                 fallback = self._cache or disk_cache
                 if fallback and fallback.get("products"):
                     return _build_embed(fallback["products"])
-                return "❌ Đã xảy ra lỗi khi lấy giá xăng dầu."
+                return "Chưa lấy được giá xăng dầu. Thử lại sau ít phút nhé."
 
             if not products:
                 fallback = self._cache or disk_cache
                 if fallback and fallback.get("products"):
                     return _build_embed(fallback["products"])
-                return "⚠️ Không tìm thấy dữ liệu giá."
+                return "PVOIL chưa trả về bảng giá. Thử lại sau ít phút nhé."
 
             # Save new cache
             new_cache = {

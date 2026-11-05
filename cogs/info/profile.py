@@ -67,7 +67,7 @@ class ProfileCog(commands.Cog):
         name = get_character_name(char_id, full=True)
 
         embed = discord.Embed(
-            title=f"📋 {name}",
+            title=name,
             description=profile.get("introduction", ""),
             color=get_unit_color(char_id),
         )
@@ -100,9 +100,9 @@ class ProfileCog(commands.Cog):
                 trained = is_pre_trained_card(card)
                 embed.set_image(url=get_card_image_url(card["assetbundleName"], trained))
             rarity = (
-                "🎂"
+                "Birthday"
                 if card["cardRarityType"] == "rarity_birthday"
-                else f"{card['cardRarityType'][-1]}⭐"
+                else f"{card['cardRarityType'][-1]}★"
             )
             embed.set_footer(text=f"Card: {self.get_display_prefix(card)} ({rarity})")
 

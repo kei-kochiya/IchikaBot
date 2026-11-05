@@ -79,11 +79,11 @@ def test_music_quiz_db_instance():
 def test_build_reveal():
     info = {"title_en": "Lower one's eyes", "romaji_title": "Lower", "title_jp": "ロウワー"}
     reveal = MusicQuizDB.build_reveal(info)
-    assert reveal == "🎵 **Lower one's eyes**"
+    assert reveal == "**Lower one's eyes**"
     assert "🔤" not in reveal
 
     info_jp = {"title_en": None, "romaji_title": None, "title_jp": "ロウワー"}
-    assert MusicQuizDB.build_reveal(info_jp) == "🎵 **ロウワー**"
+    assert MusicQuizDB.build_reveal(info_jp) == "**ロウワー**"
 
 
 def test_parsed_song_table_is_cached_and_reused(tmp_path, monkeypatch):

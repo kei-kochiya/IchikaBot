@@ -76,12 +76,12 @@ class EventsCog(commands.Cog):
             return
 
         def formatter(event):
-            event_type = EVENT_TYPES.get(event.get("eventType", ""), "❓")
+            event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
             end_date = format_timestamp(event.get("closedAt"), "d")  # Discord short date
             name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {name}**\n  ID: {event['id']} | Kết thúc: {end_date}"
 
-        view = SearchPaginationView(past_events, "📜 Lịch sử sự kiện", formatter, items_per_page=10)
+        view = SearchPaginationView(past_events, "Lịch sử sự kiện", formatter, items_per_page=10)
         embed = view._create_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
@@ -104,12 +104,12 @@ class EventsCog(commands.Cog):
 
         def formatter(event):
             status, _ = get_event_status(event)
-            event_type = EVENT_TYPES.get(event.get("eventType", ""), "❓")
+            event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
             display_name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {display_name}**\n  {status} | ID: {event['id']}"
 
         view = SearchPaginationView(
-            results, f"🔍 Kết quả tìm kiếm: {name}", formatter, items_per_page=10
+            results, f"Kết quả tìm kiếm: {name}", formatter, items_per_page=10
         )
         embed = view._create_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
@@ -137,11 +137,11 @@ class EventsCog(commands.Cog):
             return
 
         def formatter(event):
-            event_type = EVENT_TYPES.get(event.get("eventType", ""), "❓")
+            event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
             name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {name}**\n  ID: {event['id']}"
 
-        view = SearchPaginationView(past_events, "📜 Lịch sử sự kiện", formatter, items_per_page=10)
+        view = SearchPaginationView(past_events, "Lịch sử sự kiện", formatter, items_per_page=10)
         embed = view._create_embed()
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
@@ -169,7 +169,9 @@ class EventsCog(commands.Cog):
             display_name = self.get_display_name(event, event["id"])
             return f"• **{display_name}**\n  {status} | ID: {event['id']}"
 
-        view = SearchPaginationView(results, f"🔍 Kết quả: {name}", formatter, items_per_page=10)
+        view = SearchPaginationView(
+            results, f"Kết quả tìm kiếm: {name}", formatter, items_per_page=10
+        )
         embed = view._create_embed()
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg

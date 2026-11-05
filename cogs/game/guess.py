@@ -315,7 +315,9 @@ class GuessCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Guess game error: {e}")
                 with contextlib.suppress(discord.HTTPException):
-                    await interaction.followup.send("Error occurred.", ephemeral=True)
+                    await interaction.followup.send(
+                        "Ván đoán gặp lỗi và đã dừng. Bạn thử lại nhé.", ephemeral=True
+                    )
         finally:
             self.active_channels.pop(channel_id, None)
 

@@ -58,8 +58,8 @@ UI_ASSETS: dict[str, str] = {
 # result screen: cards close together side by side, rows further apart.
 TEN_PULL_TILE = (288, 165)
 TEN_PULL_COLS = 5
-TEN_PULL_GAP = (16, 40)  # (between columns, between rows)
-TEN_PULL_MARGIN = (64, 56)  # (left/right, top/bottom)
+TEN_PULL_GAP = (16, 32)  # (between columns, between rows)
+TEN_PULL_MARGIN = (36, 36)  # (left/right, top/bottom): small, the cards get the width
 SINGLE_TILE = (1120, 640)
 SINGLE_MARGIN = 56
 
