@@ -46,3 +46,71 @@ def test_gacha_pity_trigger(mock_bot):
     card, new_pity = cog._simulate_single_pull(current_pity=PITY_THRESHOLD - 1)
     assert card["cardRarityType"] == "rarity_4"
     assert new_pity == 0
+
+
+def _pull_interaction(user_id=7):
+    from unittest.mock import AsyncMock, MagicMock
+
+    interaction = MagicMock()
+    interaction.user.id = user_id
+    interaction.user.name = "tester"
+    interaction.response.defer = AsyncMock()
+    interaction.followup.send = AsyncMock()
+    return interaction
+
+
+def _patch_rendering(monkeypatch, tmp_path, art_available=True):
+    from io import BytesIO
+
+    art = tmp_path / "art.webp"
+    art.write_bytes(b"x")
+    g = GachaCog.pull.callback.__globals__  # cog modules are re-imported by other tests
+
+    async def fake_assets():
+        return {}
+
+    async def fake_art(card):
+        return str(art) if art_available else None
+
+    monkeypatch.setitem(g, "get_ui_assets", fake_assets)
+    monkeypatch.setitem(g, "_card_art", fake_art)
+    monkeypatch.setitem(g, "render_ten_pull", lambda *a: BytesIO(b"jpeg"))
+    monkeypatch.setitem(g, "render_single_pull", lambda *a: BytesIO(b"jpeg"))
+
+
+async def test_ten_pull_sends_the_result_image(mock_bot, monkeypatch, tmp_path, temp_db):
+    _patch_rendering(monkeypatch, tmp_path)
+    cog = GachaCog(mock_bot)
+    interaction = _pull_interaction()
+
+    await cog.pull.callback(cog, interaction, amount=10)
+
+    (sent,) = interaction.followup.send.call_args_list
+    assert sent.kwargs["file"].filename == "gacha_10.jpg"
+    assert sent.kwargs["embed"].image.url == "attachment://gacha_10.jpg"
+
+
+async def test_single_pull_sends_the_result_image(mock_bot, monkeypatch, tmp_path, temp_db):
+    _patch_rendering(monkeypatch, tmp_path)
+    cog = GachaCog(mock_bot)
+    interaction = _pull_interaction()
+
+    await cog.pull.callback(cog, interaction, amount=1)
+
+    (sent,) = interaction.followup.send.call_args_list
+    assert sent.kwargs["file"].filename == "card.jpg"
+
+
+async def test_single_pull_without_art_still_shows_the_result(
+    mock_bot, monkeypatch, tmp_path, temp_db
+):
+    # e.g. a brand-new card whose art is not on the CDN yet: the pull (and maybe a pity
+    # reset) already happened, so the user must still see which card it was
+    _patch_rendering(monkeypatch, tmp_path, art_available=False)
+    cog = GachaCog(mock_bot)
+    interaction = _pull_interaction()
+
+    await cog.pull.callback(cog, interaction, amount=1)
+
+    (sent,) = interaction.followup.send.call_args_list
+    assert sent.kwargs["file"].filename == "card.jpg"

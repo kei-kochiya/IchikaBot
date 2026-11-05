@@ -20,7 +20,7 @@ IchikaBot brings the world of Project Sekai directly to your Discord server with
 ### 🎮 Minigames & Entertainment
 - **Character Guess**: Guess the character from cropped, blurred, pixelated, or inverted card images.
 - **Music Quiz**: Test your knowledge with audio snippets of game songs, featuring modifiers like 1.5x speed, 0.75x slow, and reverse playback!
-- **Gacha Simulator**: Pull for cards with realistic rates and an integrated pity system that saves to your profile.
+- **Gacha Simulator**: Pull for cards with realistic rates and an integrated pity system that saves to your profile. Results are drawn like the in-game result screen, with rarity stars and attribute icons on every card.
 
 ### 📚 Game Data & Market Lookup
 - **Character Profiles & Cards**: Detailed lookups for character lore, stats, and high-resolution card artwork with normal/trained toggle.

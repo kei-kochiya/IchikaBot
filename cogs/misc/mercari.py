@@ -4,19 +4,19 @@ Supports both Individual C2C Marketplace items and Mercari Shops storefront item
 Global cooldown: 5 seconds per user.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.mercari_scraper import (
-    AsyncMercariScraper,
-    ItemSource,
-    ItemStatus,
-    MercariItem,
-    extract_item_info,
-)
+from utils.mercari_scraper import ItemSource, ItemStatus, MercariItem, extract_item_info
+
+if TYPE_CHECKING:
+    from utils.mercari_scraper import AsyncMercariScraper
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +90,15 @@ class MercariCog(commands.Cog):
         self.bot = bot
         self._scraper: AsyncMercariScraper | None = None
 
-    async def cog_load(self) -> None:
-        self._scraper = AsyncMercariScraper()
-
     async def cog_unload(self) -> None:
         if self._scraper:
             await self._scraper.close()
 
     def _ensure_scraper(self) -> AsyncMercariScraper:
+        # Created on first use: the HTTP clients cost ~12 MB, wasted until someone searches
         if self._scraper is None:
+            from utils.mercari_scraper import AsyncMercariScraper
+
             self._scraper = AsyncMercariScraper()
         return self._scraper
 
@@ -145,16 +145,6 @@ class MercariCog(commands.Cog):
                     f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
                     ephemeral=True,
                 )
-        else:
-            logger.error("Mercari slash error: %s", error)
-            msg = "Đã xảy ra lỗi khi tra cứu sản phẩm."
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
-            except Exception:
-                pass
 
     # Prefix command: !mercari
     @commands.command(name="mercari", aliases=["mer", "merca"])

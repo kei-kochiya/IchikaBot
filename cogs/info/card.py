@@ -68,13 +68,13 @@ class CardView(discord.ui.View):
         keep_attachments = [
             att
             for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename != "card.png"
+            if att.filename not in ("card.png", "card.webp")
         ]
 
         with contextlib.suppress(discord.HTTPException):
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                embed.set_image(url="attachment://card.png")
+                file = discord.File(img_path, filename="card.webp")
+                embed.set_image(url="attachment://card.webp")
                 target_attachments = [*keep_attachments, file]
             else:
                 suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
@@ -170,8 +170,8 @@ class CardCog(commands.Cog):
             selected_card["assetbundleName"], is_trained=initial_trained
         )
         if card_img_path:
-            files_to_send.append(discord.File(card_img_path, filename="card.png"))
-            image_url = "attachment://card.png"
+            files_to_send.append(discord.File(card_img_path, filename="card.webp"))
+            image_url = "attachment://card.webp"
         else:
             suffix = "card_after_training.png" if initial_trained else "card_normal.png"
             image_url = f"{base_url}/{suffix}"

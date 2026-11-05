@@ -110,13 +110,13 @@ class CardToggleView(discord.ui.View):
         keep_attachments = [
             att
             for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename != "card.png"
+            if att.filename not in ("card.png", "card.webp")
         ]
 
         with contextlib.suppress(discord.HTTPException):
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                embed.set_image(url="attachment://card.png")
+                file = discord.File(img_path, filename="card.webp")
+                embed.set_image(url="attachment://card.webp")
                 target_attachments = [*keep_attachments, file]
             else:
                 embed.set_image(url=self.get_current_image_url())

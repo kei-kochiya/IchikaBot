@@ -11,57 +11,21 @@ from io import BytesIO
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageDraw
 
 from config import GACHA_RATES, PITY_THRESHOLD, RARITY_ICONS
 from utils.core import database
 from utils.data.card_data import card_data
 from utils.data.game_data import get_unit_color_hex
+from utils.game.cards import is_pre_trained_card
+from utils.media.gacha_render import get_ui_assets, render_single_pull, render_ten_pull
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
 
 
-def _compose_10pull_image(results: list[dict], image_paths: list[str | None]) -> BytesIO:
-    """Synchronous helper for composing the 10-pull grid image."""
-    THUMB_W, THUMB_H = 192, 110
-    PADDING, BORDER, COLS = 20, 5, 5
-    canvas_w = (THUMB_W * COLS) + (PADDING * (COLS + 1))
-    canvas_h = (THUMB_H * 2) + (PADDING * 3)
-
-    bg = Image.new("RGBA", (canvas_w, canvas_h), (44, 47, 51, 255))
-    draw = ImageDraw.Draw(bg)
-
-    def get_border_color(rarity):
-        if rarity == "rarity_4":
-            return "#9B59B6"
-        if rarity == "rarity_3":
-            return "#F1C40F"
-        return "#3498DB"
-
-    for i, card in enumerate(results):
-        row, col = i // COLS, i % COLS
-        x = PADDING + col * (THUMB_W + PADDING)
-        y = PADDING + row * (THUMB_H + PADDING)
-
-        draw.rectangle(
-            [x - BORDER, y - BORDER, x + THUMB_W + BORDER, y + THUMB_H + BORDER],
-            fill=get_border_color(card["cardRarityType"]),
-        )
-
-        path = image_paths[i]
-        if path:
-            try:
-                with Image.open(path) as thumb:
-                    thumb = thumb.resize((THUMB_W, THUMB_H), reducing_gap=2.0)
-                    bg.paste(thumb, (x, y))
-            except OSError as e:
-                logger.warning(f"Failed to open thumbnail: {e}")
-
-    out_buffer = BytesIO()
-    bg.save(out_buffer, format="PNG")
-    out_buffer.seek(0)
-    return out_buffer
+async def _card_art(card: dict) -> str | None:
+    # Pre-trained cards only have trained art: ask for it directly instead of via a 404
+    return await get_card_image_path(card["assetbundleName"], is_pre_trained_card(card))
 
 
 class GachaCog(commands.Cog):
@@ -165,56 +129,47 @@ class GachaCog(commands.Cog):
 
             await self.update_user_pity(user_id, final_pity)
 
-        best_card = max(results, key=lambda x: x["cardRarityType"])
+        assets = await get_ui_assets()
+        embed, data, filename = await self._build_result(
+            interaction.user, results, final_pity, assets
+        )
+        await interaction.followup.send(
+            embed=embed, file=discord.File(BytesIO(data), filename=filename)
+        )
 
-        if amount == 1:
+    async def _build_result(
+        self, user: discord.abc.User, results: list[dict], final_pity: int, assets: dict
+    ) -> tuple[discord.Embed, bytes, str]:
+        """Render the result image and its embed: (embed, image bytes, filename)."""
+        loop = asyncio.get_running_loop()
+        if len(results) == 1:
             card = results[0]
-            local_path = await get_card_image_path(card["assetbundleName"])
-
-            if not local_path:
-                await interaction.followup.send("Lỗi tải ảnh. Vui lòng thử lại.")
-                return
-
-            f = discord.File(local_path, filename="card.png")
-            color = get_unit_color_hex(card["characterId"])
-            rarity_icon = RARITY_ICONS.get(card["cardRarityType"], "")
-
-            display_name = self.get_display_prefix(card)
+            # Missing art (not on the CDN yet) renders as a placeholder: the pull, and maybe
+            # a pity reset, must never happen without the user seeing which card it was
+            local_path = await _card_art(card)
+            image = await loop.run_in_executor(None, render_single_pull, card, local_path, assets)
+            data, filename = image.getvalue(), "card.jpg"
             embed = discord.Embed(
-                title=f"{rarity_icon} Kết Quả Gacha",
-                description=f"**{display_name}**",
-                color=discord.Color.from_str(color),
+                title=f"{RARITY_ICONS.get(card['cardRarityType'], '')} Kết Quả Gacha",
+                description=f"**{self.get_display_prefix(card)}**",
+                color=discord.Color.from_str(get_unit_color_hex(card["characterId"])),
             )
-            embed.set_image(url="attachment://card.png")
-            embed.set_footer(text=f"Pity: {final_pity}/{PITY_THRESHOLD}")
-
-            await interaction.followup.send(embed=embed, file=f)
-
         else:
             # Fetch all ten images concurrently (duplicates share one download)
-            image_paths = await asyncio.gather(
-                *(get_card_image_path(card["assetbundleName"]) for card in results)
-            )
-
-            out_buffer = await self.bot.loop.run_in_executor(
-                None, _compose_10pull_image, results, image_paths
-            )
-            f = discord.File(out_buffer, filename="gacha_10.png")
-
-            c4 = len([c for c in results if c["cardRarityType"] == "rarity_4"])
-            c3 = len([c for c in results if c["cardRarityType"] == "rarity_3"])
-
-            color = get_unit_color_hex(best_card["characterId"])
-
+            image_paths = await asyncio.gather(*(_card_art(card) for card in results))
+            image = await loop.run_in_executor(None, render_ten_pull, results, image_paths, assets)
+            data, filename = image.getvalue(), "gacha_10.jpg"
+            c4 = sum(c["cardRarityType"] == "rarity_4" for c in results)
+            c3 = sum(c["cardRarityType"] == "rarity_3" for c in results)
+            best_card = max(results, key=lambda x: x["cardRarityType"])
             embed = discord.Embed(
-                title=f"Kết quả 10 lần quay của {interaction.user.name}",
+                title=f"Kết quả 10 lần quay của {user.name}",
                 description=f"**4⭐:** {c4} | **3⭐:** {c3}",
-                color=discord.Color.from_str(color),
+                color=discord.Color.from_str(get_unit_color_hex(best_card["characterId"])),
             )
-            embed.set_image(url="attachment://gacha_10.png")
-            embed.set_footer(text=f"Pity: {final_pity}/{PITY_THRESHOLD}")
-
-            await interaction.followup.send(embed=embed, file=f)
+        embed.set_image(url=f"attachment://{filename}")
+        embed.set_footer(text=f"Pity: {final_pity}/{PITY_THRESHOLD}")
+        return embed, data, filename
 
     @gacha_group.command(name="pity", description="Kiểm tra số lần quay đã tích lũy")
     async def check_pity(self, interaction: discord.Interaction):

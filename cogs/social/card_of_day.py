@@ -135,8 +135,8 @@ class CardOfDayCog(commands.Cog):
                 card = random.choice(card_data.pool_3_4)
                 is_trained = supports_trained_art(card) or is_pre_trained_card(card)
                 img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
-                file = discord.File(img_path, filename="card.png") if img_path else None
-                attachment_url = "attachment://card.png" if file else None
+                file = discord.File(img_path, filename="card.webp") if img_path else None
+                attachment_url = "attachment://card.webp" if file else None
 
                 embed = self.create_card_embed(card, attachment_url=attachment_url)
                 view = CardToggleView(embed, card, default_trained=is_trained)
@@ -239,8 +239,8 @@ class CardOfDayCog(commands.Cog):
         card = random.choice(card_data.pool_3_4)
         is_trained = supports_trained_art(card) or is_pre_trained_card(card)
         img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
-        file = discord.File(img_path, filename="card.png") if img_path else None
-        attachment_url = "attachment://card.png" if file else None
+        file = discord.File(img_path, filename="card.webp") if img_path else None
+        attachment_url = "attachment://card.webp" if file else None
 
         embed = self.create_card_embed(card, attachment_url=attachment_url)
         view = CardToggleView(embed, card, default_trained=is_trained)

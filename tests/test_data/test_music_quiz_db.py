@@ -84,3 +84,41 @@ def test_build_reveal():
 
     info_jp = {"title_en": None, "romaji_title": None, "title_jp": "ロウワー"}
     assert MusicQuizDB.build_reveal(info_jp) == "🎵 **ロウワー**"
+
+
+def test_parsed_song_table_is_cached_and_reused(tmp_path, monkeypatch):
+    import sys
+
+    import openpyxl
+
+    from utils.data import music_quiz_db
+
+    xlsx = tmp_path / "song.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["index", "jp", "en", "", "", "", "", "romaji", "comm"])
+    wb.active.append(
+        [1, "テルユアワールド", "Tell Your World", "", "", "", "", "Tell Your World", None]
+    )
+    wb.active.append([54, "レディステディ", "Ready Steady", "", "", "", "", "Ready Steady", 1])
+    wb.save(xlsx)
+    monkeypatch.setattr(music_quiz_db, "SONG_DB_PATH", xlsx)
+    monkeypatch.setattr(music_quiz_db, "SONG_CACHE_PATH", tmp_path / "cache" / "songs.json")
+
+    first = MusicQuizDB()
+    first.load_db()
+    assert (tmp_path / "cache" / "songs.json").exists()
+
+    # Unchanged workbook: served from the cache, openpyxl is not even imported
+    monkeypatch.setitem(sys.modules, "openpyxl", None)
+    second = MusicQuizDB()
+    second.load_db()
+    assert second._db == first._db and second.get_commission_ids() == {"54"}
+    assert second.last_error is None
+
+    # Edited workbook (new size/mtime): the cache is ignored and the file parsed again
+    monkeypatch.delitem(sys.modules, "openpyxl")
+    wb.active.append([63, "ニードル", "needLe", "", "", "", "", "needLe", 1])
+    wb.save(xlsx)
+    third = MusicQuizDB()
+    third.load_db()
+    assert third.get_commission_ids() == {"54", "63"}

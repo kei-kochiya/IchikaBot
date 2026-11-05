@@ -9,22 +9,9 @@ from .c2c_client import AsyncC2CClient, SyncC2CClient
 from .enums import ItemSource, ItemStatus, SortBy
 from .models import MercariItem
 from .shops_client import AsyncShopsClient, SyncShopsClient
+from .urls import extract_item_info
 
 log = logging.getLogger(__name__)
-
-
-def extract_item_info(text: str) -> tuple[str, ItemSource | None]:
-    """Extract item ID and source hint from full URL or bare ID string."""
-    clean = text.strip()
-    if "shops/product/" in clean or "mercari-shops.com" in clean:
-        item_id = clean.split("?")[0].rstrip("/").split("/")[-1]
-        return item_id, ItemSource.SHOPS
-
-    item_id = clean.split("?")[0].rstrip("/").split("/")[-1]
-    if item_id.startswith("m") and len(item_id) > 5 and item_id[1:].isdigit():
-        return item_id, ItemSource.INDIVIDUAL
-
-    return item_id, None
 
 
 async def _empty_page() -> tuple[list[MercariItem], bool, str | None]:

@@ -156,6 +156,7 @@ async def test_idle_disconnect_scheduled_and_cancelled_on_new_game(mock_bot):
     ctx = MagicMock()
     ctx.channel.id = channel_id
     ctx.author.guild.id = guild_id
+    ctx.author.guild.voice_client = vc
     ctx.author.voice.channel = MagicMock()
     ctx.send = AsyncMock()
 
@@ -166,7 +167,10 @@ async def test_idle_disconnect_scheduled_and_cancelled_on_new_game(mock_bot):
         await cog.start_game_logic(ctx, pool_type="comm")
 
     assert idle_task.cancelling() or idle_task.cancelled() or idle_task.done()
-    assert guild_id not in cog.idle_tasks
+    # That start failed (no songs), so a fresh idle timer must be armed again: otherwise
+    # the bot would stay in voice until everyone leaves
+    assert guild_id in cog.idle_tasks and cog.idle_tasks[guild_id] is not idle_task
+    cog.cog_unload()
 
 
 def test_song_guess_commands_cannot_be_used_in_dms(mock_bot):
@@ -311,3 +315,19 @@ async def test_game_start_releases_guild_lock(mock_bot):
         await cog.start_game_logic(ctx, pool_type="comm")
 
     assert 444 not in cog.starting_guilds and 333 not in cog.starting_channels
+
+
+@pytest.mark.asyncio
+async def test_no_idle_timer_when_bot_is_not_in_voice(mock_bot):
+    cog = MusicGuess(mock_bot)
+    ctx = MagicMock()
+    ctx.channel.id = 1
+    ctx.author.guild.id = 2
+    ctx.author.guild.voice_client = None
+    ctx.author.voice.channel = MagicMock()
+    ctx.send = AsyncMock()
+
+    with patch.object(cog, "_run_game_start", new_callable=AsyncMock):
+        await cog.start_game_logic(ctx, pool_type="comm")
+
+    assert 2 not in cog.idle_tasks

@@ -101,8 +101,12 @@ def _process_game_image_sync(local_path: str, mode: str) -> tuple[BytesIO | None
                     game_img = ImageOps.invert(img.convert("RGB"))
                     effect_used = "Âm bản"
 
+            # JPEG: a 1280px effect image is ~1-2 MB as PNG but ~0.2 MB here, and the
+            # upload dominates how long the round takes to appear.
             game_io = BytesIO()
-            game_img.save(game_io, format="PNG", compress_level=1)
+            if game_img.mode not in ("RGB", "L"):
+                game_img = game_img.convert("RGB")
+            game_img.save(game_io, format="JPEG", quality=90)
             game_io.seek(0)
 
         return game_io, local_path, effect_used
@@ -226,13 +230,13 @@ class GuessCog(commands.Cog):
                 full_name = f"{char_data['firstName']} {char_data['givenName']}".strip()
                 logger.debug(f"Guess answer: {full_name}")
 
-                file = discord.File(game_img, filename="guess.png")
+                file = discord.File(game_img, filename="guess.jpg")
                 embed = discord.Embed(
                     title="Đoán nhân vật",
                     description=f"Gõ `{GUESS_PREFIX}[name]` để đoán. Bạn có {SONG_GUESS_DURATION}s.",
                     color=0xF1C40F if mode == "normal" else 0x9B59B6,
                 )
-                embed.set_image(url="attachment://guess.png")
+                embed.set_image(url="attachment://guess.jpg")
 
                 # Create view with working Give Up button
                 view = GiveUpView(channel_id, self, char_data, card, full_img)
@@ -281,11 +285,11 @@ class GuessCog(commands.Cog):
                     reason = "gave_up"
 
                 # Prepare result (full_img is the cached card file's path)
-                result_file = discord.File(full_img, filename="reveal.png")
+                result_file = discord.File(full_img, filename="reveal.webp")
                 result_embed = discord.Embed(
                     description=f"Đáp án: **{char_data['firstName']} {char_data['givenName']}**"
                 )
-                result_embed.set_image(url="attachment://reveal.png")
+                result_embed.set_image(url="attachment://reveal.webp")
                 result_embed.add_field(name="Card", value=self.get_display_prefix(card))
 
                 if reason == "win":

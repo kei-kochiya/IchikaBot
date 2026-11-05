@@ -254,6 +254,11 @@ class MusicGuess(commands.Cog):
         finally:
             self.starting_channels.pop(channel_id, None)
             self.starting_guilds.pop(guild_id, None)
+            # The idle timer was cancelled above. If no game started (no songs, clip or
+            # voice error), arm it again, or the bot would stay in voice indefinitely.
+            vc = getattr(user.guild, "voice_client", None)
+            if channel_id not in self.active_games and vc is not None and vc.is_connected():
+                self._schedule_idle_disconnect(guild_id, vc)
 
     async def _run_game_start(self, user, channel, send_msg, pool_type, variant_mode):
         # ── Scan song files ─────────────────────────────────────────────────

@@ -158,13 +158,13 @@ class BirthdayCardView(discord.ui.View):
         keep_attachments = [
             att
             for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename != "card.png"
+            if att.filename not in ("card.png", "card.webp")
         ]
 
         with contextlib.suppress(discord.HTTPException):
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                embed = self._create_embed(attachment_url="attachment://card.png")
+                file = discord.File(img_path, filename="card.webp")
+                embed = self._create_embed(attachment_url="attachment://card.webp")
                 target_attachments = [*keep_attachments, file]
             else:
                 embed = self._create_embed()
@@ -193,13 +193,13 @@ class BirthdayCardView(discord.ui.View):
         keep_attachments = [
             att
             for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename != "card.png"
+            if att.filename not in ("card.png", "card.webp")
         ]
 
         with contextlib.suppress(discord.HTTPException):
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                embed = self._create_embed(attachment_url="attachment://card.png")
+                file = discord.File(img_path, filename="card.webp")
+                embed = self._create_embed(attachment_url="attachment://card.webp")
                 target_attachments = [*keep_attachments, file]
             else:
                 embed = self._create_embed()
@@ -238,8 +238,8 @@ async def prepare_birthday_message(
     if len(cards) > 1:
         view = BirthdayCardView(character, cards, current_index=0)
         img_path = await get_card_image_path(cards[0]["assetbundleName"], is_trained=False)
-        file = discord.File(img_path, filename="card.png") if img_path else None
-        embed = view._create_embed(attachment_url="attachment://card.png" if file else None)
+        file = discord.File(img_path, filename="card.webp") if img_path else None
+        embed = view._create_embed(attachment_url="attachment://card.webp" if file else None)
         return embed, file, view
 
     card = cards[0] if cards else None
@@ -248,8 +248,8 @@ async def prepare_birthday_message(
     else:
         img_path = await get_character_trim_path(character["id"])
 
-    file = discord.File(img_path, filename="card.png") if img_path else None
-    attachment_url = "attachment://card.png" if file else None
+    file = discord.File(img_path, filename="card.webp") if img_path else None
+    attachment_url = "attachment://card.webp" if file else None
     embed = create_birthday_embed(character, card, attachment_url=attachment_url)
     return embed, file, None
 
@@ -268,8 +268,8 @@ async def prepare_daily_card_message(
 
     is_trained = supports_trained_art(card) or is_pre_trained_card(card)
     img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
-    file = discord.File(img_path, filename="card.png") if img_path else None
-    attachment_url = "attachment://card.png" if file else None
+    file = discord.File(img_path, filename="card.webp") if img_path else None
+    attachment_url = "attachment://card.webp" if file else None
 
     embed = create_daily_card_embed(character, card, days_until_bday, attachment_url=attachment_url)
     view = CardToggleView(embed, card, default_trained=is_trained) if is_trained else None

@@ -140,8 +140,8 @@ class ProfileCog(commands.Cog):
                 card["assetbundleName"], is_trained=initial_trained
             )
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                attachment_url = "attachment://card.png"
+                file = discord.File(img_path, filename="card.webp")
+                attachment_url = "attachment://card.webp"
 
         embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
 
@@ -181,8 +181,8 @@ class ProfileCog(commands.Cog):
                 card["assetbundleName"], is_trained=initial_trained
             )
             if img_path:
-                file = discord.File(img_path, filename="card.png")
-                attachment_url = "attachment://card.png"
+                file = discord.File(img_path, filename="card.webp")
+                attachment_url = "attachment://card.webp"
 
         embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
 

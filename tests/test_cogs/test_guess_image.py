@@ -79,12 +79,12 @@ def test_small_images_are_upscaled_enough_to_crop(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["normal", "random"])
-def test_all_random_effects_produce_valid_png(card_png, mode):
+def test_all_random_effects_produce_valid_jpeg(card_png, mode):
     random.seed(1234)
     for _ in range(12):
         puzzle, reveal, effect = _process_game_image_sync(card_png, mode)
         assert isinstance(puzzle, BytesIO)
-        assert Image.open(puzzle).format == "PNG"
+        assert Image.open(puzzle).format == "JPEG"
         assert effect
 
 

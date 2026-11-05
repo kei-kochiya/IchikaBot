@@ -67,14 +67,15 @@ class BirthdayCog(commands.Cog):
         if view:
             view.message = msg
 
-    async def send_daily_card_message(self, target, character: dict, days_until_bday: int):
-        """Send daily card message with countdown and toggle button."""
+    async def send_daily_card_message(self, target, character: dict, days_until_bday: int) -> bool:
+        """Send daily card message with countdown and toggle button. False if the character
+        has no 3/4★ card to show (nothing is sent then)."""
         embed, file, view = await prepare_daily_card_message(character, days_until_bday)
         if not embed:
             logger.warning(
                 "Birthday: No 3/4 star cards found for character %s", character.get("id")
             )
-            return
+            return False
 
         kwargs = {"embed": embed}
         if file:
@@ -85,6 +86,7 @@ class BirthdayCog(commands.Cog):
         msg = await target.send(**kwargs)
         if view:
             view.message = msg
+        return True
 
     # --- Scheduled Task ---
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=JST))
@@ -96,7 +98,8 @@ class BirthdayCog(commands.Cog):
 
         birthday_chars = get_characters_with_birthday(today)
 
-        for guild_id_str, channel_id in self.settings.items():
+        # A copy: /birthday channel or disable may change settings while this loop awaits
+        for guild_id_str, channel_id in list(self.settings.items()):
             try:
                 channel = self.bot.get_channel(int(channel_id))
                 if not channel:
@@ -217,8 +220,10 @@ class BirthdayCog(commands.Cog):
             return
 
         target_char = {**char_data, "id": str(cid)}
+        # Through the followup: it answers the deferred interaction (channel.send left it
+        # "thinking" forever) and also works in DMs and user-installed contexts
         await self.send_birthday_message(
-            interaction.channel,
+            interaction.followup,
             target_char,
             prefix_content="**📋 Xem trước thông báo sinh nhật:**",
         )
@@ -234,7 +239,8 @@ class BirthdayCog(commands.Cog):
             return
 
         days_until, target_char = res
-        await self.send_daily_card_message(interaction.channel, target_char, days_until)
+        if not await self.send_daily_card_message(interaction.followup, target_char, days_until):
+            await interaction.followup.send("Không tìm thấy card 3/4⭐ của nhân vật này.")
 
     @birthday_group.command(name="check", description="Xem sinh nhật hôm nay và sắp tới")
     async def check_birthday_slash(self, interaction: discord.Interaction):

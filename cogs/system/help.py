@@ -16,7 +16,7 @@ COMMAND_CATEGORIES = {
         "description": "Thẻ và quay gacha",
         "commands": [
             ("/card <name>", "-", "Xem thông tin thẻ"),
-            ("/gacha pull", "-", "Quay gacha 10 lần"),
+            ("/gacha pull", "-", "Quay gacha (1 hoặc 10 lần)"),
             ("/gacha pity", "-", "Kiểm tra pity"),
         ],
     },

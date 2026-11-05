@@ -1,11 +1,15 @@
+import contextlib
+import json
 import logging
 import os
 import re
 import unicodedata
-from pathlib import Path
+
+from config import CACHE_DIR, STATIC_DATA_PATH
 
 logger = logging.getLogger(__name__)
-SONG_DB_PATH = Path(__file__).parent.parent.parent / "gameData" / "static" / "song.xlsx"
+SONG_DB_PATH = STATIC_DATA_PATH / "song.xlsx"
+SONG_CACHE_PATH = CACHE_DIR / "song_db_cache.json"
 
 # Shortest partial guess accepted. Counted AFTER normalize(), so spaces and punctuation
 # don't count towards it: "e  " is 1 character, "t h e" is 3.
@@ -68,10 +72,18 @@ class MusicQuizDB:
         return cls._instance
 
     def load_db(self) -> None:
-        """Load song.xlsx into _db keyed by song index (as string)."""
+        """Load song.xlsx into _db keyed by song index (as string), from the parsed-table
+        cache when song.xlsx has not changed since it was written."""
         if not SONG_DB_PATH.exists():
             self.last_error = f"File không tồn tại: {SONG_DB_PATH}"
             logger.warning("MusicQuizDB: song.xlsx not found at %s", SONG_DB_PATH)
+            return
+        stamp = self._stamp()
+        cached = self._read_cache(stamp)
+        if cached is not None:
+            self._db = cached
+            self.last_error = None
+            logger.info("MusicQuizDB: Loaded %d songs (cached copy of song.xlsx)", len(cached))
             return
         try:
             import openpyxl
@@ -116,6 +128,42 @@ class MusicQuizDB:
 
         self._db = db
         logger.info("MusicQuizDB: Loaded %d songs from song.xlsx", len(db))
+        self._write_cache(stamp, db)
+
+    # ── Parsed-table cache ────────────────────────────────────────────────────
+    # openpyxl costs ~16 MB of RAM for as long as the bot runs (modules are never
+    # unloaded) and ~0.3 s to import, only to read one sheet at startup. The parsed table
+    # is therefore cached as JSON and reused while song.xlsx is unchanged.
+
+    @staticmethod
+    def _stamp() -> dict:
+        st = SONG_DB_PATH.stat()
+        return {"format": 1, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+    @staticmethod
+    def _read_cache(stamp: dict) -> dict[str, dict] | None:
+        try:
+            cached = json.loads(SONG_CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(cached, dict) or cached.get("stamp") != stamp:
+            return None
+        songs = cached.get("songs")
+        return songs if isinstance(songs, dict) and songs else None
+
+    @staticmethod
+    def _write_cache(stamp: dict, db: dict[str, dict]) -> None:
+        tmp = SONG_CACHE_PATH.with_name(SONG_CACHE_PATH.name + ".part")
+        try:
+            SONG_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(
+                json.dumps({"stamp": stamp, "songs": db}, ensure_ascii=False), encoding="utf-8"
+            )
+            os.replace(tmp, SONG_CACHE_PATH)
+        except OSError as e:
+            logger.warning("MusicQuizDB: could not write cache %s: %s", SONG_CACHE_PATH, e)
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
 
     def get_song_info(self, filename: str) -> dict:
         idx = os.path.splitext(os.path.basename(filename))[0]

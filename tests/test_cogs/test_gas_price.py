@@ -169,3 +169,24 @@ async def test_price_embed_error_handling_no_cache(mock_bot, tmp_path):
         result = await cog._price_embed()
         assert isinstance(result, str)
         assert "❌" in result
+
+
+def test_prices_fetched_before_15h_are_refreshed_after_15h():
+    from datetime import datetime
+
+    from cogs.misc.gas_price import _VN_TZ, _is_fresh
+
+    def at(hour):
+        return datetime(2026, 11, 5, hour, 30, tzinfo=_VN_TZ)
+
+    morning = {"date": "2026-11-05", "fetched_hour": 9, "products": [{"Title": "RON 95"}]}
+    evening = {**morning, "fetched_hour": 16}
+
+    assert _is_fresh(morning, at(14))
+    assert not _is_fresh(morning, at(15))  # prices change at 15:00 on adjustment days
+    assert _is_fresh(evening, at(20))
+    assert not _is_fresh({**evening, "date": "2026-11-04"}, at(10))  # another day
+    assert not _is_fresh({**morning, "products": []}, at(10))
+    assert not _is_fresh(None, at(10))
+    # Cache written by an older version (no fetch hour): still valid for the day
+    assert _is_fresh({"date": "2026-11-05", "products": [{"Title": "RON 95"}]}, at(20))

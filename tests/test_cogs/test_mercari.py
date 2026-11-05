@@ -163,3 +163,26 @@ async def test_search_embed_empty(mock_bot):
     result = await cog._search_embed("nonexistent_item_xyz", "all", 123)
     assert isinstance(result, str)
     assert "Không tìm thấy" in result
+
+
+async def test_unexpected_slash_errors_are_left_to_the_global_handler(mock_bot):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from discord import app_commands
+
+    from cogs.misc.mercari import MercariCog
+
+    cog = MercariCog(mock_bot)
+    interaction = MagicMock()
+    interaction.response.is_done.return_value = True
+    interaction.response.send_message = AsyncMock()
+    interaction.followup.send = AsyncMock()
+    command = MagicMock()
+    command.name = "mercari"
+
+    error = app_commands.CommandInvokeError(command, ValueError())
+    await cog.slash_mercari_error(interaction, error)
+
+    # bot.py's tree handler answers this one; replying here too sent two error messages
+    interaction.followup.send.assert_not_called()
+    interaction.response.send_message.assert_not_called()

@@ -74,6 +74,21 @@ def _get_current_vn_date() -> str:
     return datetime.now(_VN_TZ).strftime("%Y-%m-%d")
 
 
+# Vietnam adjusts retail fuel prices at 15:00 (on adjustment days)
+PRICE_UPDATE_HOUR = 15
+
+
+def _is_fresh(cache: dict | None, now: datetime) -> bool:
+    """Cached prices stay valid for the rest of the Vietnam day, except that prices
+    fetched before 15:00 are fetched again once it is past 15:00, when prices change."""
+    if not cache or not cache.get("products") or cache.get("date") != now.strftime("%Y-%m-%d"):
+        return False
+    fetched_hour = cache.get("fetched_hour")
+    if fetched_hour is None:  # written by an older version: keep the old daily behaviour
+        return True
+    return now.hour < PRICE_UPDATE_HOUR or fetched_hour >= PRICE_UPDATE_HOUR
+
+
 def _load_cache(file_path: Path | str = _CACHE_FILE) -> dict | None:
     """Read the cached prices from file if present and valid."""
     path = Path(file_path)
@@ -181,20 +196,21 @@ class GasPriceCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _price_embed(self) -> discord.Embed | str:
-        today_str = _get_current_vn_date()
+        now = datetime.now(_VN_TZ)
+        today_str = now.strftime("%Y-%m-%d")
 
-        # Fast path: in-memory cache hit for today
-        if self._cache and self._cache.get("date") == today_str and self._cache.get("products"):
+        # Fast path: in-memory cache still valid
+        if _is_fresh(self._cache, now):
             return _build_embed(self._cache["products"])
 
         async with self._lock:
             # Re-check under lock
-            if self._cache and self._cache.get("date") == today_str and self._cache.get("products"):
+            if _is_fresh(self._cache, now):
                 return _build_embed(self._cache["products"])
 
             # Check persistent disk cache
             disk_cache = _load_cache(self.cache_file)
-            if disk_cache and disk_cache.get("date") == today_str and disk_cache.get("products"):
+            if _is_fresh(disk_cache, now):
                 self._cache = disk_cache
                 return _build_embed(disk_cache["products"])
 
@@ -226,6 +242,7 @@ class GasPriceCog(commands.Cog):
             # Save new cache
             new_cache = {
                 "date": today_str,
+                "fetched_hour": now.hour,
                 "products": products,
             }
             self._cache = new_cache
