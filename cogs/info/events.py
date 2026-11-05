@@ -77,7 +77,7 @@ class EventsCog(commands.Cog):
 
         def formatter(event):
             event_type = EVENT_TYPES.get(event.get("eventType", ""), "❓")
-            end_date = format_timestamp(event.get("closedAt"))[:10]
+            end_date = format_timestamp(event.get("closedAt"), "d")  # Discord short date
             name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {name}**\n  ID: {event['id']} | Kết thúc: {end_date}"
 

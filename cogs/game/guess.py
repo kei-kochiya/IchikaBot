@@ -13,6 +13,7 @@ from config import SONG_GUESS_DURATION
 from utils.core.tasks import react_in_background
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
+from utils.data.music_quiz_db import MIN_PARTIAL_LEN, normalize
 from utils.game.cards import is_pre_trained_card, supports_trained_art
 from utils.media.image_helper import get_card_image_path
 
@@ -21,6 +22,23 @@ logger = logging.getLogger(__name__)
 GUESS_PREFIX = "-g "
 MAX_FAILS = 4
 MAX_PUZZLE_WIDTH = 1280
+
+
+def is_correct_name_guess(guess: str, answers: list[str]) -> bool:
+    """True if guess matches an answer exactly, or is any 3+ character piece of one.
+
+    Both sides go through the music quiz's normalize() first (Unicode fold, letters and
+    digits only, lowercase), so the 3 characters are counted after normalizing: "n e" is
+    only 2 and doesn't win, and "banh tao" matches the nickname "bánh táo".
+    """
+    ng = normalize(guess)
+    if not ng:
+        return False
+    for answer in answers:
+        na = normalize(answer)
+        if ng == na or (len(ng) >= MIN_PARTIAL_LEN and ng in na):
+            return True
+    return False
 
 
 def _process_game_image_sync(local_path: str, mode: str) -> tuple[BytesIO | None, str | None, str]:
@@ -244,9 +262,7 @@ class GuessCog(commands.Cog):
                         )
                         guess = guess_msg.content[len(GUESS_PREFIX) :].strip().lower()
 
-                        if guess in possible_answers or (
-                            len(guess) > 2 and any(guess in ans for ans in possible_answers)
-                        ):
+                        if is_correct_name_guess(guess, possible_answers):
                             winner = guess_msg.author
                             reason = "win"
                             react_in_background(guess_msg, "✅")

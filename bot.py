@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import gc
 import logging
 import os
@@ -46,6 +47,50 @@ class DefaultContextTree(app_commands.CommandTree):
             ),
             **kwargs,
         )
+
+    async def on_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        """Last-resort handler for every slash command.
+
+        Most commands defer() first, so an unhandled exception would otherwise leave the
+        user looking at "is thinking..." forever. Per-command handlers run before this one
+        and answer the failures they expect (permissions, cooldowns), so a check failure is
+        only answered here if nobody has replied yet.
+        """
+        if isinstance(error, app_commands.CheckFailure):
+            if not interaction.response.is_done():
+                await send_ephemeral(interaction, _check_failure_message(error))
+            return
+
+        name = interaction.command.qualified_name if interaction.command else "unknown"
+        original = getattr(error, "original", error)
+        logger.error("Error in slash command /%s", name, exc_info=original)
+        await send_ephemeral(interaction, GENERIC_ERROR_MESSAGE)
+
+
+GENERIC_ERROR_MESSAGE = "❌ Đã có lỗi xảy ra khi chạy lệnh này. Vui lòng thử lại sau."
+
+
+def _check_failure_message(error: app_commands.CheckFailure) -> str:
+    if isinstance(error, app_commands.CommandOnCooldown):
+        return f"⏳ Bạn thao tác nhanh quá, thử lại sau **{error.retry_after:.0f}s** nhé."
+    if isinstance(error, app_commands.NoPrivateMessage):
+        return "Lệnh này chỉ dùng được trong server."
+    if isinstance(error, app_commands.BotMissingPermissions):
+        return "❌ Bot chưa có đủ quyền trong kênh này để chạy lệnh."
+    return "❌ Bạn không có quyền sử dụng lệnh này."
+
+
+async def send_ephemeral(interaction: discord.Interaction, content: str) -> None:
+    """Reply privately whether or not the interaction was already answered or deferred."""
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(content, ephemeral=True)
+        else:
+            await interaction.response.send_message(content, ephemeral=True)
+    except discord.HTTPException:
+        pass  # interaction expired (15 min) or channel gone: nothing more we can do
 
 
 # --- Bot Setup ---
@@ -109,6 +154,13 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 
     if isinstance(error, commands.CheckFailure):
         return  # e.g. owner-only commands used by someone else: ignore quietly
+
+    if isinstance(error, commands.CommandInvokeError):
+        # A real bug inside the command: keep the traceback and tell the user it failed
+        logger.error("Error in command %s", ctx.command, exc_info=error.original)
+        with contextlib.suppress(discord.HTTPException):
+            await ctx.send(GENERIC_ERROR_MESSAGE)
+        return
 
     logger.error("Command error in %s: %s", ctx.command, error)
 

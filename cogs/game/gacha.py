@@ -110,12 +110,11 @@ class GachaCog(commands.Cog):
 
         rand = random.random()
         if is_guaranteed_slot:
-            total_rate = GACHA_RATES["rarity_4"] + GACHA_RATES["rarity_3"]
-            rate_4_norm = GACHA_RATES["rarity_4"] / total_rate
-            if rand < rate_4_norm:
+            # "3★ or better" slot: 4★ keeps its normal rate and the 2★ share goes to 3★.
+            # (Rescaling 4★ and 3★ together made this slot 4★ ~29% of the time, not 6%.)
+            if rand < GACHA_RATES["rarity_4"]:
                 return random.choice(self.cards_4), 0
-            else:
-                return random.choice(self.cards_3), current_pity
+            return random.choice(self.cards_3), current_pity
         else:
             if rand < GACHA_RATES["rarity_4"]:
                 return random.choice(self.cards_4), 0

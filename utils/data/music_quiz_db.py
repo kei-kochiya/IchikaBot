@@ -1,23 +1,40 @@
 import logging
 import os
 import re
+import unicodedata
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 SONG_DB_PATH = Path(__file__).parent.parent.parent / "gameData" / "static" / "song.xlsx"
 
+# Shortest partial guess accepted. Counted AFTER normalize(), so spaces and punctuation
+# don't count towards it: "e  " is 1 character, "t h e" is 3.
+MIN_PARTIAL_LEN = 3
+
+
+def _fold_unicode(text: str) -> str:
+    """
+    Unicode-normalise before the ASCII filter: NFKD turns full-width / compatibility
+    forms into plain ones ("ｔｅｌｌ" -> "tell", "Ⅲ" -> "III") and splits accented letters
+    into base letter + combining mark, which is then dropped ("Ángel" -> "Angel").
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
 
 def normalize(text: str) -> str:
     """
-    Keep only alphanumeric characters, strip everything else (including spaces),
-    and lowercase. Applied to both song titles and player guesses before comparison.
+    Unicode-fold, then keep only alphanumeric characters, strip everything else
+    (including spaces), and lowercase. Applied to both song titles and player guesses
+    before comparison.
     """
-    return re.sub(r"[^a-zA-Z0-9]", "", text).lower()
+    return re.sub(r"[^a-zA-Z0-9]", "", _fold_unicode(text)).lower()
 
 
 def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
     """
-    Check whether raw_guess matches any of the normalized target strings.
+    Check whether raw_guess matches any of the normalized target strings: exactly, or as
+    any piece of it at least MIN_PARTIAL_LEN normalized characters long.
     """
     ng = normalize(raw_guess)
     if not ng:
@@ -25,7 +42,7 @@ def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
     for target in norm_targets:
         if ng == target:
             return True
-        if len(ng) >= 3 and ng in target:
+        if len(ng) >= MIN_PARTIAL_LEN and ng in target:
             return True
     return False
 

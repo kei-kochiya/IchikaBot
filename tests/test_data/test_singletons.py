@@ -78,3 +78,38 @@ def test_song_data_singleton():
 
     choices = song_data.get_autocomplete_choices("Tell Your World")
     assert len(choices) >= 1
+
+
+def test_character_lookup_prefers_exact_names():
+    # "an" is a substring of Minori Hanasato, which used to win
+    assert game_data.get_character_by_name("an")[0] == 10
+    assert game_data.get_character_by_name("  An ")[0] == 10
+    assert game_data.get_character_by_name("shiraishi an")[0] == 10
+    assert game_data.get_character_by_name("hona")[0] == 3  # exact nickname
+    assert game_data.get_character_by_name("hosh")[0] == 1  # name prefix
+    assert game_data.get_character_by_name("hanasato")[0] == 5
+    assert game_data.get_character_by_name("zzzz") == (None, None)
+    assert game_data.get_character_by_name("") == (None, None)
+
+
+def test_current_event_prefers_running_over_upcoming(monkeypatch):
+    from datetime import UTC, datetime
+
+    now = int(datetime.now(UTC).timestamp() * 1000)
+    day = 86_400_000
+    nxt = {"id": 3, "startAt": now + 2 * day, "closedAt": now + 9 * day}
+    after = {"id": 4, "startAt": now + 10 * day, "closedAt": now + 17 * day}
+    running = {"id": 2, "startAt": now - day, "closedAt": now + day}
+    past = {"id": 1, "startAt": now - 9 * day, "closedAt": now - 2 * day}
+
+    # events_jp is kept newest-first, with the next event already data-mined
+    monkeypatch.setattr(event_data, "events_jp", [after, nxt, running, past])
+    assert event_data.get_current_event()["id"] == 2
+
+    # Between events: the one starting soonest, not the furthest away
+    monkeypatch.setattr(event_data, "events_jp", [after, nxt, past])
+    assert event_data.get_current_event()["id"] == 3
+
+    # Nothing running or upcoming: the latest event
+    monkeypatch.setattr(event_data, "events_jp", [past])
+    assert event_data.get_current_event()["id"] == 1

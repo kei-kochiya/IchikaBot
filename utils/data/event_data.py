@@ -102,15 +102,21 @@ class EventDataManager:
         return event.get("name", "Unknown Event")
 
     def get_current_event(self) -> dict | None:
-        """Get current event from JP data."""
+        """Get the running JP event, else the next upcoming one, else the latest one.
+
+        events_jp is sorted newest-first and master data often already contains the next
+        event (events run back to back), so the running event must be looked for first.
+        """
         now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        upcoming = None
         for event in self.events_jp:
             start = event.get("startAt", 0)
-            end = event.get("closedAt", 0)
-            if start <= now_ms <= end:
+            if start <= now_ms <= event.get("closedAt", 0):
                 return event
-            elif now_ms < start:
-                return event  # Return upcoming if no current
+            if now_ms < start:
+                upcoming = event  # newest-first: the last one seen starts soonest
+        if upcoming is not None:
+            return upcoming
         return self.events_jp[0] if self.events_jp else None
 
     def get_past_events(self, count: int = 5) -> list[dict]:

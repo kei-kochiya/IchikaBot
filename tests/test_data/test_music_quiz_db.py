@@ -8,6 +8,19 @@ def test_normalize_function():
     assert normalize("") == ""
 
 
+def test_normalize_folds_unicode_before_the_ascii_filter():
+    # Accented letters keep their base letter instead of vanishing
+    assert normalize("Ángel") == "angel"
+    assert normalize("Bocca della Verità") == "boccadellaverita"
+    assert normalize("Fräulein=Ojousama") == "frauleinojousama"
+    assert normalize("Tōkyō") == "tokyo"
+    # Full-width / compatibility forms (e.g. typed with a Japanese IME) become plain ASCII
+    assert normalize("ｔｅｌｌ　ｙｏｕｒ　ｗｏｒｌｄ") == "tellyourworld"
+    assert normalize("PaⅢ.SENSATION") == "paiiisensation"
+    # Guesses typed with accents still match plain titles
+    assert is_correct_guess("Ángel", ["angel"]) is True
+
+
 def test_is_correct_guess():
     targets = ["tellyourworld", "hibana"]
 
@@ -22,6 +35,18 @@ def test_is_correct_guess():
     # False guess
     assert is_correct_guess("stella", targets) is False
     assert is_correct_guess("", targets) is False
+
+
+def test_partial_guess_length_is_counted_after_normalizing():
+    targets = ["hibana", "needle"]
+    # Spaces and punctuation don't count towards the 3 characters
+    assert is_correct_guess("e  ", targets) is False  # 1 char: "e"
+    assert is_correct_guess("  e  e  ", targets) is False  # 2 chars: "ee"
+    assert is_correct_guess("h i", targets) is False  # 2 chars: "hi"
+    assert is_correct_guess("n.e", targets) is False
+    # ...but they don't stop a real 3+ character guess either
+    assert is_correct_guess("h i b", targets) is True  # "hib"
+    assert is_correct_guess("need-", targets) is True
 
 
 def test_music_quiz_db_instance():

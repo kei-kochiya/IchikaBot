@@ -155,21 +155,41 @@ class GameDataManager:
 
     def get_character_by_name(self, name: str) -> tuple[int | None, dict | None]:
         """
-        Find character by name (case-insensitive partial match).
+        Find character by name, case-insensitive. Tries, in order: an exact name ("an",
+        "shiraishi an", "an shiraishi"), an exact nickname, a name prefix, then any
+        partial match. Without the ranking "an" matched Minori H*an*asato before An.
 
         Returns:
             (char_id, char_data) or (None, None) if not found
         """
-        name_lower = name.lower()
+        query = name.strip().lower()
+        if not query:
+            return None, None
+
+        names: list[tuple[int, dict, list[str]]] = []
         for char_id, char in self.characters_by_int.items():
             given = char.get("givenName", "").lower()
             first = char.get("firstName", "").lower()
             full = f"{first} {given}".strip()
+            reversed_full = f"{given} {first}".strip()
+            names.append((char_id, char, [n for n in (given, first, full, reversed_full) if n]))
 
-            if name_lower in given or name_lower in first or name_lower in full:
+        def find(match) -> tuple[int | None, dict | None]:
+            for char_id, char, candidates in names:
+                if any(match(n) for n in candidates):
+                    return char_id, char
+            return None, None
+
+        found = find(lambda n: n == query)
+        if found[0] is not None:
+            return found
+        for char_id, char, _ in names:
+            if query in (nick.lower() for nick in self.nicknames.get(str(char_id), [])):
                 return char_id, char
-
-        return None, None
+        found = find(lambda n: n.startswith(query))
+        if found[0] is not None:
+            return found
+        return find(lambda n: query in n)
 
     # --- Unit Color Helpers ---
 

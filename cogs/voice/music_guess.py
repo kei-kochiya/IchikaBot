@@ -27,6 +27,8 @@ class MusicGuess(commands.Cog):
         self.bot = bot
         self.active_games = {}
         self.starting_channels: dict[int, float] = {}
+        # A guild has a single voice connection, so only one game may start/run per guild
+        self.starting_guilds: dict[int, float] = {}
         self.idle_tasks: dict[int, asyncio.Task] = {}
         # Independent per-session song tracking for comm and all modes
         self.played_songs_comm: set = set()
@@ -152,6 +154,13 @@ class MusicGuess(commands.Cog):
             with contextlib.suppress(discord.HTTPException):
                 await msg.remove_reaction(WRONG_EMOJI, self.bot.user)
 
+    def _guild_game_channel(self, guild_id: int) -> int | None:
+        """Text channel of the game already running in this guild, if any."""
+        for ch_id, game in self.active_games.items():
+            if game.get("guild_id") == guild_id:
+                return ch_id
+        return None
+
     async def end_game_timer(self, channel, channel_id: int):
         await asyncio.sleep(GUESS_TIME_LIMIT)
         if channel_id in self.active_games:
@@ -159,8 +168,15 @@ class MusicGuess(commands.Cog):
             if game.get("ended"):
                 return
             game["ended"] = True
-            await channel.send(f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**")
-            await self.cleanup_game(channel_id)
+            try:
+                await channel.send(
+                    f"Hết giờ rồi! ⏰ Đáp án chính xác là: **{game['display_answer']}**"
+                )
+            except discord.HTTPException as e:
+                logger.warning("Music: Could not announce timeout in %s: %s", channel_id, e)
+            finally:
+                # Always free the channel, or it stays "in a game" until everyone leaves voice
+                await self.cleanup_game(channel_id)
 
     # ── Core game logic ────────────────────────────────────────────────────────
 
@@ -208,8 +224,26 @@ class MusicGuess(commands.Cog):
             await send_msg("Mời bạn vào kênh voice để chơi nhé!", delete_after=10)
             return
 
-        self.starting_channels[channel_id] = now
         guild_id = user.guild.id
+        other_channel = self._guild_game_channel(guild_id)
+        if other_channel is not None:
+            await send_msg(
+                f"Server này đang có một ván đoán nhạc ở <#{other_channel}> rồi "
+                "(bot chỉ phát nhạc ở một kênh voice mỗi lúc). Vào chơi cùng nhé!",
+                delete_after=10,
+            )
+            return
+        if guild_id in self.starting_guilds:
+            if now - self.starting_guilds[guild_id] < 45.0:
+                await send_msg(
+                    "Đang chuẩn bị một ván chơi khác trong server, bạn đợi một chút nhé!",
+                    delete_after=10,
+                )
+                return
+            self.starting_guilds.pop(guild_id, None)
+
+        self.starting_channels[channel_id] = now
+        self.starting_guilds[guild_id] = now
         if guild_id in self.idle_tasks:
             task = self.idle_tasks.pop(guild_id)
             if not task.done():
@@ -219,6 +253,7 @@ class MusicGuess(commands.Cog):
             await self._run_game_start(user, channel, send_msg, pool_type, variant_mode)
         finally:
             self.starting_channels.pop(channel_id, None)
+            self.starting_guilds.pop(guild_id, None)
 
     async def _run_game_start(self, user, channel, send_msg, pool_type, variant_mode):
         # ── Scan song files ─────────────────────────────────────────────────
@@ -378,6 +413,7 @@ class MusicGuess(commands.Cog):
         timer_task = asyncio.create_task(self.end_game_timer(channel, channel.id))
 
         self.active_games[channel.id] = {
+            "guild_id": user.guild.id,  # one game per guild: they share the voice client
             "norm_targets": norm_targets,  # normalized strings to match against
             "display_answer": display_answer,  # shown on reveal
             "info": info,  # full title dict for rich embeds
@@ -400,9 +436,9 @@ class MusicGuess(commands.Cog):
         try:
             voice_client.play(discord.FFmpegPCMAudio(clip_path))
         except Exception as e:
-            logger.error("Playback error: %s", e)
-            await send_msg("Lỗi khi phát nhạc.")
+            logger.error("Playback error: %s", e, exc_info=True)
             await self.cleanup_game(channel.id)
+            await send_msg("Lỗi khi phát nhạc.")
 
     # ── Commands ───────────────────────────────────────────────────────────────
 
@@ -491,8 +527,13 @@ class MusicGuess(commands.Cog):
 
             info = game["info"]
             reveal = MusicQuizDB.build_reveal(info)
-            await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}")
-            await self.cleanup_game(channel_id)
+            try:
+                await message.reply(f"Chính xác! 🎉 {message.author.mention} giỏi quá!\n{reveal}")
+            except discord.HTTPException as e:
+                # e.g. the winning message was deleted before the reply went out
+                logger.warning("Music: Could not announce winner in %s: %s", channel_id, e)
+            finally:
+                await self.cleanup_game(channel_id)
         else:
             if game.get("ended"):
                 return

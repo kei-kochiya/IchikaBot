@@ -21,6 +21,24 @@ def test_gacha_guaranteed_slot(mock_bot):
         assert card["cardRarityType"] in ["rarity_3", "rarity_4"]
 
 
+def test_gacha_guaranteed_slot_keeps_normal_4_star_rate(mock_bot, monkeypatch):
+    import random
+
+    from config import GACHA_RATES
+
+    cog = GachaCog(mock_bot)
+
+    # Just under the normal 4-star rate: still a 4-star on the guaranteed slot
+    monkeypatch.setattr(random, "random", lambda: GACHA_RATES["rarity_4"] - 0.001)
+    card, pity = cog._simulate_single_pull(current_pity=0, is_guaranteed_slot=True)
+    assert card["cardRarityType"] == "rarity_4" and pity == 0
+
+    # Above it: 3-star. The old rescaling gave a 4-star up to ~0.286 (6% / 21%)
+    monkeypatch.setattr(random, "random", lambda: 0.10)
+    card, pity = cog._simulate_single_pull(current_pity=0, is_guaranteed_slot=True)
+    assert card["cardRarityType"] == "rarity_3" and pity == 1
+
+
 def test_gacha_pity_trigger(mock_bot):
     cog = GachaCog(mock_bot)
 

@@ -119,3 +119,78 @@ async def test_on_ready_syncs_commands_only_once():
         await bot_module.on_ready()  # e.g. after a gateway reconnect
 
     sync.assert_awaited_once()
+
+
+def _interaction(done: bool):
+    interaction = MagicMock()
+    interaction.response.is_done.return_value = done
+    interaction.response.send_message = AsyncMock()
+    interaction.followup.send = AsyncMock()
+    interaction.command.qualified_name = "gacha pull"
+    return interaction
+
+
+def _invoke_error():
+    from discord import app_commands
+
+    command = MagicMock()
+    command.name = "pull"
+    return app_commands.CommandInvokeError(command, ValueError("boom"))
+
+
+@pytest.mark.asyncio
+async def test_slash_error_after_defer_tells_the_user():
+    from bot import bot
+
+    interaction = _interaction(done=True)  # command had already deferred
+    with patch("bot.logger.error") as mock_logger:
+        await bot.tree.on_error(interaction, _invoke_error())
+
+    interaction.followup.send.assert_awaited_once()
+    assert interaction.followup.send.call_args.kwargs["ephemeral"] is True
+    # The traceback of the original exception is kept
+    assert isinstance(mock_logger.call_args.kwargs["exc_info"], ValueError)
+
+
+@pytest.mark.asyncio
+async def test_slash_error_before_any_reply_answers_the_interaction():
+    from bot import bot
+
+    interaction = _interaction(done=False)
+    with patch("bot.logger.error"):
+        await bot.tree.on_error(interaction, _invoke_error())
+
+    interaction.response.send_message.assert_awaited_once()
+    interaction.followup.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_slash_check_failure_is_not_answered_twice():
+    from discord import app_commands
+
+    from bot import bot
+
+    # A per-command handler already answered "missing permissions"
+    interaction = _interaction(done=True)
+    await bot.tree.on_error(interaction, app_commands.MissingPermissions(["manage_guild"]))
+    interaction.followup.send.assert_not_called()
+    interaction.response.send_message.assert_not_called()
+
+    # Nobody answered (e.g. a command without its own handler): explain it once
+    interaction = _interaction(done=False)
+    await bot.tree.on_error(interaction, app_commands.MissingPermissions(["administrator"]))
+    interaction.response.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_prefix_command_crash_is_logged_with_traceback_and_reported():
+    ctx = MagicMock(spec=commands.Context)
+    ctx.command = MagicMock()
+    ctx.send = AsyncMock()
+    original = RuntimeError("boom")
+
+    with patch("bot.logger.error") as mock_logger:
+        await on_command_error(ctx, commands.CommandInvokeError(original))
+
+    ctx.send.assert_awaited_once()
+    assert mock_logger.call_args.kwargs["exc_info"] is original

@@ -63,3 +63,37 @@ async def test_active_channel_auto_recovery(mock_bot):
 
     # If it recovered, defer was called and 888888 is now cleared
     assert 888888 not in cog.active_channels
+
+
+def test_name_guess_accepts_names_and_3_char_pieces():
+    from cogs.game.guess import is_correct_name_guess
+
+    cog = GuessCog(MagicMock())
+    ichika = cog.build_answer_list(1)  # Hoshino Ichika
+    kanade = cog.build_answer_list(17)  # Yoisaki Kanade
+    an = cog.build_answer_list(10)  # Shiraishi An
+
+    assert is_correct_name_guess("ichika", ichika)
+    assert is_correct_name_guess("Ichika  Hoshino", ichika)  # extra spaces don't matter
+    assert is_correct_name_guess("ick", ichika)  # nickname
+    assert is_correct_name_guess("hos", ichika)
+    assert is_correct_name_guess("ana", kanade)  # any 3+ char piece of a name
+    assert is_correct_name_guess("an", an)  # shorter than 3 is fine when exact
+    assert not is_correct_name_guess("ana", ichika)
+
+
+def test_name_guess_length_is_counted_after_normalizing():
+    from cogs.game.guess import is_correct_name_guess
+
+    cog = GuessCog(MagicMock())
+    kanade = cog.build_answer_list(17)  # Yoisaki Kanade
+    honami = cog.build_answer_list(3)  # Mochizuki Honami, nickname "bánh táo"
+
+    # Spaces/punctuation used to count: "n e" (3 raw chars) is only "ne"
+    assert not is_correct_name_guess("n e", kanade)
+    assert not is_correct_name_guess("e  ", kanade)
+    assert not is_correct_name_guess("k.a", kanade)
+    assert is_correct_name_guess("k a n", kanade)  # "kan"
+    # Unicode fold: accents optional on both sides
+    assert is_correct_name_guess("bánh táo", honami)
+    assert is_correct_name_guess("banh tao", honami)

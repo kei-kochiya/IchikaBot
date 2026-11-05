@@ -214,3 +214,100 @@ async def test_correct_guess_reaction_is_sent_in_the_background(mock_bot):
 
     message.add_reaction.assert_awaited_once()
     message.reply.assert_awaited_once()
+
+
+def _game(guild_id=None, **extra):
+    game = {
+        "norm_targets": ["needle"],
+        "display_answer": "needLe",
+        "info": {"title_en": "needLe"},
+        "guesses": {},
+        "wrong_reactions": [],
+        "voice_client": None,
+        "clip_path": None,
+        "timer_task": None,
+        "ended": False,
+    }
+    if guild_id is not None:
+        game["guild_id"] = guild_id
+    game.update(extra)
+    return game
+
+
+@pytest.mark.asyncio
+async def test_timeout_frees_channel_even_if_announcement_fails(mock_bot, monkeypatch):
+    cog = MusicGuess(mock_bot)
+    monkeypatch.setitem(MusicGuess.end_game_timer.__globals__, "GUESS_TIME_LIMIT", 0)
+    cog.active_games[1] = _game()
+    channel = MagicMock()
+    channel.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "no perms"))
+
+    await cog.end_game_timer(channel, 1)
+
+    channel.send.assert_awaited_once()
+    assert 1 not in cog.active_games  # otherwise the channel stays "in a game"
+
+
+@pytest.mark.asyncio
+async def test_winner_frees_channel_even_if_reply_fails(mock_bot):
+    cog = MusicGuess(mock_bot)
+    cog.active_games[2] = _game()
+    message = MagicMock(spec=discord.Message)
+    message.channel.id = 2
+    message.author.bot = False
+    message.author.id = 1
+    message.author.mention = "<@1>"
+    message.content = "-g needle"
+    message.add_reaction = AsyncMock()
+    # e.g. the winning message was deleted before the reply went out
+    message.reply = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=400), "gone"))
+
+    with patch.object(cog, "cleanup_game", new_callable=AsyncMock) as cleanup:
+        await cog.on_message(message)
+
+    cleanup.assert_awaited_once_with(2)
+
+
+@pytest.mark.asyncio
+async def test_second_game_in_same_guild_is_rejected(mock_bot):
+    cog = MusicGuess(mock_bot)
+    cog.active_games[111] = _game(guild_id=999)  # running in another text channel
+
+    ctx = MagicMock()
+    ctx.channel.id = 222
+    ctx.author.guild.id = 999
+    ctx.author.voice.channel = MagicMock()
+    ctx.send = AsyncMock()
+
+    with patch.object(cog, "_run_game_start", new_callable=AsyncMock) as run:
+        await cog.start_game_logic(ctx, pool_type="comm")
+
+    run.assert_not_called()
+    assert "<#111>" in ctx.send.call_args[0][0]
+
+    # Same while another channel of the guild is still preparing its round
+    cog.active_games.clear()
+    cog.starting_guilds[999] = asyncio.get_running_loop().time()
+    ctx.send.reset_mock()
+    with patch.object(cog, "_run_game_start", new_callable=AsyncMock) as run:
+        await cog.start_game_logic(ctx, pool_type="comm")
+    run.assert_not_called()
+    assert "Đang chuẩn bị một ván chơi khác" in ctx.send.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_game_start_releases_guild_lock(mock_bot):
+    cog = MusicGuess(mock_bot)
+    ctx = MagicMock()
+    ctx.channel.id = 333
+    ctx.author.guild.id = 444
+    ctx.author.voice.channel = MagicMock()
+    ctx.send = AsyncMock()
+
+    with (
+        patch.object(cog, "_run_game_start", new_callable=AsyncMock, side_effect=RuntimeError),
+        pytest.raises(RuntimeError),
+    ):
+        await cog.start_game_logic(ctx, pool_type="comm")
+
+    assert 444 not in cog.starting_guilds and 333 not in cog.starting_channels
