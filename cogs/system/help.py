@@ -27,7 +27,8 @@ COMMAND_CATEGORIES = {
             ("/song random", "!songr", "Bài hát ngẫu nhiên"),
             ("/songguess", "!sg", "Đoán tên bài hát qua đoạn nhạc trong kênh voice"),
             ("-", "!sgv / !sga", "Đoán nhạc có hiệu ứng / với tất cả bài hát"),
-            ("/guess", "-", "Đoán nhân vật qua hình ảnh"),
+            ("/guess [độ khó]", "-", "Đoán nhân vật qua hình ảnh (Dễ / Thường / Khó)"),
+            ("/guessmode <độ khó>", "-", "Đặt độ khó mặc định của bạn cho /guess"),
         ],
     },
     "Profiles": {
@@ -129,7 +130,7 @@ class HelpCog(commands.Cog):
             # The commands themselves (slash form, else the prefix aliases), so the
             # overview alone is enough to find one
             names = [
-                name.split(" <")[0]
+                name.split(" <")[0].split(" [")[0]
                 for slash, prefix, _ in cat_data["commands"]
                 for name in ([slash] if slash != "-" else prefix.split(" / "))
             ]

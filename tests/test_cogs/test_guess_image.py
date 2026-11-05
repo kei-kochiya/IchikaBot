@@ -23,7 +23,7 @@ def test_normal_mode_is_a_native_resolution_crop(card_png):
     puzzle, reveal, effect = _process_game_image_sync(card_png, "normal")
 
     assert effect == "Crop"
-    assert Image.open(puzzle).size == (250, 250)
+    assert Image.open(puzzle).size == (300, 300)
 
 
 def test_reveal_is_the_untouched_cached_file(card_png):
@@ -54,7 +54,7 @@ def test_black_and_white_crop(card_png, monkeypatch):
 
     assert used == "Trắng đen"
     image = Image.open(puzzle)
-    assert image.size == (250, 250)
+    assert image.size == (300, 300)
     assert image.mode == "L"
 
 
@@ -75,7 +75,7 @@ def test_small_images_are_upscaled_enough_to_crop(tmp_path):
     puzzle, _, effect = _process_game_image_sync(str(path), "normal")
 
     assert effect == "Crop"
-    assert Image.open(puzzle).size == (250, 250)
+    assert Image.open(puzzle).size == (300, 300)
 
 
 @pytest.mark.parametrize("mode", ["normal", "random"])
@@ -94,3 +94,32 @@ def test_unreadable_image_fails_softly(tmp_path):
 
     assert _process_game_image_sync(str(bogus), "normal") == (None, None, "")
     assert _process_game_image_sync(str(tmp_path / "missing.png"), "normal") == (None, None, "")
+
+
+def test_hard_is_the_old_random_mode(card_png, monkeypatch):
+    _force_effect(monkeypatch, "blur")
+    for mode in ("hard", "random"):  # "random" still works for old clients
+        _, _, used = _process_game_image_sync(card_png, mode)
+        assert used == "Blur"
+
+
+def test_easy_mode_crops_where_the_locator_points(card_png, tmp_path, monkeypatch):
+    cutout = tmp_path / "cutout.webp"
+    Image.new("RGB", (600, 576), (200, 0, 0)).save(cutout)
+    monkeypatch.setitem(
+        _process_game_image_sync.__globals__,
+        "focus_crop_box",
+        lambda img, cut, crop: (100, 200, 100 + crop, 200 + crop),
+    )
+
+    puzzle, reveal, used = _process_game_image_sync(card_png, "easy", str(cutout))
+
+    assert used == "Focus" and reveal == card_png
+    assert Image.open(puzzle).size == (300, 300)
+
+
+def test_easy_mode_without_cutout_falls_back_to_a_normal_crop(card_png):
+    puzzle, _, used = _process_game_image_sync(card_png, "easy", None)
+
+    assert used == "Crop"
+    assert Image.open(puzzle).size == (300, 300)

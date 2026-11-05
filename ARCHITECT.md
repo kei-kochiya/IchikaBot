@@ -31,6 +31,7 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 
 ### `utils/media/` (Media Processing)
 - **`image_helper.py`**: Asynchronous image caching and fetching. Card art is cached as WebP (~20x smaller than the CDN's PNG: smaller downloads, disk cache and Discord uploads); send it as `card.webp`. Writes are atomic, concurrent requests for one image share a single download, CDN 404s are remembered for an hour, and a network error never triggers fallback downloads.
+- **`card_focus.py`**: Finds a card's own character in its card art for easy `/guess` crops, from the colours of the card's `member_cutout` close-up plus sharpness (the close-up is recomposed artwork, so it cannot be overlaid on the card). Pillow only, ~0.1 s.
 - **`gacha_render.py`**: Gacha result images in the style of the in-game result screen (result background, card art, rarity stars and attribute icon). The game UI images are fetched once into `.gachacache/ui`; resized card tiles are cached in `.gachacache/tiles`. Every asset is optional (falls back to plain drawing).
 - **`audio_fx.py`**: Audio manipulation logic (FFmpeg/Pydub). Clips are cut with an ffmpeg seek, so a whole track is never decoded into RAM.
 

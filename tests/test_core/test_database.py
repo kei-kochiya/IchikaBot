@@ -124,3 +124,13 @@ async def test_prefix_lookup_treats_underscore_literally(temp_db):
     await database.set_setting(1, "cotdXchannel_id", "lookalike")  # '_' must not act as a wildcard
 
     assert await database.get_all_settings_prefix("cotd_") == {1: {"channel_id": "real"}}
+
+
+@pytest.mark.asyncio
+async def test_user_settings_crud(temp_db):
+    assert await database.get_user_setting(42, "guess_mode") is None
+    await database.set_user_setting(42, "guess_mode", "hard")
+    assert await database.get_user_setting(42, "guess_mode") == "hard"
+    await database.set_user_setting(42, "guess_mode", "easy")
+    assert await database.get_user_setting(42, "guess_mode") == "easy"
+    assert await database.get_user_setting(43, "guess_mode") is None  # per user

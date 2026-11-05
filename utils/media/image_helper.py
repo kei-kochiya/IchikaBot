@@ -168,6 +168,21 @@ def cached_ui_asset_path(name: str) -> str | None:
     return None
 
 
+MEMBER_CUTOUT_URL = (
+    "https://storage.sekai.best/sekai-jp-assets/character/member_cutout/{asset}/{variant}.webp"
+)
+
+
+async def get_member_cutout_path(asset_bundle_name: str, trained: bool) -> str | None:
+    """Get a card's member_cutout close-up (exists for every card, ~50 KB), cached in
+    CACHE_DIR/cutouts. Used to find the character in the card art for easy /guess."""
+    variant = "after_training" if trained else "normal"
+    folder = CACHE_DIR / "cutouts"
+    folder.mkdir(parents=True, exist_ok=True)
+    url = MEMBER_CUTOUT_URL.format(asset=asset_bundle_name, variant=variant)
+    return await _cached_download(url, folder / f"{asset_bundle_name}_{variant}.webp")
+
+
 async def get_character_trim_path(char_id: int | str) -> str | None:
     """Get path to a character trim image, downloading and caching if necessary."""
     url = f"https://storage.sekai.best/sekai-jp-assets/character/character_trim/chr_trim_{char_id}.webp"

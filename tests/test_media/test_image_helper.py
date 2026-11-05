@@ -237,3 +237,16 @@ def test_cached_ui_asset_path_never_downloads(cache):
     assert image_helper.cached_ui_asset_path("bg.png") is None  # empty file: not usable
     (cache / "ui" / "bg.png").write_bytes(b"png")
     assert image_helper.cached_ui_asset_path("bg.png") == str(cache / "ui" / "bg.png")
+
+
+@pytest.mark.asyncio
+async def test_member_cutout_is_cached_per_variant(cache, monkeypatch):
+    session = _FakeSession({})
+    _use_session(monkeypatch, session)
+
+    path = await image_helper.get_member_cutout_path("res001_no004", trained=True)
+
+    assert path == str(cache / "cutouts" / "res001_no004_after_training.webp")
+    assert session.urls[0].endswith("/member_cutout/res001_no004/after_training.webp")
+    assert await image_helper.get_member_cutout_path("res001_no004", trained=True) == path
+    assert len(session.urls) == 1

@@ -97,3 +97,31 @@ def test_name_guess_length_is_counted_after_normalizing():
     # Unicode fold: accents optional on both sides
     assert is_correct_name_guess("bánh táo", honami)
     assert is_correct_name_guess("banh tao", honami)
+
+
+async def test_mode_defaults_to_easy_then_follows_the_player(mock_bot, temp_db):
+    from utils.core import database
+
+    cog = GuessCog(mock_bot)
+    assert await cog.resolve_mode(1, None) == "easy"  # never chose one
+    await database.set_user_setting(1, "guess_mode", "hard")
+    assert await cog.resolve_mode(1, None) == "hard"  # their default
+    assert await cog.resolve_mode(1, "normal") == "normal"  # asked for this round
+    assert await cog.resolve_mode(1, "random") == "hard"  # old name
+    assert await cog.resolve_mode(2, None) == "easy"  # someone else
+    await database.set_user_setting(3, "guess_mode", "nonsense")
+    assert await cog.resolve_mode(3, None) == "easy"
+
+
+async def test_guessmode_sets_and_shows_the_default(mock_bot, temp_db):
+    cog = GuessCog(mock_bot)
+    interaction = MagicMock()
+    interaction.user.id = 5
+    interaction.response.send_message = AsyncMock()
+
+    await cog.guess_mode.callback(cog, interaction, mode="normal")
+    assert await cog.resolve_mode(5, None) == "normal"
+
+    await cog.guess_mode.callback(cog, interaction, mode=None)
+    shown = interaction.response.send_message.call_args.args[0]
+    assert "Thường" in shown

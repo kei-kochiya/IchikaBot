@@ -18,6 +18,12 @@ guild_settings
     value    TEXT
     PRIMARY KEY (guild_id, setting)
 
+user_settings  (per-user preferences, e.g. setting='guess_mode')
+    user_id  INTEGER
+    setting  TEXT
+    value    TEXT
+    PRIMARY KEY (user_id, setting)
+
 Migration
 ---------
 On first init, if the legacy JSON files exist their data is imported
@@ -51,6 +57,13 @@ async def _create_tables(conn: aiosqlite.Connection) -> None:
             setting  TEXT    NOT NULL,
             value    TEXT    NOT NULL,
             PRIMARY KEY (guild_id, setting)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id  INTEGER NOT NULL,
+            setting  TEXT    NOT NULL,
+            value    TEXT    NOT NULL,
+            PRIMARY KEY (user_id, setting)
         );
     """)
     await conn.commit()
@@ -274,3 +287,28 @@ async def get_all_settings_prefix(prefix: str) -> dict[int, dict[str, str]]:
         key = row["setting"][p_len:]  # strip prefix: "cotd_channel_id" → "channel_id"
         result.setdefault(gid, {})[key] = row["value"]
     return result
+
+
+# ── Public API — user settings ─────────────────────────────────────────────────
+
+
+async def get_user_setting(user_id: int, setting: str) -> str | None:
+    """Return a user's preference value, or None if they never set it."""
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT value FROM user_settings WHERE user_id=? AND setting=?",
+        (user_id, setting),
+    ) as cur:
+        row = await cur.fetchone()
+        return row["value"] if row else None
+
+
+async def set_user_setting(user_id: int, setting: str, value: str) -> None:
+    """Upsert a user's preference."""
+    conn = await _get_conn()
+    await conn.execute(
+        "INSERT INTO user_settings (user_id, setting, value) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, setting) DO UPDATE SET value=excluded.value",
+        (user_id, setting, value),
+    )
+    await conn.commit()
