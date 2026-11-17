@@ -1,10 +1,15 @@
 import contextlib
+import random
 from datetime import datetime, timedelta, timezone
 
 import discord
 
 from utils.data.game_data import get_character_name, get_unit_color
-from utils.game.cards import get_card_image_url, supports_trained_art
+from utils.game.cards import (
+    get_card_image_url,
+    supports_trained_art,
+    update_card_attachment_message,
+)
 from utils.social.birthday_helpers import get_birthday_card_for_character
 
 JST = timezone(timedelta(hours=9))
@@ -144,75 +149,30 @@ class BirthdayCardView(discord.ui.View):
         next_btn.callback = self.next_callback
         self.add_item(next_btn)
 
-    async def prev_callback(self, interaction: discord.Interaction):
+    async def _step(self, interaction: discord.Interaction, delta: int) -> None:
         from utils.media.image_helper import get_card_image_path
 
-        if not interaction.response.is_done():
-            with contextlib.suppress(discord.HTTPException):
-                await interaction.response.defer()
-
-        self.current_index = min(self.current_index + 1, len(self.cards) - 1)
+        self.current_index = max(0, min(self.current_index + delta, len(self.cards) - 1))
         self.update_buttons()
         card = self.cards[self.current_index]
-        img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
-        keep_attachments = [
-            att
-            for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename not in ("card.png", "card.webp")
-        ]
 
-        with contextlib.suppress(discord.HTTPException):
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                embed = self._create_embed(attachment_url="attachment://card.webp")
-                target_attachments = [*keep_attachments, file]
-            else:
-                embed = self._create_embed()
-                target_attachments = keep_attachments
+        await update_card_attachment_message(
+            interaction=interaction,
+            fetch_image=get_card_image_path,
+            asset_bundle=card["assetbundleName"],
+            is_trained=False,
+            build_embed=lambda url: self._create_embed(
+                attachment_url=url if url.startswith("attachment://") else None
+            ),
+            fallback_url=get_card_image_url(card["assetbundleName"], trained=False),
+            view=self,
+        )
 
-            if interaction.response.is_done():
-                await interaction.edit_original_response(
-                    embed=embed, attachments=target_attachments, view=self
-                )
-            else:
-                await interaction.response.edit_message(
-                    embed=embed, attachments=target_attachments, view=self
-                )
+    async def prev_callback(self, interaction: discord.Interaction):
+        await self._step(interaction, +1)
 
     async def next_callback(self, interaction: discord.Interaction):
-        from utils.media.image_helper import get_card_image_path
-
-        if not interaction.response.is_done():
-            with contextlib.suppress(discord.HTTPException):
-                await interaction.response.defer()
-
-        self.current_index = max(self.current_index - 1, 0)
-        self.update_buttons()
-        card = self.cards[self.current_index]
-        img_path = await get_card_image_path(card["assetbundleName"], is_trained=False)
-        keep_attachments = [
-            att
-            for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename not in ("card.png", "card.webp")
-        ]
-
-        with contextlib.suppress(discord.HTTPException):
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                embed = self._create_embed(attachment_url="attachment://card.webp")
-                target_attachments = [*keep_attachments, file]
-            else:
-                embed = self._create_embed()
-                target_attachments = keep_attachments
-
-            if interaction.response.is_done():
-                await interaction.edit_original_response(
-                    embed=embed, attachments=target_attachments, view=self
-                )
-            else:
-                await interaction.response.edit_message(
-                    embed=embed, attachments=target_attachments, view=self
-                )
+        await self._step(interaction, -1)
 
     def _create_embed(self, attachment_url: str | None = None) -> discord.Embed:
         return create_birthday_embed(
@@ -262,7 +222,12 @@ async def prepare_daily_card_message(
     from utils.game.cards import CardToggleView, get_random_card, is_pre_trained_card
     from utils.media.image_helper import get_card_image_path
 
-    card = get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
+    char_pool = card_data.by_char_3_4.get(int(character["id"]))
+    card = (
+        random.choice(char_pool)
+        if char_pool
+        else get_random_card(card_data.cards, character["id"], ["rarity_3", "rarity_4"])
+    )
     if not card:
         return None, None, None
 

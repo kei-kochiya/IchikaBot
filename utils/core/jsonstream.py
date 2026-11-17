@@ -17,7 +17,7 @@ from typing import Any
 
 _WHITESPACE = " \t\n\r"
 _NUMBER_CHARS = "0123456789.eE+-"
-_CHUNK_CHARS = 1 << 20  # 1M characters per read
+_CHUNK_CHARS = 1 << 16  # 64K chars: small buffer fits L2 cache and cuts peak memory
 
 
 def _may_continue(obj: Any, buf: str, end: int) -> bool:

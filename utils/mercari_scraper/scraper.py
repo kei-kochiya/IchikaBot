@@ -28,6 +28,25 @@ def _sort_items(items: list[MercariItem], sort_by: SortBy) -> list[MercariItem]:
     return items
 
 
+def _merge_batch(
+    c2c_items: list[MercariItem],
+    shops_items: list[MercariItem],
+    source: ItemSource,
+    sort_by: SortBy,
+) -> list[MercariItem]:
+    """Interleave C2C and Shops items when merging ALL sources, then apply batch sort."""
+    if source == ItemSource.ALL and c2c_items and shops_items:
+        batch: list[MercariItem] = []
+        for idx in range(max(len(c2c_items), len(shops_items))):
+            if idx < len(c2c_items):
+                batch.append(c2c_items[idx])
+            if idx < len(shops_items):
+                batch.append(shops_items[idx])
+    else:
+        batch = c2c_items + shops_items
+    return _sort_items(batch, sort_by)
+
+
 class AsyncMercariScraper:
     """Asynchronous Mercari JP Scraper supporting both Individual and Shop items with <1GB RAM."""
 
@@ -128,20 +147,7 @@ class AsyncMercariScraper:
             if not c2c_items and not shops_items:
                 break
 
-            # When merging ALL sources, interleave items evenly
-            if source == ItemSource.ALL and c2c_items and shops_items:
-                batch = []
-                max_l = max(len(c2c_items), len(shops_items))
-                for idx in range(max_l):
-                    if idx < len(c2c_items):
-                        batch.append(c2c_items[idx])
-                    if idx < len(shops_items):
-                        batch.append(shops_items[idx])
-            else:
-                batch = c2c_items + shops_items
-
-            # Deduplicate and sort within batch
-            batch = _sort_items(batch, sort_by)
+            batch = _merge_batch(c2c_items, shops_items, source, sort_by)
 
             for item in batch:
                 if item.id in seen_ids:
@@ -284,20 +290,7 @@ class MercariScraper:
             if not c2c_items and not shops_items:
                 break
 
-            # When merging ALL sources, interleave items evenly
-            if source == ItemSource.ALL and c2c_items and shops_items:
-                batch = []
-                max_l = max(len(c2c_items), len(shops_items))
-                for idx in range(max_l):
-                    if idx < len(c2c_items):
-                        batch.append(c2c_items[idx])
-                    if idx < len(shops_items):
-                        batch.append(shops_items[idx])
-            else:
-                batch = c2c_items + shops_items
-
-            # Deduplicate and sort within batch
-            batch = _sort_items(batch, sort_by)
+            batch = _merge_batch(c2c_items, shops_items, source, sort_by)
 
             for item in batch:
                 if item.id in seen_ids:

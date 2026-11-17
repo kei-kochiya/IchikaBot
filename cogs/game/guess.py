@@ -15,7 +15,7 @@ from utils.core import database
 from utils.core.tasks import react_in_background
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
-from utils.data.music_quiz_db import MIN_PARTIAL_LEN, normalize
+from utils.data.music_quiz_db import is_correct_guess, normalize
 from utils.game.cards import is_pre_trained_card, supports_trained_art
 from utils.media.card_focus import focus_crop_box
 from utils.media.image_helper import get_card_image_path, get_member_cutout_path
@@ -40,6 +40,11 @@ MODE_CHOICES = [
     app_commands.Choice(name="Thường: cắt ngẫu nhiên", value="normal"),
     app_commands.Choice(name="Khó: hiệu ứng ngẫu nhiên", value="hard"),
 ]
+_OUTCOME_META = {
+    "failed": (f"Game Over. Bạn chỉ được phép đoán sai {MAX_FAILS} lần!", 0xE74C3C),
+    "gave_up": ("Đã bỏ cuộc!", 0xE74C3C),
+    "timeout": ("Hết giờ rồi!", 0xE74C3C),
+}
 
 
 def is_correct_name_guess(guess: str, answers: list[str]) -> bool:
@@ -49,14 +54,7 @@ def is_correct_name_guess(guess: str, answers: list[str]) -> bool:
     digits only, lowercase), so the 3 characters are counted after normalizing: "n e" is
     only 2 and doesn't win, and "banh tao" matches the nickname "bánh táo".
     """
-    ng = normalize(guess)
-    if not ng:
-        return False
-    for answer in answers:
-        na = normalize(answer)
-        if ng == na or (len(ng) >= MIN_PARTIAL_LEN and ng in na):
-            return True
-    return False
+    return is_correct_guess(guess, [na for answer in answers if (na := normalize(answer))])
 
 
 def _focus_box(img: Image.Image, cutout_path: str | None) -> tuple[int, int, int, int] | None:
@@ -120,30 +118,34 @@ def _process_game_image_sync(
                     effect_used = "Crop"
 
             else:
-                # Whole-image effects don't need the 2520px source art: cap the width so
-                # encoding is faster and the upload to Discord is several times smaller.
-                if w > MAX_PUZZLE_WIDTH:
-                    img = img.resize(
-                        (MAX_PUZZLE_WIDTH, round(h * MAX_PUZZLE_WIDTH / w)),
-                        Image.BILINEAR,
-                        reducing_gap=2.0,
-                    )
-                    w, h = img.size
+                # Whole-image effects don't need the 2520px source art: cap the output width
+                # so encoding is faster and the upload to Discord is several times smaller.
+                tw, th = (
+                    (MAX_PUZZLE_WIDTH, round(h * MAX_PUZZLE_WIDTH / w))
+                    if w > MAX_PUZZLE_WIDTH
+                    else (w, h)
+                )
 
                 if effect == "pixelate":
-                    small = img.resize((48, 48), Image.NEAREST)
-                    game_img = small.resize((w, h), Image.NEAREST)
+                    # Shrink straight to 48x48 and scale back up (skips intermediate 1280px resize)
+                    game_img = img.resize((48, 48), Image.NEAREST).resize((tw, th), Image.NEAREST)
                     effect_used = "Pixelate"
 
                 elif effect == "blur":
-                    # Blurring a quarter-size copy and scaling back up looks the same as a
-                    # big blur but costs a fraction of the time.
-                    small = img.reduce(4).filter(ImageFilter.GaussianBlur(radius=25 / 4))
-                    game_img = small.resize((w, h), Image.BILINEAR)
+                    # Shrink directly to quarter size, blur, then upscale (skips 1280px resize)
+                    small = img.resize(
+                        (max(1, tw // 4), max(1, th // 4)),
+                        Image.BILINEAR,
+                        reducing_gap=2.0,
+                    ).filter(ImageFilter.GaussianBlur(radius=25 / 4))
+                    game_img = small.resize((tw, th), Image.BILINEAR)
                     effect_used = "Blur"
 
                 else:  # negative
-                    game_img = ImageOps.invert(img.convert("RGB"))
+                    if (tw, th) != (w, h):
+                        img = img.resize((tw, th), Image.BILINEAR, reducing_gap=2.0)
+                    rgb = img if img.mode == "RGB" else img.convert("RGB")
+                    game_img = ImageOps.invert(rgb)
                     effect_used = "Âm bản"
 
             # JPEG: a 1280px effect image is ~1-2 MB as PNG but ~0.2 MB here, and the
@@ -208,16 +210,23 @@ class GuessCog(commands.Cog):
         """Process card image for guessing game in executor. Returns (game_img_io, reveal_path, effect_name)."""
         try:
             async with asyncio.timeout(15.0):
-                local_path = await get_card_image_path(asset_name, is_trained)
-                if not local_path:
-                    return None, None, ""
-
-                cutout_path = None
-                if MODE_ALIASES.get(mode, mode) == "easy":
-                    # the close-up of the art actually used (the CDN may have served the
-                    # other variant if the requested one does not exist)
+                is_easy = MODE_ALIASES.get(mode, mode) == "easy"
+                if is_easy:
+                    local_path, cutout_path = await asyncio.gather(
+                        get_card_image_path(asset_name, is_trained),
+                        get_member_cutout_path(asset_name, is_trained),
+                    )
+                    if not local_path:
+                        return None, None, ""
+                    # If the CDN served the fallback training variant, match the cutout to it
                     trained_art = Path(local_path).stem.endswith("_after_training")
-                    cutout_path = await get_member_cutout_path(asset_name, trained_art)
+                    if trained_art != is_trained:
+                        cutout_path = await get_member_cutout_path(asset_name, trained_art)
+                else:
+                    local_path = await get_card_image_path(asset_name, is_trained)
+                    if not local_path:
+                        return None, None, ""
+                    cutout_path = None
 
                 return await asyncio.get_running_loop().run_in_executor(
                     None, _process_game_image_sync, local_path, mode, cutout_path
@@ -301,6 +310,7 @@ class GuessCog(commands.Cog):
                     return
 
                 possible_answers = self.build_answer_list(card["characterId"])
+                norm_answers = [na for a in possible_answers if (na := normalize(a))]
                 full_name = f"{char_data['firstName']} {char_data['givenName']}".strip()
                 logger.debug(f"Guess answer: {full_name}")
 
@@ -338,9 +348,9 @@ class GuessCog(commands.Cog):
                         guess_msg = await self.bot.wait_for(
                             "message", check=check, timeout=min(remaining, 1.0)
                         )
-                        guess = guess_msg.content[len(GUESS_PREFIX) :].strip().lower()
+                        guess = guess_msg.content[len(GUESS_PREFIX) :].strip()
 
-                        if is_correct_name_guess(guess, possible_answers):
+                        if is_correct_guess(guess, norm_answers):
                             winner = guess_msg.author
                             reason = "win"
                             react_in_background(guess_msg, "✅")
@@ -369,15 +379,8 @@ class GuessCog(commands.Cog):
                 if reason == "win":
                     result_embed.title = f"Đúng rồi! Xin chúc mừng {winner.display_name}"
                     result_embed.color = 0x2ECC71
-                elif reason == "failed":
-                    result_embed.title = f"Game Over. Bạn chỉ được phép đoán sai {MAX_FAILS} lần!"
-                    result_embed.color = 0xE74C3C
-                elif reason == "gave_up":
-                    result_embed.title = "Đã bỏ cuộc!"
-                    result_embed.color = 0xE74C3C
                 else:
-                    result_embed.title = "Hết giờ rồi!"
-                    result_embed.color = 0xE74C3C
+                    result_embed.title, result_embed.color = _OUTCOME_META[reason]
 
                 view.disable_all()
                 with contextlib.suppress(discord.HTTPException):

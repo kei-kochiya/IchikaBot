@@ -140,6 +140,23 @@ def _parse_shops_node(node: dict[str, Any]) -> MercariItem:
     )
 
 
+def _parse_search_response(resp: httpx.Response) -> tuple[list[MercariItem], bool, str | None]:
+    """Parse a GraphQL SearchTop response into (items, has_next, next_cursor)."""
+    resp.raise_for_status()
+    data = resp.json()
+    if "errors" in data:
+        log.warning(f"GraphQL returned errors: {data['errors']}")
+        return [], False, None
+
+    products_data = data.get("data", {}).get("products")
+    if not products_data:
+        return [], False, None
+
+    page_info = products_data.get("pageInfo", {})
+    items = [_parse_shops_node(e["node"]) for e in products_data.get("edges", []) if "node" in e]
+    return items, bool(page_info.get("hasNextPage", False)), page_info.get("endCursor")
+
+
 class AsyncShopsClient:
     """Asynchronous client for Mercari Shops GraphQL API."""
 
@@ -169,26 +186,7 @@ class AsyncShopsClient:
     ) -> tuple[list[MercariItem], bool, str | None]:
         """Fetch a single page of Mercari Shops items."""
         payload = _build_payload(query, status, price_min, price_max, sort_by, cursor, session_id)
-        resp = await self._client.post(GRAPHQL_URL, json=payload)
-        resp.raise_for_status()
-
-        data = resp.json()
-        if "errors" in data:
-            log.warning(f"GraphQL returned errors: {data['errors']}")
-            return [], False, None
-
-        products_data = data.get("data", {}).get("products")
-        if not products_data:
-            return [], False, None
-
-        page_info = products_data.get("pageInfo", {})
-        has_next = bool(page_info.get("hasNextPage", False))
-        next_cursor = page_info.get("endCursor")
-
-        items = [
-            _parse_shops_node(e["node"]) for e in products_data.get("edges", []) if "node" in e
-        ]
-        return items, has_next, next_cursor
+        return _parse_search_response(await self._client.post(GRAPHQL_URL, json=payload))
 
     async def get_product(self, product_id: str) -> MercariItem | None:
         """Fetch a single Mercari Shops product by ID asynchronously."""
@@ -239,26 +237,7 @@ class SyncShopsClient:
     ) -> tuple[list[MercariItem], bool, str | None]:
         """Fetch a single page of Mercari Shops items synchronously."""
         payload = _build_payload(query, status, price_min, price_max, sort_by, cursor, session_id)
-        resp = self._client.post(GRAPHQL_URL, json=payload)
-        resp.raise_for_status()
-
-        data = resp.json()
-        if "errors" in data:
-            log.warning(f"GraphQL returned errors: {data['errors']}")
-            return [], False, None
-
-        products_data = data.get("data", {}).get("products")
-        if not products_data:
-            return [], False, None
-
-        page_info = products_data.get("pageInfo", {})
-        has_next = bool(page_info.get("hasNextPage", False))
-        next_cursor = page_info.get("endCursor")
-
-        items = [
-            _parse_shops_node(e["node"]) for e in products_data.get("edges", []) if "node" in e
-        ]
-        return items, has_next, next_cursor
+        return _parse_search_response(self._client.post(GRAPHQL_URL, json=payload))
 
     def get_product(self, product_id: str) -> MercariItem | None:
         """Fetch a single Mercari Shops product by ID synchronously."""

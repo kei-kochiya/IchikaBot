@@ -3,6 +3,7 @@ Character Profile Cog - Detailed character information from Project Sekai.
 """
 
 import logging
+import random
 
 import discord
 from discord import app_commands
@@ -50,6 +51,9 @@ class ProfileCog(commands.Cog):
     ) -> dict | None:
         """Get a random 3-star or 4-star card for a character."""
         if rarity is None:
+            pool = card_data.by_char_3_4.get(int(char_id))
+            if pool:
+                return random.choice(pool)
             rarity = ["rarity_3", "rarity_4"]
         return get_random_card(card_data.cards, char_id, rarity)
 
@@ -114,6 +118,31 @@ class ProfileCog(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return character_autocomplete(current, max_id=26)
 
+    async def _build_profile_kwargs(self, char_id: int) -> dict | None:
+        """Build kwargs (embed, optional file and toggle view) for a character profile."""
+        card = self.get_random_card_for_character(char_id)
+        file = None
+        attachment_url = None
+        if card:
+            initial_trained = is_pre_trained_card(card)
+            img_path = await get_card_image_path(
+                card["assetbundleName"], is_trained=initial_trained
+            )
+            if img_path:
+                file = discord.File(img_path, filename="card.webp")
+                attachment_url = "attachment://card.webp"
+
+        embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
+        if embed is None:
+            return None
+
+        kwargs: dict = {"embed": embed}
+        if card:
+            kwargs["view"] = CardToggleView(embed, card, default_trained=False)
+            if file:
+                kwargs["file"] = file
+        return kwargs
+
     # ===== SLASH COMMANDS =====
     profile_group = app_commands.Group(name="profile", description="Thông tin chi tiết nhân vật")
 
@@ -131,33 +160,14 @@ class ProfileCog(commands.Cog):
                 await interaction.followup.send(f"Không tìm thấy nhân vật: **{character}**")
                 return
 
-        card = self.get_random_card_for_character(char_id)
-        file = None
-        attachment_url = None
-        if card:
-            initial_trained = is_pre_trained_card(card)
-            img_path = await get_card_image_path(
-                card["assetbundleName"], is_trained=initial_trained
-            )
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                attachment_url = "attachment://card.webp"
-
-        embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
-
-        if embed is None:
+        kwargs = await self._build_profile_kwargs(char_id)
+        if kwargs is None:
             await interaction.followup.send("Không có thông tin profile cho nhân vật này.")
             return
 
-        if card:
-            view = CardToggleView(embed, card, default_trained=False)
-            kwargs = {"embed": embed, "view": view}
-            if file:
-                kwargs["file"] = file
-            msg = await interaction.followup.send(**kwargs)
-            view.message = msg
-        else:
-            await interaction.followup.send(embed=embed)
+        msg = await interaction.followup.send(**kwargs)
+        if "view" in kwargs:
+            kwargs["view"].message = msg
 
     # ===== PREFIX COMMANDS =====
     @commands.command(name="profile", aliases=["char", "character"])
@@ -172,32 +182,14 @@ class ProfileCog(commands.Cog):
             await ctx.send(f"Không tìm thấy nhân vật: **{name}**")
             return
 
-        card = self.get_random_card_for_character(char_id)
-        file = None
-        attachment_url = None
-        if card:
-            initial_trained = is_pre_trained_card(card)
-            img_path = await get_card_image_path(
-                card["assetbundleName"], is_trained=initial_trained
-            )
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                attachment_url = "attachment://card.webp"
-
-        embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
-
-        if embed is None:
+        kwargs = await self._build_profile_kwargs(char_id)
+        if kwargs is None:
             await ctx.send("Không có thông tin profile cho nhân vật này.")
             return
 
-        if card:
-            view = CardToggleView(embed, card, default_trained=False)
-            kwargs = {"embed": embed, "view": view}
-            if file:
-                kwargs["file"] = file
-            await ctx.send(**kwargs)
-        else:
-            await ctx.send(embed=embed)
+        msg = await ctx.send(**kwargs)
+        if "view" in kwargs:
+            kwargs["view"].message = msg
 
 
 async def setup(bot: commands.Bot):

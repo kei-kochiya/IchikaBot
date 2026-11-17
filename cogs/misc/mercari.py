@@ -116,6 +116,22 @@ class MercariCog(commands.Cog):
 
         return _build_item_embed(item, user_id)
 
+    @staticmethod
+    async def _reply_slash_cooldown(interaction: discord.Interaction, error) -> None:
+        if isinstance(error, app_commands.CommandOnCooldown):
+            msg = f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            logger.error("Mercari slash error: %s", error)
+
+    @staticmethod
+    async def _reply_prefix_cooldown(ctx: commands.Context, error) -> None:
+        if isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.", delete_after=5)
+
     # Slash command: /mercari
     @app_commands.command(
         name="mercari",
@@ -134,17 +150,7 @@ class MercariCog(commands.Cog):
 
     @slash_mercari.error
     async def slash_mercari_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.CommandOnCooldown):
-            try:
-                await interaction.response.send_message(
-                    f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                    ephemeral=True,
-                )
-            except discord.InteractionResponded:
-                await interaction.followup.send(
-                    f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                    ephemeral=True,
-                )
+        await self._reply_slash_cooldown(interaction, error)
 
     # Prefix command: !mercari
     @commands.command(name="mercari", aliases=["mer", "merca"])
@@ -164,11 +170,7 @@ class MercariCog(commands.Cog):
 
     @prefix_mercari.error
     async def prefix_mercari_error(self, ctx: commands.Context, error):
-        if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(
-                f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                delete_after=5,
-            )
+        await self._reply_prefix_cooldown(ctx, error)
 
     # Search command: /mercarisearch
     @app_commands.command(
@@ -202,19 +204,7 @@ class MercariCog(commands.Cog):
 
     @slash_mercarisearch.error
     async def slash_mercarisearch_error(self, interaction: discord.Interaction, error):
-        if isinstance(error, app_commands.CommandOnCooldown):
-            try:
-                await interaction.response.send_message(
-                    f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                    ephemeral=True,
-                )
-            except discord.InteractionResponded:
-                await interaction.followup.send(
-                    f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                    ephemeral=True,
-                )
-        else:
-            logger.error("Mercari search error: %s", error)
+        await self._reply_slash_cooldown(interaction, error)
 
     # Prefix search: !mercarisearch
     @commands.command(name="mercarisearch", aliases=["msearch", "mersearch"])
@@ -234,11 +224,7 @@ class MercariCog(commands.Cog):
 
     @prefix_mercarisearch.error
     async def prefix_mercarisearch_error(self, ctx: commands.Context, error):
-        if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(
-                f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                delete_after=5,
-            )
+        await self._reply_prefix_cooldown(ctx, error)
 
     async def _search_embed(self, query: str, source_str: str, user_id: int) -> discord.Embed | str:
         scraper = self._ensure_scraper()

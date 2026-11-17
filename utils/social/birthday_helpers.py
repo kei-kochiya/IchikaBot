@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import discord
 
@@ -8,13 +8,32 @@ from utils.data.game_data import game_data
 JST = timezone(timedelta(hours=9))
 
 
+def _days_until_mm_dd(mm_dd: str, today: date, min_days: int = 0) -> int | None:
+    """Return days from *today* until the next occurrence of MM-DD (>= min_days)."""
+    try:
+        month, day = map(int, mm_dd.split("-", 1))
+    except (ValueError, AttributeError):
+        return None
+
+    for offset in range(5):
+        year = today.year + offset
+        try:
+            target = date(year, month, day)
+        except ValueError:
+            continue  # e.g. Feb 29 in a non-leap year
+        delta = (target - today).days
+        if delta >= min_days:
+            return delta
+    return None
+
+
 def get_characters_with_birthday(date_str: str) -> list[dict]:
     """Get all characters whose birthday matches the given MM-DD string."""
-    birthday_chars = []
-    for char_id, char in game_data.characters.items():
-        if char.get("birthday") == date_str:
-            birthday_chars.append({**char, "id": char_id})
-    return birthday_chars
+    return [
+        {**char, "id": char_id}
+        for char_id, char in game_data.characters.items()
+        if char.get("birthday") == date_str
+    ]
 
 
 def get_birthday_cards_for_character(char_id) -> list[dict]:
@@ -37,32 +56,33 @@ def get_birthday_card_for_character(char_id) -> dict | None:
 
 
 def get_upcoming_birthdays(days: int = 7) -> list[tuple[int, dict]]:
-    """Get characters with birthdays within the next N days.
-    Returns list of (days_until, character_dict) tuples, sorted by days.
-    """
-    today = datetime.now(JST)
-    upcoming = []
+    """Get characters with birthdays within the next N days, sorted by days."""
+    today = datetime.now(JST).date()
+    upcoming: list[tuple[int, int, dict]] = []
 
-    for i in range(1, days + 1):
-        future_date = today + timedelta(days=i)
-        date_str = future_date.strftime("%m-%d")
-        chars = get_characters_with_birthday(date_str)
-        for char in chars:
-            upcoming.append((i, char))
+    for idx, (char_id, char) in enumerate(game_data.characters.items()):
+        delta = _days_until_mm_dd(char.get("birthday", ""), today, min_days=1)
+        if delta is not None and delta <= days:
+            upcoming.append((delta, idx, {**char, "id": char_id}))
 
-    return upcoming
+    upcoming.sort(key=lambda item: (item[0], item[1]))
+    return [(delta, char) for delta, _, char in upcoming]
 
 
 def get_next_birthday() -> tuple[int, dict] | None:
     """Get the character with the nearest upcoming birthday (within 365 days)."""
-    today = datetime.now(JST)
-    for days_ahead in range(1, 366):
-        future_date = today + timedelta(days=days_ahead)
-        date_str = future_date.strftime("%m-%d")
-        chars = get_characters_with_birthday(date_str)
-        if chars:
-            return (days_ahead, chars[0])
-    return None
+    today = datetime.now(JST).date()
+    best: tuple[int, int, dict] | None = None
+
+    for idx, (char_id, char) in enumerate(game_data.characters.items()):
+        delta = _days_until_mm_dd(char.get("birthday", ""), today, min_days=1)
+        if delta is None or delta > 365:
+            continue
+        candidate = (delta, idx, {**char, "id": char_id})
+        if best is None or (delta, idx) < (best[0], best[1]):
+            best = candidate
+
+    return (best[0], best[2]) if best else None
 
 
 def build_birthday_calendar_embed(
@@ -113,8 +133,6 @@ def resolve_character_and_countdown(
     If omitted or not found, falls back to the nearest upcoming birthday.
     """
     if character_query:
-        target_char = None
-        cid = None
         if character_query.isdigit():
             cid = int(character_query)
             target_char = game_data.get_character(cid)
@@ -122,12 +140,9 @@ def resolve_character_and_countdown(
             cid, target_char = game_data.get_character_by_name(character_query)
 
         if target_char and cid is not None:
-            char_with_id = {**target_char, "id": str(cid)}
-            bday = target_char.get("birthday")
-            if bday:
-                now = datetime.now(JST)
-                for days_ahead in range(366):
-                    d_str = (now + timedelta(days=days_ahead)).strftime("%m-%d")
-                    if bday == d_str:
-                        return (days_ahead, char_with_id)
+            delta = _days_until_mm_dd(
+                target_char.get("birthday", ""), datetime.now(JST).date(), min_days=0
+            )
+            if delta is not None and delta <= 365:
+                return (delta, {**target_char, "id": str(cid)})
     return get_next_birthday()

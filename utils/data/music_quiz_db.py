@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import unicodedata
+from functools import lru_cache
 
 from config import CACHE_DIR, STATIC_DATA_PATH
 
@@ -26,6 +27,7 @@ def _fold_unicode(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+@lru_cache(maxsize=2048)
 def normalize(text: str) -> str:
     """
     Unicode-fold, then keep only alphanumeric characters, strip everything else

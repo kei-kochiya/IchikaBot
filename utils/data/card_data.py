@@ -9,6 +9,7 @@ Memory comparison:
 """
 
 import logging
+import sys
 from pathlib import Path
 
 from config import CARDS_FILE_EN, CARDS_FILE_JP
@@ -23,6 +24,21 @@ EXCLUDED_HEAVY_KEYS = {
     "masterLessonAchieveResources",
 }
 
+# Only the fields actually read across cogs and utilities
+CARD_KEYS = frozenset(
+    {
+        "id",
+        "characterId",
+        "cardRarityType",
+        "prefix",
+        "assetbundleName",
+        "attr",
+        "releaseAt",
+        "initialSpecialTrainingStatus",
+    }
+)
+_INTERNED_CARD_KEYS = ("cardRarityType", "attr", "initialSpecialTrainingStatus")
+
 
 class CardDataManager:
     """
@@ -35,6 +51,7 @@ class CardDataManager:
     en_prefix    : dict[int,str]  EN prefix strings only — NOT full EN card objects.
     pool_2/3/4   : list[dict]     Pre-filtered by rarity (refs into cards, not copies).
     pool_3_4     : list[dict]     Union of pool_3 and pool_4.
+    by_char_3_4  : dict[int,list[dict]] 3★/4★ cards indexed by characterId.
     """
 
     _instance = None
@@ -55,16 +72,30 @@ class CardDataManager:
         self.pool_3: list[dict] = []
         self.pool_4: list[dict] = []
         self.pool_3_4: list[dict] = []
+        self.by_char_3_4: dict[int, list[dict]] = {}
         self._load()
         CardDataManager._initialized = True
 
     @staticmethod
-    def _stream_cards(filepath: Path | str, excluded_keys: set[str] | None = None) -> list[dict]:
+    def _stream_cards(
+        filepath: Path | str,
+        excluded_keys: set[str] | None = None,
+        included_keys: frozenset[str] | set[str] | None = None,
+    ) -> list[dict]:
         """
         Stream the cards array one element at a time so the full multi-megabyte parse
         tree (hundreds of thousands of per-level parameter dicts) never exists in memory.
         Works for pretty-printed and minified files alike.
         """
+        if included_keys is not None:
+            cards: list[dict] = []
+            for card in iter_json_array(filepath):
+                slim = {k: card[k] for k in included_keys if k in card}
+                for key in _INTERNED_CARD_KEYS:
+                    if isinstance(slim.get(key), str):
+                        slim[key] = sys.intern(slim[key])
+                cards.append(slim)
+            return cards
         if excluded_keys:
             return [
                 {k: v for k, v in card.items() if k not in excluded_keys}
@@ -84,7 +115,7 @@ class CardDataManager:
     def _load(self):
         # ── JP cards ────────────────────────────────────────────────────────
         try:
-            new_cards = self._stream_cards(CARDS_FILE_JP, excluded_keys=EXCLUDED_HEAVY_KEYS)
+            new_cards = self._stream_cards(CARDS_FILE_JP, included_keys=CARD_KEYS)
             new_cards_by_id = {c["id"]: c for c in new_cards}
             new_pool_2 = [
                 c for c in new_cards if c.get("cardRarityType") == "rarity_2" and c.get("prefix")
@@ -96,6 +127,9 @@ class CardDataManager:
                 c for c in new_cards if c.get("cardRarityType") == "rarity_4" and c.get("prefix")
             ]
             new_pool_3_4 = new_pool_3 + new_pool_4
+            new_by_char_3_4: dict[int, list[dict]] = {}
+            for c in new_pool_3_4:
+                new_by_char_3_4.setdefault(c["characterId"], []).append(c)
 
             # Atomically update JP data
             self.cards = new_cards
@@ -104,6 +138,7 @@ class CardDataManager:
             self.pool_3 = new_pool_3
             self.pool_4 = new_pool_4
             self.pool_3_4 = new_pool_3_4
+            self.by_char_3_4 = new_by_char_3_4
 
             logger.info(
                 "CardData: %d JP cards (pool: %d★2 / %d★3 / %d★4) [Memory-Optimized]",

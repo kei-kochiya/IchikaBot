@@ -306,80 +306,50 @@ COMBINATIONS_KATA = {
 }
 
 
-def hiragana_to_romaji(text: str) -> str:
-    """Convert hiragana text to romaji."""
+def _kana_to_romaji(
+    text: str,
+    single_map: dict[str, str],
+    combo_map: dict[str, str],
+    sokuon: str,
+) -> str:
+    """Convert hiragana or katakana text to romaji using the given lookup tables."""
     if not text:
         return ""
 
-    result = []
+    result: list[str] = []
     i = 0
+    n = len(text)
 
-    while i < len(text):
-        # Check for っ (double consonant)
-        if text[i] == "っ" and i + 1 < len(text):
-            next_char = text[i + 1]
-            if next_char in HIRAGANA_TO_ROMAJI:
-                romaji = HIRAGANA_TO_ROMAJI.get(next_char, "")
-                if romaji:
-                    result.append(romaji[0])  # Double first consonant
+    while i < n:
+        ch = text[i]
+        if ch == sokuon and i + 1 < n:
+            romaji = single_map.get(text[i + 1], "")
+            if romaji:
+                result.append(romaji[0])
             i += 1
             continue
 
-        # Check for 2-char combinations first
-        if i + 1 < len(text):
-            combo = text[i : i + 2]
-            if combo in COMBINATIONS_HIRA:
-                result.append(COMBINATIONS_HIRA[combo])
+        if i + 1 < n:
+            combo = combo_map.get(text[i : i + 2])
+            if combo is not None:
+                result.append(combo)
                 i += 2
                 continue
 
-        # Single character
-        char = text[i]
-        if char in HIRAGANA_TO_ROMAJI:
-            result.append(HIRAGANA_TO_ROMAJI[char])
-        else:
-            result.append(char)  # Keep non-hiragana as-is
+        result.append(single_map.get(ch, ch))
         i += 1
 
     return "".join(result)
+
+
+def hiragana_to_romaji(text: str) -> str:
+    """Convert hiragana text to romaji."""
+    return _kana_to_romaji(text, HIRAGANA_TO_ROMAJI, COMBINATIONS_HIRA, "っ")
 
 
 def katakana_to_romaji(text: str) -> str:
     """Convert katakana text to romaji."""
-    if not text:
-        return ""
-
-    result = []
-    i = 0
-
-    while i < len(text):
-        # Check for ッ (double consonant)
-        if text[i] == "ッ" and i + 1 < len(text):
-            next_char = text[i + 1]
-            if next_char in KATAKANA_TO_ROMAJI:
-                romaji = KATAKANA_TO_ROMAJI.get(next_char, "")
-                if romaji:
-                    result.append(romaji[0])  # Double first consonant
-            i += 1
-            continue
-
-        # Check for 2-char combinations first
-        if i + 1 < len(text):
-            combo = text[i : i + 2]
-            if combo in COMBINATIONS_KATA:
-                result.append(COMBINATIONS_KATA[combo])
-                i += 2
-                continue
-
-        # Single character
-        char = text[i]
-        if char in KATAKANA_TO_ROMAJI:
-            result.append(KATAKANA_TO_ROMAJI[char])
-        else:
-            result.append(char)  # Keep non-katakana as-is
-        i += 1
-
-    return "".join(result)
+    return _kana_to_romaji(text, KATAKANA_TO_ROMAJI, COMBINATIONS_KATA, "ッ")
 
 
 def to_romaji(text: str) -> str:
@@ -388,16 +358,12 @@ def to_romaji(text: str) -> str:
         return ""
 
     # First convert katakana, then hiragana
-    result = katakana_to_romaji(text)
-    result = hiragana_to_romaji(result)
-
-    return result.lower()
+    return hiragana_to_romaji(katakana_to_romaji(text)).lower()
 
 
 # Search scans the same few thousand song/event titles on every query and autocomplete
 # keystroke; caching the (pure) normalization turns each scan into dict lookups.
-# Sized to hold every title/pronunciation/composer string with room to spare (~1 MB).
-@lru_cache(maxsize=16384)
+@lru_cache(maxsize=4096)
 def normalize_for_search(text: str) -> str:
     """
     Normalize text for search comparison.
@@ -406,13 +372,7 @@ def normalize_for_search(text: str) -> str:
     if not text:
         return ""
 
-    # Convert to romaji and lowercase
-    romaji = to_romaji(text)
-
-    # Remove common separators and spaces for fuzzy matching
-    normalized = romaji.replace(" ", "").replace("-", "").replace("_", "")
-
-    return normalized.lower()
+    return to_romaji(text).replace(" ", "").replace("-", "").replace("_", "")
 
 
 def matches_query(query: str, *fields: str) -> bool:
@@ -420,19 +380,17 @@ def matches_query(query: str, *fields: str) -> bool:
     Check if a query matches any of the given fields.
     Supports romaji, hiragana, katakana, and English.
     """
-    query_normalized = normalize_for_search(query)
+    q_lower = query.lower()
+    q_norm: str | None = None
 
     for field in fields:
         if not field:
             continue
-
-        # Check direct match (case-insensitive)
-        if query.lower() in field.lower():
+        if q_lower in field.lower():
             return True
-
-        # Check romaji match
-        field_normalized = normalize_for_search(field)
-        if query_normalized in field_normalized:
+        if q_norm is None:
+            q_norm = normalize_for_search(query)
+        if q_norm in normalize_for_search(field):
             return True
 
     return False

@@ -5,6 +5,7 @@ Loads JP event data ONCE and keeps only lightweight EN name strings to minimize 
 """
 
 import logging
+import sys
 from datetime import UTC, datetime
 
 from config import EVENTS_FILE_EN, EVENTS_FILE_JP
@@ -13,8 +14,17 @@ from utils.core.romaji import matches_query
 
 logger = logging.getLogger(__name__)
 
-# Large nested tables the bot never reads (event ranking reward tiers).
-EXCLUDED_EVENT_KEYS = {"eventRankingRewardRanges"}
+# Only keep event fields actually read across cogs and UI helpers
+EVENT_KEYS = frozenset(
+    {"id", "name", "eventType", "startAt", "aggregateAt", "closedAt", "assetbundleName"}
+)
+
+
+def _slim_event(event: dict) -> dict:
+    slim = {k: event[k] for k in EVENT_KEYS if k in event}
+    if isinstance(slim.get("eventType"), str):
+        slim["eventType"] = sys.intern(slim["eventType"])
+    return slim
 
 
 class EventDataManager:
@@ -43,7 +53,7 @@ class EventDataManager:
     def _load(self):
         """Load JP events and lightweight EN name mappings atomically.
 
-        Each file is streamed one event at a time and unused heavy tables are dropped,
+        Each file is streamed one event at a time and unused fields are dropped,
         so neither load ever holds a full parse tree. If a file fails to load, the
         previously loaded data for it is kept.
         """
@@ -52,11 +62,9 @@ class EventDataManager:
 
         # ── JP Events ───────────────────────────────────────────────────────
         try:
-            new_events_jp = [
-                {k: v for k, v in e.items() if k not in EXCLUDED_EVENT_KEYS}
-                for e in iter_json_array(EVENTS_FILE_JP)
-            ]
-            new_events_jp.sort(key=lambda e: e.get("startAt", 0), reverse=True)
+            loaded_events = [_slim_event(event) for event in iter_json_array(EVENTS_FILE_JP)]
+            loaded_events.sort(key=lambda e: e.get("startAt", 0), reverse=True)
+            new_events_jp = loaded_events
             logger.info("EventData: %d JP events loaded", len(new_events_jp))
         except FileNotFoundError as e:
             logger.error("EventData: Missing JP file: %s", e.filename)
@@ -132,11 +140,7 @@ class EventDataManager:
             if event:
                 return [event]
             if self.events_jp:
-                sorted_events = sorted(
-                    self.events_jp, key=lambda e: (abs(e["id"] - target_id), -e["id"])
-                )
-                if sorted_events:
-                    return [sorted_events[0]]
+                return [min(self.events_jp, key=lambda e: (abs(e["id"] - target_id), -e["id"]))]
             return []
 
         results = []

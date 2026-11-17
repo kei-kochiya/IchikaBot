@@ -19,6 +19,7 @@ import contextlib
 import logging
 import math
 import os
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -163,9 +164,11 @@ def _background(
         try:
             if derived.exists():
                 with Image.open(derived) as im:
-                    return im.convert("RGB")
+                    im.load()
+                    return im.copy() if im.mode == "RGB" else im.convert("RGB")
             with Image.open(src) as im:
-                bg = _washed(_cover(im.convert("RGB"), size, BG_FOCUS_Y), band)
+                rgb = im if im.mode == "RGB" else im.convert("RGB")
+                bg = _washed(_cover(rgb, size, BG_FOCUS_Y), band)
             _save_atomic(bg, derived, "PNG")
             return bg
         except OSError as e:
@@ -182,13 +185,16 @@ def _card_tile(path: str | None, size: tuple[int, int]) -> Image.Image | None:
     try:
         if derived.exists():
             with Image.open(derived) as im:
-                return im.convert("RGB")
+                im.load()
+                return im.copy() if im.mode == "RGB" else im.convert("RGB")
         with Image.open(src) as im:
             # Halve first with reduce() (cheap box filter), then a quality resize
             factor = max(1, min(im.width // size[0], im.height // size[1]) // 2)
             base = im.reduce(factor) if factor > 1 else im
             # Cover-crop: card art is not always exactly 1.75:1 (e.g. 2338x1440)
-            tile = _cover(base, size).convert("RGB")
+            tile = _cover(base, size)
+            if tile.mode != "RGB":
+                tile = tile.convert("RGB")
         _save_atomic(tile, derived, "JPEG", quality=92)
         return tile
     except OSError as e:
@@ -228,6 +234,7 @@ def _drawn_star(height: int) -> Image.Image:
     return img.resize((height, height), Image.LANCZOS)
 
 
+@lru_cache(maxsize=4)
 def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
     mask = Image.new("L", size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius, fill=255)
@@ -267,18 +274,18 @@ class _Overlays:
 def _decorate(tile: Image.Image, card: dict, overlays: _Overlays, trained: bool) -> Image.Image:
     """Overlay the attribute icon (top-right) and the rarity stars (stacked upwards from
     the bottom-left corner), as on the in-game gacha result screen."""
-    out = tile.convert("RGBA")
+    out = tile.copy() if tile.mode == "RGB" else tile.convert("RGB")
     pad = overlays.pad
 
     attr = overlays.attribute(card.get("attr"))
     if attr is not None:
-        out.alpha_composite(attr, (out.width - attr.width - pad, pad))
+        out.paste(attr, (out.width - attr.width - pad, pad), mask=attr)
 
     star, count = overlays.star(card.get("cardRarityType", ""), trained)
     step = round(star.height * 0.82)  # stars overlap slightly
     y = out.height - star.height - pad
     for i in range(count):
-        out.alpha_composite(star, (pad, y - i * step))
+        out.paste(star, (pad, y - i * step), mask=star)
     return out
 
 
@@ -305,12 +312,21 @@ def _paste_tiles(
         return
     tile_h = tiles[0][0].height
     border = max(1, round(tile_h * BORDER))
-    shadow = Image.new("L", canvas.size, 0)
-    draw = ImageDraw.Draw(shadow)
     offset = max(2, tile_h // 60)
+    blur_radius = max(3, tile_h // 30)
+
+    # Blur the shadow mask at half resolution (4x fewer pixels, identical soft shadow)
+    sw, sh = max(1, canvas.width // 2), max(1, canvas.height // 2)
+    shadow_small = Image.new("L", (sw, sh), 0)
+    draw = ImageDraw.Draw(shadow_small)
     for tile, (x, y) in tiles:
-        draw.rectangle((x, y + offset, x + tile.width, y + tile.height + offset), fill=70)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(max(3, tile_h // 30)))
+        draw.rectangle(
+            (x // 2, (y + offset) // 2, (x + tile.width) // 2, (y + tile.height + offset) // 2),
+            fill=70,
+        )
+    shadow = shadow_small.filter(ImageFilter.GaussianBlur(blur_radius / 2)).resize(
+        canvas.size, Image.BILINEAR
+    )
     canvas.paste((40, 60, 90), (0, 0), shadow)
 
     edge = ImageDraw.Draw(canvas)
@@ -323,12 +339,14 @@ def _paste_tiles(
             radius + border,
             fill=(250, 252, 255),
         )
-        canvas.paste(tile.convert("RGB"), (x, y), mask)
+        rgb_tile = tile if tile.mode == "RGB" else tile.convert("RGB")
+        canvas.paste(rgb_tile, (x, y), mask)
 
 
 def _to_jpeg(img: Image.Image) -> BytesIO:
     out = BytesIO()
-    img.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY, subsampling=0)
+    rgb = img if img.mode == "RGB" else img.convert("RGB")
+    rgb.save(out, "JPEG", quality=JPEG_QUALITY, subsampling=0)
     out.seek(0)
     return out
 
@@ -352,9 +370,13 @@ def render_ten_pull(
     canvas = _background(assets, (width, height), band=(margin_y // 2, height - margin_y // 2))
     overlays = _Overlays(assets, th)
 
+    # Reuse decoded tiles if the same card appears more than once in a 10-pull
+    tile_cache: dict[str | None, Image.Image | None] = {}
     tiles = []
     for i, (card, path) in enumerate(zip(results, image_paths, strict=True)):
-        tile = _card_tile(path, TEN_PULL_TILE) or _placeholder(TEN_PULL_TILE)
+        if path not in tile_cache:
+            tile_cache[path] = _card_tile(path, TEN_PULL_TILE)
+        tile = tile_cache[path] or _placeholder(TEN_PULL_TILE)
         tile = _decorate(tile, card, overlays, _is_trained_art(card, path))
         row, col = divmod(i, TEN_PULL_COLS)
         x = margin_x + col * (tw + gap_x)

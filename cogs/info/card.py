@@ -5,6 +5,7 @@ Supports both JP and EN card data with English search.
 
 import contextlib
 import logging
+from itertools import islice
 
 import discord
 from discord import app_commands
@@ -13,7 +14,11 @@ from discord.ext import commands
 from config import ASSETS_PATH, RARITY_ICONS
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data, get_character_name, get_unit_color_hex
-from utils.game.cards import is_pre_trained_card, supports_trained_art
+from utils.game.cards import (
+    is_pre_trained_card,
+    supports_trained_art,
+    update_card_attachment_message,
+)
 from utils.media.image_helper import get_card_image_path
 
 logger = logging.getLogger(__name__)
@@ -43,9 +48,16 @@ class CardView(discord.ui.View):
         self.add_item(self.switch_button)
 
     async def switch_callback(self, interaction: discord.Interaction):
-        if not interaction.response.is_done():
-            with contextlib.suppress(discord.HTTPException):
-                await interaction.response.defer()
+        embed = (
+            interaction.message.embeds[0]
+            if interaction.message and interaction.message.embeds
+            else None
+        )
+        if not embed:
+            if not interaction.response.is_done():
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.response.defer()
+            return
 
         self.is_normal = not self.is_normal
         self.switch_button.label = "Trained" if self.is_normal else "Normal"
@@ -53,43 +65,21 @@ class CardView(discord.ui.View):
             discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
         )
 
-        embed = (
-            interaction.message.embeds[0]
-            if interaction.message and interaction.message.embeds
-            else None
+        suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
+
+        def build_embed(url: str) -> discord.Embed:
+            embed.set_image(url=url)
+            return embed
+
+        await update_card_attachment_message(
+            interaction=interaction,
+            fetch_image=get_card_image_path,
+            asset_bundle=self.card_data["assetbundleName"],
+            is_trained=not self.is_normal,
+            build_embed=build_embed,
+            fallback_url=f"{self.base_image_url}/{suffix}",
+            view=self,
         )
-        if not embed:
-            return
-
-        is_trained = not self.is_normal
-        img_path = await get_card_image_path(
-            self.card_data["assetbundleName"], is_trained=is_trained
-        )
-        keep_attachments = [
-            att
-            for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename not in ("card.png", "card.webp")
-        ]
-
-        with contextlib.suppress(discord.HTTPException):
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                embed.set_image(url="attachment://card.webp")
-                target_attachments = [*keep_attachments, file]
-            else:
-                suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
-                new_image_url = f"{self.base_image_url}/{suffix}"
-                embed.set_image(url=new_image_url)
-                target_attachments = keep_attachments
-
-            if interaction.response.is_done():
-                await interaction.edit_original_response(
-                    embed=embed, attachments=target_attachments, view=self
-                )
-            else:
-                await interaction.response.edit_message(
-                    embed=embed, attachments=target_attachments, view=self
-                )
 
     async def on_timeout(self):
         for item in self.children:
@@ -102,9 +92,43 @@ class CardView(discord.ui.View):
 class CardCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._autocomplete_index: list[tuple[str, str, str]] = []
+        self._build_autocomplete_index()
 
     def load_data(self):
-        """Card data is managed by utils.card_data singleton — nothing to do here."""
+        """Rebuild the autocomplete index when card data reloads."""
+        self._build_autocomplete_index()
+
+    def _build_autocomplete_index(self) -> None:
+        """Precompute (search_lower, choice_label, card_id_str) with EN-named cards first."""
+        index: list[tuple[str, str, str]] = []
+        seen_ids: set[int] = set()
+
+        def format_entry(card: dict, prefix: str) -> tuple[str, str, str]:
+            char_name = get_character_name(card["characterId"], full=True)
+            rarity = card["cardRarityType"]
+            rarity_str = "Birthday" if "birthday" in rarity else f"{rarity[-1]}★"
+            display = f"{rarity_str} // {prefix} [{char_name}]"[:100]
+            return (display.lower(), display, str(card["id"]))
+
+        for card_id, en_pfx in card_data.en_prefix.items():
+            if card_id in seen_ids:
+                continue
+            card = card_data.get_by_id(card_id)
+            if not card:
+                continue
+            seen_ids.add(card_id)
+            index.append(format_entry(card, en_pfx))
+
+        for card in card_data.cards:
+            prefix = card.get("prefix")
+            card_id = card["id"]
+            if not prefix or card_id in seen_ids:
+                continue
+            seen_ids.add(card_id)
+            index.append(format_entry(card, prefix))
+
+        self._autocomplete_index = index
 
     def get_card_by_id(self, card_id: int) -> dict | None:
         """O(1) lookup via shared singleton."""
@@ -213,54 +237,17 @@ class CardCog(commands.Cog):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """Autocomplete that searches both EN and JP card names."""
-        choices = []
         current_lower = current.lower()
-        seen_ids: set[int] = set()
-
-        # 1. EN-named cards first
-        for card_id, en_pfx in card_data.en_prefix.items():
-            if card_id in seen_ids:
-                continue
-            card = card_data.get_by_id(card_id)
-            if not card:
-                continue
-            char_id = card["characterId"]
-            char_name = get_character_name(char_id, full=True)
-            rarity_str = (
-                "Birthday"
-                if "birthday" in card["cardRarityType"]
-                else f"{card['cardRarityType'][-1]}★"
+        return list(
+            islice(
+                (
+                    app_commands.Choice(name=label, value=cid)
+                    for hay, label, cid in self._autocomplete_index
+                    if current_lower in hay
+                ),
+                25,
             )
-            display_name = f"{rarity_str} // {en_pfx} [{char_name}]"
-            if current_lower in display_name.lower():
-                choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
-                seen_ids.add(card_id)
-                if len(choices) >= 25:
-                    return choices
-
-        # 2. JP-only cards (no EN prefix)
-        if len(choices) < 25:
-            for card in card_data.cards:
-                if not card.get("prefix"):
-                    continue
-                card_id = card["id"]
-                if card_id in seen_ids:
-                    continue
-                char_id = card["characterId"]
-                char_name = get_character_name(char_id, full=True)
-                rarity_str = (
-                    "Birthday"
-                    if "birthday" in card["cardRarityType"]
-                    else f"{card['cardRarityType'][-1]}★"
-                )
-                display_name = f"{rarity_str} // {card['prefix']} [{char_name}]"
-                if current_lower in display_name.lower() or current_lower in card["prefix"].lower():
-                    choices.append(app_commands.Choice(name=display_name[:100], value=str(card_id)))
-                    seen_ids.add(card_id)
-                    if len(choices) >= 25:
-                        break
-
-        return choices
+        )
 
 
 async def setup(bot):

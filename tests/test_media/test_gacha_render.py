@@ -48,8 +48,9 @@ def _ten_pull_size(rows=2):
 def test_ten_pull_renders_a_jpeg_grid_and_caches_tiles(tmp_path):
     art = _png(tmp_path / "res001_no001_normal.png", CARD_ART, (200, 120, 160, 255))
     cards = [_card(r) for r in ["rarity_2"] * 6 + ["rarity_3"] * 3 + ["rarity_4"]]
+    assets = _assets(tmp_path)
 
-    out = gacha_render.render_ten_pull(cards, [art] * 10, _assets(tmp_path))
+    out = gacha_render.render_ten_pull(cards, [art] * 10, assets)
 
     with Image.open(out) as img:
         assert img.format == "JPEG"
@@ -59,6 +60,12 @@ def test_ten_pull_renders_a_jpeg_grid_and_caches_tiles(tmp_path):
     assert [t.name for t in tiles] == ["res001_no001_normal_288x165.jpg"]
     # ...and so is the cropped background
     assert len(list((tmp_path / "ui").glob("bg_gacha_result_*_v3.png"))) == 1
+
+    # Second render reuses both the cached background and cached tile cleanly
+    out_warm = gacha_render.render_ten_pull(cards, [art] * 10, assets)
+    with Image.open(out_warm) as img:
+        assert img.format == "JPEG"
+        assert img.size == _ten_pull_size()
 
 
 def test_ten_pull_works_without_ui_assets_or_card_art(tmp_path):

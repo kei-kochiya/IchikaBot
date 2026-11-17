@@ -48,61 +48,30 @@ class EventsCog(commands.Cog):
         """Search events by name, ID, or romaji. Returns JP events for correct timing."""
         return event_data.search_events(query, limit)
 
-    # ===== SLASH COMMANDS =====
-    event_group = app_commands.Group(name="event", description="Thông tin sự kiện Project Sekai")
-
-    @event_group.command(name="current", description="Xem sự kiện hiện tại hoặc sắp tới")
-    async def event_current(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        event = self.get_current_event()
-        if event is None:
-            await interaction.followup.send("Không tìm thấy sự kiện!")
-            return
-
-        title = self.get_display_name(event, event["id"])
-        await interaction.followup.send(embed=create_event_embed(event, title))
-
-    @event_group.command(name="history", description="Xem lịch sử các sự kiện")
-    @app_commands.describe(count="Số lượng sự kiện muốn xem (mặc định: 5)")
-    async def event_history(self, interaction: discord.Interaction, count: int = 5):
-        await interaction.response.defer()
-
+    def _build_history_reply(self, count: int) -> tuple[discord.Embed, discord.ui.View | None]:
         count = max(1, min(count, 50))
         past_events = event_data.get_past_events(count)
-
         if not past_events:
-            await interaction.followup.send("Không có sự kiện đã kết thúc!")
-            return
+            return None, None  # type: ignore[return-value]
 
-        def formatter(event):
+        def formatter(event: dict) -> str:
             event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
-            end_date = format_timestamp(event.get("closedAt"), "d")  # Discord short date
+            end_date = format_timestamp(event.get("closedAt"), "d")
             name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {name}**\n  ID: {event['id']} | Kết thúc: {end_date}"
 
         view = SearchPaginationView(past_events, "Lịch sử sự kiện", formatter, items_per_page=10)
-        embed = view._create_embed()
-        msg = await interaction.followup.send(embed=embed, view=view)
-        view.message = msg
+        return view._create_embed(), view
 
-    @event_group.command(name="search", description="Tìm kiếm sự kiện theo tên (JP/EN)")
-    @app_commands.describe(name="Tên sự kiện cần tìm")
-    async def event_search(self, interaction: discord.Interaction, name: str):
-        await interaction.response.defer()
-
+    def _build_search_reply(self, name: str) -> tuple[discord.Embed | None, discord.ui.View | None]:
         results = self.search_events(name, limit=50)
-
         if not results:
-            await interaction.followup.send(f"Không tìm thấy sự kiện: **{name}**")
-            return
-
+            return None, None
         if len(results) == 1:
             title = self.get_display_name(results[0], results[0]["id"])
-            await interaction.followup.send(embed=create_event_embed(results[0], title))
-            return
+            return create_event_embed(results[0], title), None
 
-        def formatter(event):
+        def formatter(event: dict) -> str:
             status, _ = get_event_status(event)
             event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
             display_name = self.get_display_name(event, event["id"])
@@ -111,7 +80,44 @@ class EventsCog(commands.Cog):
         view = SearchPaginationView(
             results, f"Kết quả tìm kiếm: {name}", formatter, items_per_page=10
         )
-        embed = view._create_embed()
+        return view._create_embed(), view
+
+    # ===== SLASH COMMANDS =====
+    event_group = app_commands.Group(name="event", description="Thông tin sự kiện Project Sekai")
+
+    @event_group.command(name="current", description="Xem sự kiện hiện tại hoặc sắp tới")
+    async def event_current(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        event = self.get_current_event()
+        if event is None:
+            await interaction.followup.send("Không tìm thấy sự kiện!")
+            return
+        await interaction.followup.send(
+            embed=create_event_embed(event, self.get_display_name(event, event["id"]))
+        )
+
+    @event_group.command(name="history", description="Xem lịch sử các sự kiện")
+    @app_commands.describe(count="Số lượng sự kiện muốn xem (mặc định: 5)")
+    async def event_history(self, interaction: discord.Interaction, count: int = 5):
+        await interaction.response.defer()
+        embed, view = self._build_history_reply(count)
+        if embed is None:
+            await interaction.followup.send("Không có sự kiện đã kết thúc!")
+            return
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
+
+    @event_group.command(name="search", description="Tìm kiếm sự kiện theo tên (JP/EN)")
+    @app_commands.describe(name="Tên sự kiện cần tìm")
+    async def event_search(self, interaction: discord.Interaction, name: str):
+        await interaction.response.defer()
+        embed, view = self._build_search_reply(name)
+        if embed is None:
+            await interaction.followup.send(f"Không tìm thấy sự kiện: **{name}**")
+            return
+        if view is None:
+            await interaction.followup.send(embed=embed)
+            return
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
@@ -123,26 +129,15 @@ class EventsCog(commands.Cog):
         if event is None:
             await ctx.send("Không tìm thấy sự kiện!")
             return
-        title = self.get_display_name(event, event["id"])
-        await ctx.send(embed=create_event_embed(event, title))
+        await ctx.send(embed=create_event_embed(event, self.get_display_name(event, event["id"])))
 
     @commands.command(name="events", aliases=["evhistory"])
     async def events_history_prefix(self, ctx: commands.Context, count: int = 5):
         """Get event history: !events [count]"""
-        count = max(1, min(count, 50))
-        past_events = event_data.get_past_events(count)
-
-        if not past_events:
+        embed, view = self._build_history_reply(count)
+        if embed is None:
             await ctx.send("Không có sự kiện đã kết thúc!")
             return
-
-        def formatter(event):
-            event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
-            name = self.get_display_name(event, event["id"])
-            return f"• **{event_type} {name}**\n  ID: {event['id']}"
-
-        view = SearchPaginationView(past_events, "Lịch sử sự kiện", formatter, items_per_page=10)
-        embed = view._create_embed()
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
 
@@ -153,26 +148,13 @@ class EventsCog(commands.Cog):
             await ctx.send("Vui lòng nhập tên sự kiện: `!eventsearch <name>`")
             return
 
-        results = self.search_events(name, limit=50)
-
-        if not results:
+        embed, view = self._build_search_reply(name)
+        if embed is None:
             await ctx.send(f"Không tìm thấy sự kiện: **{name}**")
             return
-
-        if len(results) == 1:
-            title = self.get_display_name(results[0], results[0]["id"])
-            await ctx.send(embed=create_event_embed(results[0], title))
+        if view is None:
+            await ctx.send(embed=embed)
             return
-
-        def formatter(event):
-            status, _ = get_event_status(event)
-            display_name = self.get_display_name(event, event["id"])
-            return f"• **{display_name}**\n  {status} | ID: {event['id']}"
-
-        view = SearchPaginationView(
-            results, f"Kết quả tìm kiếm: {name}", formatter, items_per_page=10
-        )
-        embed = view._create_embed()
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
 

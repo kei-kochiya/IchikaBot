@@ -56,6 +56,46 @@ def get_random_card(cards: list, char_id: int, rarity: list[str] | None = None) 
     return random.choice(matching_cards)
 
 
+async def update_card_attachment_message(
+    interaction: discord.Interaction,
+    fetch_image,
+    asset_bundle: str,
+    is_trained: bool,
+    build_embed,
+    fallback_url: str,
+    view: discord.ui.View,
+) -> None:
+    """Defer a button interaction, fetch/attach card art, and edit the message."""
+    if not interaction.response.is_done():
+        with contextlib.suppress(discord.HTTPException):
+            await interaction.response.defer()
+
+    img_path = await fetch_image(asset_bundle, is_trained=is_trained)
+    keep_attachments = [
+        att
+        for att in (interaction.message.attachments if interaction.message else [])
+        if att.filename not in ("card.png", "card.webp")
+    ]
+
+    with contextlib.suppress(discord.HTTPException):
+        if img_path:
+            file = discord.File(img_path, filename="card.webp")
+            embed = build_embed("attachment://card.webp")
+            target_attachments = [*keep_attachments, file]
+        else:
+            embed = build_embed(fallback_url)
+            target_attachments = keep_attachments
+
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                embed=embed, attachments=target_attachments, view=view
+            )
+        else:
+            await interaction.response.edit_message(
+                embed=embed, attachments=target_attachments, view=view
+            )
+
+
 class CardToggleView(discord.ui.View):
     """Reusable view with trained/untrained toggle for card images.
 
@@ -92,44 +132,28 @@ class CardToggleView(discord.ui.View):
     async def toggle_callback(self, interaction: discord.Interaction):
         from utils.media.image_helper import get_card_image_path
 
-        if not interaction.response.is_done():
-            with contextlib.suppress(discord.HTTPException):
-                await interaction.response.defer()
-
         self.is_trained = not self.is_trained
         self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
 
-        # Update embed image from message or fallback to self.embed
         embed = (
             interaction.message.embeds[0]
             if interaction.message and interaction.message.embeds
             else self.embed
         )
 
-        img_path = await get_card_image_path(self.card["assetbundleName"], self.is_trained)
-        keep_attachments = [
-            att
-            for att in (interaction.message.attachments if interaction.message else [])
-            if att.filename not in ("card.png", "card.webp")
-        ]
+        def build_embed(url: str) -> discord.Embed:
+            embed.set_image(url=url)
+            return embed
 
-        with contextlib.suppress(discord.HTTPException):
-            if img_path:
-                file = discord.File(img_path, filename="card.webp")
-                embed.set_image(url="attachment://card.webp")
-                target_attachments = [*keep_attachments, file]
-            else:
-                embed.set_image(url=self.get_current_image_url())
-                target_attachments = keep_attachments
-
-            if interaction.response.is_done():
-                await interaction.edit_original_response(
-                    embed=embed, attachments=target_attachments, view=self
-                )
-            else:
-                await interaction.response.edit_message(
-                    embed=embed, attachments=target_attachments, view=self
-                )
+        await update_card_attachment_message(
+            interaction=interaction,
+            fetch_image=get_card_image_path,
+            asset_bundle=self.card["assetbundleName"],
+            is_trained=self.is_trained,
+            build_embed=build_embed,
+            fallback_url=self.get_current_image_url(),
+            view=self,
+        )
 
     async def on_timeout(self):
         for item in self.children:

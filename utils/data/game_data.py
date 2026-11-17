@@ -13,6 +13,13 @@ from config import CHARACTERS_FILE, NICKNAMES_FILE, PROFILES_FILE, UNIT_COLOR_FI
 logger = logging.getLogger(__name__)
 
 
+def _index_by_id(raw: dict | list) -> tuple[dict[str, dict], dict[int, dict]]:
+    """Normalize dict- or list-shaped JSON records into str-keyed and int-keyed maps."""
+    if isinstance(raw, dict):
+        return raw, {int(k): v for k, v in raw.items()}
+    return {str(item["id"]): item for item in raw}, {item["id"]: item for item in raw}
+
+
 class GameDataManager:
     """
     Singleton manager for game data (characters, units, profiles).
@@ -37,43 +44,29 @@ class GameDataManager:
         self.unit_colors_by_int: dict[int, str] = {}  # id (int) -> color hex
         self.nicknames: dict[str, list] = {}  # id (str) -> list of nickname strings
         self.profiles: dict[int, dict] = {}  # id (int) -> profile data
+        self._search_names: list[tuple[int, dict, list[str]]] = []
 
         self._load_data()
         GameDataManager._initialized = True
 
     def _load_data(self):
         """Load character, unit, and profile data from JSON files atomically."""
-        new_characters = {}
-        new_characters_by_int = {}
-        new_unit_colors = {}
-        new_unit_colors_by_int = {}
-        new_nicknames = {}
-        new_profiles = {}
+        new_characters: dict[str, dict] = {}
+        new_characters_by_int: dict[int, dict] = {}
+        new_unit_colors: dict[str, str] = {}
+        new_unit_colors_by_int: dict[int, str] = {}
+        new_nicknames: dict[str, list] = {}
+        new_profiles: dict[int, dict] = {}
         try:
             with open(CHARACTERS_FILE, encoding="utf-8") as f:
-                chars = json.load(f)
-
-            # Handle both dict and list formats
-            if isinstance(chars, dict):
-                new_characters = chars
-                new_characters_by_int = {int(k): v for k, v in chars.items()}
-            else:
-                # List format - index by 'id' field
-                new_characters = {str(c["id"]): c for c in chars}
-                new_characters_by_int = {c["id"]: c for c in chars}
+                new_characters, new_characters_by_int = _index_by_id(json.load(f))
 
             with open(UNIT_COLOR_FILE, encoding="utf-8") as f:
-                units = json.load(f)
-
-            # Handle both dict and list formats
-            if isinstance(units, dict):
-                new_unit_colors = {k: v.get("colorCode", "#5865F2") for k, v in units.items()}
-                new_unit_colors_by_int = {
-                    int(k): v.get("colorCode", "#5865F2") for k, v in units.items()
-                }
-            else:
-                new_unit_colors = {str(u["id"]): u.get("colorCode", "#5865F2") for u in units}
-                new_unit_colors_by_int = {u["id"]: u.get("colorCode", "#5865F2") for u in units}
+                units_str, units_int = _index_by_id(json.load(f))
+            new_unit_colors = {k: v.get("colorCode", "#5865F2") for k, v in units_str.items()}
+            new_unit_colors_by_int = {
+                k: v.get("colorCode", "#5865F2") for k, v in units_int.items()
+            }
 
         except FileNotFoundError as e:
             logger.error("GameDataManager: Missing file: %s", e.filename)
@@ -99,6 +92,16 @@ class GameDataManager:
             logger.warning("GameDataManager: Failed to load profiles: %s", e)
             new_profiles = {}
 
+        # Precompute character name variants for fast get_character_by_name() lookups
+        search_names: list[tuple[int, dict, list[str]]] = []
+        for char_id, char in new_characters_by_int.items():
+            given = char.get("givenName", "").lower()
+            first = char.get("firstName", "").lower()
+            full = f"{first} {given}".strip()
+            rev = f"{given} {first}".strip()
+            candidates = [n for n in (given, first, full, rev) if n]
+            search_names.append((char_id, char, candidates))
+
         # Atomic assignment
         self.characters = new_characters
         self.characters_by_int = new_characters_by_int
@@ -106,6 +109,7 @@ class GameDataManager:
         self.unit_colors_by_int = new_unit_colors_by_int
         self.nicknames = new_nicknames
         self.profiles = new_profiles
+        self._search_names = search_names
 
         logger.info(
             "GameDataManager: Loaded %d characters, %d unit colors, %d profiles, nicknames for %d chars",
@@ -166,16 +170,8 @@ class GameDataManager:
         if not query:
             return None, None
 
-        names: list[tuple[int, dict, list[str]]] = []
-        for char_id, char in self.characters_by_int.items():
-            given = char.get("givenName", "").lower()
-            first = char.get("firstName", "").lower()
-            full = f"{first} {given}".strip()
-            reversed_full = f"{given} {first}".strip()
-            names.append((char_id, char, [n for n in (given, first, full, reversed_full) if n]))
-
         def find(match) -> tuple[int | None, dict | None]:
-            for char_id, char, candidates in names:
+            for char_id, char, candidates in self._search_names:
                 if any(match(n) for n in candidates):
                     return char_id, char
             return None, None
@@ -183,7 +179,7 @@ class GameDataManager:
         found = find(lambda n: n == query)
         if found[0] is not None:
             return found
-        for char_id, char, _ in names:
+        for char_id, char, _ in self._search_names:
             if query in (nick.lower() for nick in self.nicknames.get(str(char_id), [])):
                 return char_id, char
         found = find(lambda n: n.startswith(query))
@@ -194,23 +190,8 @@ class GameDataManager:
     # --- Unit Color Helpers ---
 
     def get_unit_color(self, char_id: int | str) -> int:
-        """
-        Get unit color as Discord-compatible integer.
-
-        Args:
-            char_id: Character ID
-
-        Returns:
-            Color as integer (e.g., 0x5865F2)
-        """
-        if isinstance(char_id, int):
-            color_hex = self.unit_colors_by_int.get(char_id, "#5865F2")
-        else:
-            color_hex = self.unit_colors.get(str(char_id), "#5865F2")
-
-        if color_hex.startswith("#"):
-            color_hex = color_hex[1:]
-
+        """Get unit color as Discord-compatible integer (e.g., 0x5865F2)."""
+        color_hex = self.get_unit_color_hex(char_id).lstrip("#")
         try:
             return int(color_hex, 16)
         except ValueError:
