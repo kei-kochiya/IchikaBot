@@ -69,6 +69,42 @@ async def _create_tables(conn: aiosqlite.Connection) -> None:
             value    TEXT    NOT NULL,
             PRIMARY KEY (user_id, setting)
         );
+
+        CREATE TABLE IF NOT EXISTS pjsk_links (
+            discord_id   INTEGER NOT NULL,
+            region       TEXT    NOT NULL,
+            pjsk_user_id INTEGER NOT NULL,
+            pjsk_name    TEXT    NOT NULL DEFAULT '',
+            linked_at    REAL    NOT NULL,
+            synced_at    REAL    NOT NULL DEFAULT 0,
+            PRIMARY KEY (discord_id, region),
+            UNIQUE (region, pjsk_user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS pjsk_clears (
+            discord_id  INTEGER NOT NULL,
+            region      TEXT    NOT NULL,
+            music_id    INTEGER NOT NULL,
+            difficulty  TEXT    NOT NULL,
+            clear_state TEXT    NOT NULL,
+            PRIMARY KEY (discord_id, region, music_id, difficulty)
+        );
+
+        CREATE TABLE IF NOT EXISTS pjsk_recovery (
+            discord_id   INTEGER NOT NULL,
+            region       TEXT    NOT NULL,
+            pjsk_user_id INTEGER NOT NULL,
+            credential   TEXT    NOT NULL,
+            created_at   REAL    NOT NULL,
+            PRIMARY KEY (discord_id, region)
+        );
+
+        CREATE TABLE IF NOT EXISTS pjsk_bot_accounts (
+            region     TEXT    PRIMARY KEY,
+            user_id    INTEGER NOT NULL,
+            credential TEXT    NOT NULL,
+            updated_at REAL    NOT NULL
+        );
     """)
     await conn.commit()
 
@@ -159,6 +195,8 @@ _conn: aiosqlite.Connection | None = None
 _conn_path: Path | None = None
 _conn_lock = asyncio.Lock()
 _write_lock = asyncio.Lock()
+
+PJSK_RECOVERY_TTL_SECONDS = 72 * 3600  # auto-prune orphaned recovery credentials after 72h
 
 
 async def _connect() -> aiosqlite.Connection:
@@ -368,3 +406,222 @@ async def set_user_setting(user_id: int, setting: str, value: str) -> None:
             "ON CONFLICT(user_id, setting) DO UPDATE SET value=excluded.value",
             (user_id, setting, value),
         )
+
+
+# ── Public API — PJSK account linking, clears & transfer recovery ──────────────
+
+
+async def get_pjsk_link(discord_id: int, region: str) -> dict | None:
+    """Return the linked PJSK account row for (discord_id, region), or None."""
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT discord_id, region, pjsk_user_id, pjsk_name, linked_at, synced_at "
+        "FROM pjsk_links WHERE discord_id=? AND region=?",
+        (discord_id, region.lower()),
+    ) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def get_pjsk_link_by_game_id(region: str, pjsk_user_id: int) -> dict | None:
+    """Return the link row owning *pjsk_user_id* on *region*, or None."""
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT discord_id, region, pjsk_user_id, pjsk_name, linked_at, synced_at "
+        "FROM pjsk_links WHERE region=? AND pjsk_user_id=?",
+        (region.lower(), pjsk_user_id),
+    ) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def set_pjsk_link(
+    discord_id: int,
+    region: str,
+    pjsk_user_id: int,
+    pjsk_name: str,
+    linked_at: float,
+) -> None:
+    """Link or update a user's PJSK account for *region*.
+
+    If the user re-links to a different PJSK user ID, stale clears and synced_at are wiped.
+    """
+    reg = region.lower()
+    safe_name = " ".join((pjsk_name or "").split())[:32]
+    async with _write_tx() as conn:
+        async with conn.execute(
+            "SELECT pjsk_user_id FROM pjsk_links WHERE discord_id=? AND region=?",
+            (discord_id, reg),
+        ) as cur:
+            prev = await cur.fetchone()
+
+        changed_account = prev is not None and int(prev["pjsk_user_id"]) != int(pjsk_user_id)
+        if changed_account:
+            await conn.execute(
+                "DELETE FROM pjsk_clears WHERE discord_id=? AND region=?",
+                (discord_id, reg),
+            )
+        await conn.execute(
+            "INSERT INTO pjsk_links (discord_id, region, pjsk_user_id, pjsk_name, linked_at, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, 0) "
+            "ON CONFLICT(discord_id, region) DO UPDATE SET "
+            "pjsk_user_id=excluded.pjsk_user_id, pjsk_name=excluded.pjsk_name, "
+            "linked_at=excluded.linked_at, "
+            "synced_at=CASE WHEN pjsk_links.pjsk_user_id != excluded.pjsk_user_id "
+            "THEN 0 ELSE pjsk_links.synced_at END",
+            (discord_id, reg, pjsk_user_id, safe_name, linked_at),
+        )
+
+
+async def delete_pjsk_link(discord_id: int, region: str) -> bool:
+    """Unlink a user's PJSK account and wipe their saved clears & recovery credentials."""
+    reg = region.lower()
+    async with _write_tx() as conn:
+        cur = await conn.execute(
+            "DELETE FROM pjsk_links WHERE discord_id=? AND region=?",
+            (discord_id, reg),
+        )
+        await conn.execute(
+            "DELETE FROM pjsk_clears WHERE discord_id=? AND region=?",
+            (discord_id, reg),
+        )
+        await conn.execute(
+            "DELETE FROM pjsk_recovery WHERE discord_id=? AND region=?",
+            (discord_id, reg),
+        )
+        return cur.rowcount > 0
+
+
+async def replace_pjsk_clears(
+    discord_id: int,
+    region: str,
+    clears: dict[tuple[int, str], str],
+    *,
+    pjsk_name: str | None = None,
+    synced_at: float = 0.0,
+) -> None:
+    """Atomically replace a user's saved PJSK music clear states for *region*."""
+    reg = region.lower()
+    safe_name = " ".join(pjsk_name.split())[:32] if pjsk_name is not None else None
+    async with _write_tx() as conn:
+        await conn.execute(
+            "DELETE FROM pjsk_clears WHERE discord_id=? AND region=?",
+            (discord_id, reg),
+        )
+        if clears:
+            await conn.executemany(
+                "INSERT INTO pjsk_clears (discord_id, region, music_id, difficulty, clear_state) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    (discord_id, reg, int(mid), diff.lower(), state.lower())
+                    for (mid, diff), state in clears.items()
+                ),
+            )
+        if safe_name is not None:
+            await conn.execute(
+                "UPDATE pjsk_links SET pjsk_name=?, synced_at=? WHERE discord_id=? AND region=?",
+                (safe_name, synced_at, discord_id, reg),
+            )
+        elif synced_at:
+            await conn.execute(
+                "UPDATE pjsk_links SET synced_at=? WHERE discord_id=? AND region=?",
+                (synced_at, discord_id, reg),
+            )
+
+
+async def get_pjsk_clears(discord_id: int, region: str) -> dict[tuple[int, str], str]:
+    """Return {(music_id, difficulty): clear_state} saved for (discord_id, region)."""
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT music_id, difficulty, clear_state FROM pjsk_clears WHERE discord_id=? AND region=?",
+        (discord_id, region.lower()),
+    ) as cur:
+        rows = await cur.fetchall()
+    return {(int(r["music_id"]), str(r["difficulty"])): str(r["clear_state"]) for r in rows}
+
+
+async def prune_expired_pjsk_recovery(max_age_seconds: float = PJSK_RECOVERY_TTL_SECONDS) -> int:
+    """Delete orphaned crash-recovery credentials older than *max_age_seconds*."""
+    import time
+
+    cutoff = time.time() - max_age_seconds
+    async with _write_tx() as conn:
+        cur = await conn.execute("DELETE FROM pjsk_recovery WHERE created_at < ?", (cutoff,))
+        return cur.rowcount
+
+
+async def save_pjsk_recovery(
+    discord_id: int, region: str, pjsk_user_id: int, credential: str, created_at: float
+) -> None:
+    """Temporarily persist an in-flight transfer credential until the new Transfer ID is sent."""
+    async with _write_tx() as conn:
+        await conn.execute(
+            "INSERT INTO pjsk_recovery (discord_id, region, pjsk_user_id, credential, created_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(discord_id, region) DO UPDATE SET "
+            "pjsk_user_id=excluded.pjsk_user_id, credential=excluded.credential, "
+            "created_at=excluded.created_at",
+            (discord_id, region.lower(), pjsk_user_id, credential, created_at),
+        )
+
+
+async def get_pjsk_recovery(discord_id: int, region: str) -> dict | None:
+    """Fetch a non-expired crash-recovery credential for (discord_id, region), if any."""
+    import time
+
+    await prune_expired_pjsk_recovery()
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT discord_id, region, pjsk_user_id, credential, created_at "
+        "FROM pjsk_recovery WHERE discord_id=? AND region=?",
+        (discord_id, region.lower()),
+    ) as cur:
+        row = await cur.fetchone()
+        if not row:
+            return None
+        if (time.time() - float(row["created_at"])) > PJSK_RECOVERY_TTL_SECONDS:
+            return None
+        return dict(row)
+
+
+async def delete_pjsk_recovery(discord_id: int, region: str) -> None:
+    """Wipe a temporary crash-recovery credential once the new Transfer ID is delivered."""
+    async with _write_tx() as conn:
+        await conn.execute(
+            "DELETE FROM pjsk_recovery WHERE discord_id=? AND region=?",
+            (discord_id, region.lower()),
+        )
+
+
+async def get_pjsk_bot_account(region: str) -> dict | None:
+    """Return the bot's persisted anonymous PJSK account for *region*, or None."""
+    conn = await _get_conn()
+    async with conn.execute(
+        "SELECT region, user_id, credential, updated_at FROM pjsk_bot_accounts WHERE region=?",
+        (region.lower(),),
+    ) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def set_pjsk_bot_account(
+    region: str, user_id: int, credential: str, updated_at: float | None = None
+) -> None:
+    """Persist the bot's anonymous PJSK account credential for *region*."""
+    import time
+
+    ts = time.time() if updated_at is None else updated_at
+    async with _write_tx() as conn:
+        await conn.execute(
+            "INSERT INTO pjsk_bot_accounts (region, user_id, credential, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(region) DO UPDATE SET "
+            "user_id=excluded.user_id, credential=excluded.credential, updated_at=excluded.updated_at",
+            (region.lower(), user_id, credential, ts),
+        )
+
+
+async def delete_pjsk_bot_account(region: str) -> None:
+    """Delete a stale anonymous bot account so the client can register a fresh one."""
+    async with _write_tx() as conn:
+        await conn.execute("DELETE FROM pjsk_bot_accounts WHERE region=?", (region.lower(),))

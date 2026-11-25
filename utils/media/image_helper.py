@@ -234,3 +234,19 @@ async def get_character_trim_path(char_id: int | str) -> str | None:
     """Get path to a character trim image, downloading and caching if necessary."""
     url = f"https://storage.sekai.best/sekai-jp-assets/character/character_trim/chr_trim_{char_id}.webp"
     return await _cached_download(url, CACHE_DIR / f"chr_trim_{char_id}.webp")
+
+
+SONG_JACKET_URL = "https://storage.sekai.best/sekai-jp-assets/music/jacket/{asset}/{asset}.{ext}"
+
+
+async def get_song_jacket_path(song_id: int, asset_bundle_name: str | None = None) -> str | None:
+    """Get path to a song jacket image, cached in CACHE_DIR/jackets (WebP with PNG fallback)."""
+    asset = asset_bundle_name or f"jacket_s_{song_id:03d}"
+    folder = CACHE_DIR / "jackets"
+    folder.mkdir(parents=True, exist_ok=True)
+    webp_url = SONG_JACKET_URL.format(asset=asset, ext="webp")
+    path = await _cached_download(webp_url, folder / f"{asset}.webp")
+    if path or not _is_known_missing(webp_url):
+        return path
+    png_url = SONG_JACKET_URL.format(asset=asset, ext="png")
+    return await _cached_download(png_url, folder / f"{asset}.png")

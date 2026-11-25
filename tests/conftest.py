@@ -18,6 +18,7 @@ class FakeResponse:
         self.deferred = False
         self.messages: list[dict] = []
         self.edits: list[dict] = []
+        self.modals: list[object] = []
 
     def is_done(self) -> bool:
         return self._done
@@ -33,6 +34,10 @@ class FakeResponse:
     async def edit_message(self, **kwargs) -> None:
         self._done = True
         self.edits.append(kwargs)
+
+    async def send_modal(self, modal) -> None:
+        self._done = True
+        self.modals.append(modal)
 
 
 class FakeFollowup:

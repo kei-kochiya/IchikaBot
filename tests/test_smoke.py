@@ -31,7 +31,7 @@ async def test_all_cogs_load_and_unload_cleanly(mock_bot, temp_db):
                     failed.append((module, str(exc)))
 
     assert not failed, f"Failed to load cogs: {failed}"
-    assert len(loaded) >= 13
+    assert len(loaded) >= 14
 
     for module in loaded:
         await mock_bot.unload_extension(module)
@@ -53,7 +53,7 @@ def test_startup_keeps_heavy_optional_modules_unloaded(tmp_path):
             "        await bot.bot.unload_extension(ext)",
             "    await database.close_db()",
             "asyncio.run(run())",
-            "leaked = [m for m in ('openpyxl', 'httpx', 'mercapi') if m in sys.modules]",
+            "leaked = [m for m in ('openpyxl', 'httpx', 'mercapi', 'cryptography', 'msgpack', 'utils.pjsk.client', 'utils.pjsk.crypto', 'utils.pjsk.b30_render') if m in sys.modules]",
             "assert not leaked, f'Heavy modules loaded at startup: {leaked}'",
         ]
     )

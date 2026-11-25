@@ -77,6 +77,18 @@ COMMAND_CATEGORIES = {
             ("/mercari <url_or_id>", "!mercari / !mer", "Tra cứu sản phẩm theo link hoặc ID"),
         ],
     },
+    "PJSK & B30": {
+        "description": "Liên kết tài khoản PJSK (EN/JP), đồng bộ FC/AP & bảng B30",
+        "commands": [
+            ("/pjsk link [region]", "-", "Liên kết tài khoản PJSK qua Bio"),
+            ("/pjsk unlink [region]", "-", "Hủy liên kết và xóa dữ liệu đã lưu"),
+            ("/pjsk profile [region] [user]", "-", "Xem hồ sơ PJSK đã liên kết"),
+            ("/pjsk sync [region]", "-", "Đồng bộ FC/AP qua Transfer ID và nhận mã mới"),
+            ("/pjsk recover [region]", "-", "Khôi phục Transfer ID nếu sync bị gián đoạn"),
+            ("/pjsk import [region] <file>", "-", "Nhập dữ liệu FC/AP từ file suite.json"),
+            ("/b30 [region] [user]", "-", "Xem bảng Best 30 (B30) rating"),
+        ],
+    },
 }
 
 
@@ -156,6 +168,7 @@ class HelpCog(commands.Cog):
             app_commands.Choice(name="Utility", value="Utility"),
             app_commands.Choice(name="Card of the Day", value="Card of the Day"),
             app_commands.Choice(name="Mercari", value="Mercari"),
+            app_commands.Choice(name="PJSK & B30", value="PJSK & B30"),
         ]
     )
     async def help_slash(self, interaction: discord.Interaction, category: str | None = None):

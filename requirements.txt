@@ -18,3 +18,7 @@ openpyxl>=3.1.5,<4.0.0
 
 # Media & Third-Party APIs
 mercapi>=0.5.0,<1.0.0
+
+# PJSK Game Protocol (lazy-loaded on /pjsk commands)
+cryptography>=50.0.0,<52.0.0
+msgpack>=1.2.0,<2.0.0
