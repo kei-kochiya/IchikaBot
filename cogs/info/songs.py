@@ -55,7 +55,11 @@ class SongsCog(commands.Cog):
             return f"• **{title}** (Master Lv.{master_level})"
 
         view = SearchPaginationView(
-            results, f"Kết quả tìm kiếm: {query}", formatter, items_per_page=10
+            results,
+            f"Kết quả tìm kiếm: {query}",
+            formatter,
+            items_per_page=10,
+            hint="Dùng `/song info` hoặc `!song` để xem chi tiết.",
         )
         return view._create_embed(), view
 
@@ -71,7 +75,9 @@ class SongsCog(commands.Cog):
         embed, view = self._build_search_reply(query)
         if embed is None:
             await interaction.followup.send(
-                f"Không tìm thấy bài hát nào với từ khóa: **{query}**", ephemeral=True
+                f"Không tìm thấy bài hát nào với từ khóa: **{query[:100]}**",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
             return
         if view is None:
@@ -92,8 +98,10 @@ class SongsCog(commands.Cog):
 
         chosen = song_data.get_random_song(min_level, max_level)
         if not chosen:
+            lo = min_level if min_level is not None else 1
+            hi = max_level if max_level is not None else 37
             await interaction.followup.send(
-                f"Không tìm thấy bài hát nào trong khoảng level {min_level or 1}-{max_level or 37}.",
+                f"Không tìm thấy bài hát nào trong khoảng level {lo}-{hi}.",
                 ephemeral=True,
             )
             return
@@ -113,16 +121,8 @@ class SongsCog(commands.Cog):
             song_id = int(song_name)
             song = self.get_song_by_id(song_id)
         except ValueError:
-            name_lower = song_name.lower()
-            for s_id, meta in song_data.songs_en_meta.items():
-                if name_lower in meta["title"].lower():
-                    song = song_data.get_song_by_id(s_id)
-                    break
-            if not song:
-                for s in song_data.songs_jp:
-                    if s.get("title") and name_lower in s["title"].lower():
-                        song = s
-                        break
+            matches = song_data.search_songs(song_name, limit=1)
+            song = matches[0] if matches else None
 
         if not song:
             await interaction.followup.send("Không tìm thấy bài hát.", ephemeral=True)
@@ -147,7 +147,10 @@ class SongsCog(commands.Cog):
 
         embed, view = self._build_search_reply(query)
         if embed is None:
-            await ctx.send(f"Không tìm thấy bài hát nào với từ khóa: **{query}**")
+            await ctx.send(
+                f"Không tìm thấy bài hát nào với từ khóa: **{query[:100]}**",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
         if view is None:
             await ctx.send(embed=embed)

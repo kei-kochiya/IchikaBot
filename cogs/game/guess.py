@@ -167,22 +167,25 @@ class GuessCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_channels: dict[int, float] = {}
+        self._channel_tokens: dict[int, object] = {}
         # References to shared singletons — no per-cog loading
         self.cards = card_data.pool_3_4
 
     def _is_channel_active(self, channel_id: int) -> bool:
-        """Check if game is actively running in channel. Auto-recovers stale/hung channels (>45s)."""
+        """Check if game is actively running in channel. Auto-recovers stale/hung channels."""
         if channel_id not in self.active_channels:
             return False
         start_time = self.active_channels[channel_id]
         now = asyncio.get_running_loop().time()
-        if now - start_time > 45.0:
+        stale_after = SONG_GUESS_DURATION + 35.0
+        if now - start_time > stale_after:
             logger.warning(
                 "Guess game in channel %s hung or timed out (%0.1fs ago). Auto-recovering channel.",
                 channel_id,
                 now - start_time,
             )
             self.active_channels.pop(channel_id, None)
+            self._channel_tokens.pop(channel_id, None)
             return False
         return True
 
@@ -264,6 +267,9 @@ class GuessCog(commands.Cog):
         )
 
     @app_commands.command(name="guess", description="Đoán nhân vật qua hình ảnh!")
+    # Needs gateway MESSAGE_CREATE events for -g answers (not delivered in user-install/group DMs)
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.describe(mode="Độ khó (để trống: độ khó mặc định của bạn, ban đầu là Dễ)")
     @app_commands.choices(mode=MODE_CHOICES)
     async def guess(self, interaction: discord.Interaction, mode: str | None = None):
@@ -286,7 +292,11 @@ class GuessCog(commands.Cog):
             )
             return
 
+        token = object()
         self.active_channels[channel_id] = asyncio.get_running_loop().time()
+        self._channel_tokens[channel_id] = token
+        view: GiveUpView | None = None
+        msg = None
 
         try:
             await interaction.response.defer()
@@ -329,7 +339,7 @@ class GuessCog(commands.Cog):
                 embed.set_image(url="attachment://guess.jpg")
 
                 # Create view with working Give Up button
-                view = GiveUpView(channel_id, self, char_data, card, full_img)
+                view = GiveUpView()
                 msg = await interaction.followup.send(embed=embed, file=file, view=view)
                 view.message = msg
 
@@ -346,14 +356,28 @@ class GuessCog(commands.Cog):
 
                 end_time = asyncio.get_running_loop().time() + SONG_GUESS_DURATION
 
-                while asyncio.get_running_loop().time() < end_time and not view.gave_up:
+                while not view.gave_up:
                     remaining = end_time - asyncio.get_running_loop().time()
                     if remaining <= 0:
                         break
-                    try:
-                        guess_msg = await self.bot.wait_for(
-                            "message", check=check, timeout=min(remaining, 1.0)
-                        )
+                    msg_task = asyncio.create_task(
+                        self.bot.wait_for("message", check=check, timeout=remaining)
+                    )
+                    give_up_task = asyncio.create_task(view.give_up_event.wait())
+                    done, pending = await asyncio.wait(
+                        (msg_task, give_up_task),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in pending:
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await task
+
+                    if msg_task in done:
+                        try:
+                            guess_msg = msg_task.result()
+                        except TimeoutError:
+                            break
                         guess = guess_msg.content[len(GUESS_PREFIX) :].strip()
 
                         if is_correct_guess(guess, norm_answers):
@@ -361,24 +385,21 @@ class GuessCog(commands.Cog):
                             reason = "win"
                             react_in_background(guess_msg, "✅")
                             break
-                        else:
-                            fails += 1
-                            react_in_background(guess_msg, "❌")
-                            if fails >= MAX_FAILS:
-                                reason = "failed"
-                                break
+                        fails += 1
+                        react_in_background(guess_msg, "❌")
+                        if fails >= MAX_FAILS:
+                            reason = "failed"
+                            break
+                    elif view.gave_up:
+                        reason = "gave_up"
+                        break
 
-                    except TimeoutError:
-                        continue
-
-                if view.gave_up:
+                if view.gave_up and reason != "win":
                     reason = "gave_up"
 
                 # Prepare result (full_img is the cached card file's path)
                 result_file = discord.File(full_img, filename="reveal.webp")
-                result_embed = discord.Embed(
-                    description=f"Đáp án: **{char_data['firstName']} {char_data['givenName']}**"
-                )
+                result_embed = discord.Embed(description=f"Đáp án: **{full_name}**")
                 result_embed.set_image(url="attachment://reveal.webp")
                 result_embed.add_field(name="Card", value=self.get_display_prefix(card))
 
@@ -389,6 +410,7 @@ class GuessCog(commands.Cog):
                     result_embed.title, result_embed.color = _OUTCOME_META[reason]
 
                 view.disable_all()
+                view.stop()
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(embed=result_embed, file=result_file)
                 if msg:
@@ -397,31 +419,38 @@ class GuessCog(commands.Cog):
 
             except Exception as e:
                 logger.error(f"Guess game error: {e}")
+                if view is not None:
+                    view.disable_all()
+                    view.stop()
+                    if msg:
+                        with contextlib.suppress(discord.HTTPException):
+                            await msg.edit(view=view)
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(
                         "Ván đoán gặp lỗi và đã dừng. Bạn thử lại nhé.", ephemeral=True
                     )
         finally:
-            self.active_channels.pop(channel_id, None)
+            if view is not None and not view.is_finished():
+                view.stop()
+            if self._channel_tokens.get(channel_id) is token:
+                self._channel_tokens.pop(channel_id, None)
+                self.active_channels.pop(channel_id, None)
 
 
 class GiveUpView(discord.ui.View):
     """View with a working Give Up button."""
 
-    def __init__(self, channel_id: int, cog: GuessCog, char_data: dict, card: dict, full_img: str):
+    def __init__(self):
         super().__init__(timeout=SONG_GUESS_DURATION + 5)
-        self.channel_id = channel_id
-        self.cog = cog
-        self.char_data = char_data
-        self.card = card
-        self.full_img = full_img
         self.gave_up = False
+        self.give_up_event = asyncio.Event()
         self.message = None
 
     @discord.ui.button(label="Give Up", style=discord.ButtonStyle.danger)
     async def give_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle give up button click."""
         self.gave_up = True
+        self.give_up_event.set()
         button.disabled = True
         with contextlib.suppress(discord.HTTPException):
             await interaction.response.defer()

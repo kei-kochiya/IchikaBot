@@ -58,10 +58,6 @@ class ProfileCog(commands.Cog):
             rarity = ["rarity_3", "rarity_4"]
         return get_random_card(card_data.cards, char_id, rarity)
 
-    def get_birthday_card_for_character(self, char_id: int) -> dict | None:
-        """Get a birthday card for a character."""
-        return get_random_card(card_data.cards, char_id, ["rarity_birthday"])
-
     def create_profile_embed(
         self, char_id: int, card: dict | None = None, attachment_url: str | None = None
     ) -> discord.Embed | None:
@@ -85,9 +81,8 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="\u200b", value="\u200b", inline=True)
 
         if profile.get("hobby"):
-            embed.add_field(
-                name="Sở thích", value=profile["hobby"].replace("\\n", " "), inline=False
-            )
+            hobby = profile["hobby"].replace("\\n", " ").replace("\n", " ")
+            embed.add_field(name="Sở thích", value=hobby, inline=False)
         if profile.get("specialSkill"):
             embed.add_field(name="Kỹ năng", value=profile["specialSkill"], inline=True)
         if profile.get("weak"):
@@ -121,6 +116,9 @@ class ProfileCog(commands.Cog):
 
     async def _build_profile_kwargs(self, char_id: int) -> dict | None:
         """Build kwargs (embed, optional file and toggle view) for a character profile."""
+        if not game_data.get_profile(char_id):
+            return None
+
         card = self.get_random_card_for_character(char_id)
         file = None
         attachment_url = None
@@ -135,6 +133,8 @@ class ProfileCog(commands.Cog):
 
         embed = self.create_profile_embed(char_id, card, attachment_url=attachment_url)
         if embed is None:
+            if file:
+                file.close()
             return None
 
         kwargs: dict = {"embed": embed}
@@ -159,12 +159,18 @@ class ProfileCog(commands.Cog):
         except ValueError:
             char_id, _ = game_data.get_character_by_name(character)
             if char_id is None:
-                await interaction.followup.send(f"Không tìm thấy nhân vật: **{character}**")
+                await interaction.followup.send(
+                    f"Không tìm thấy nhân vật: **{character[:100]}**",
+                    ephemeral=True,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
                 return
 
         kwargs = await self._build_profile_kwargs(char_id)
         if kwargs is None:
-            await interaction.followup.send("Không có thông tin profile cho nhân vật này.")
+            await interaction.followup.send(
+                "Không có thông tin profile cho nhân vật này.", ephemeral=True
+            )
             return
 
         msg = await interaction.followup.send(**kwargs)
@@ -181,7 +187,10 @@ class ProfileCog(commands.Cog):
 
         char_id, _ = game_data.get_character_by_name(name)
         if char_id is None:
-            await ctx.send(f"Không tìm thấy nhân vật: **{name}**")
+            await ctx.send(
+                f"Không tìm thấy nhân vật: **{name[:100]}**",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
 
         kwargs = await self._build_profile_kwargs(char_id)

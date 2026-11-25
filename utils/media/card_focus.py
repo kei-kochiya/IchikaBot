@@ -27,6 +27,14 @@ MIN_REGION_PEAK = 40
 TOP_CANDIDATES = 12  # pick among the best few, so rounds of one card differ
 
 
+def _resize_to_rgb(img: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Shrink before RGB conversion when supported so large RGBA art avoids full-res copy."""
+    if img.mode in ("RGB", "RGBA", "L", "LA"):
+        small = img.resize(size, Image.BILINEAR, reducing_gap=2.0)
+        return small if small.mode == "RGB" else small.convert("RGB")
+    return img.convert("RGB").resize(size, Image.BILINEAR, reducing_gap=2.0)
+
+
 def _character_score(small: Image.Image, cutout: Image.Image) -> Image.Image:
     """L image: character colours (from the close-up's head) times sharpness."""
     # Building the 48-colour palette at half resolution is ~3x faster and finds the same colours
@@ -36,8 +44,7 @@ def _character_score(small: Image.Image, cutout: Image.Image) -> Image.Image:
     )
     art_q = small.quantize(palette=palette, dither=Image.Dither.NONE)
 
-    cutout_rgb = cutout if cutout.mode == "RGB" else cutout.convert("RGB")
-    head_src = cutout_rgb.resize((150, 144), Image.BILINEAR, reducing_gap=2.0)
+    head_src = _resize_to_rgb(cutout, (150, 144))
     head_q = head_src.quantize(palette=art_q, dither=Image.Dither.NONE)
     w, h = head_src.size
     head = Image.new("L", (w, h), 0)
@@ -77,10 +84,7 @@ def focus_crop_box(
     if card.width < crop or card.height < crop:
         return None
     scale = card.width / WORK_WIDTH
-    card_rgb = card if card.mode == "RGB" else card.convert("RGB")
-    small = card_rgb.resize(
-        (WORK_WIDTH, max(1, round(card.height / scale))), Image.BILINEAR, reducing_gap=2.0
-    )
+    small = _resize_to_rgb(card, (WORK_WIDTH, max(1, round(card.height / scale))))
     size = max(2, round(crop / scale))
     if small.width <= size or small.height <= size:
         return None

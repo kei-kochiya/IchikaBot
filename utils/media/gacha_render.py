@@ -100,14 +100,23 @@ async def get_ui_assets() -> dict[str, str]:
     names = [
         n for n in UI_ASSETS if n != BG_ASSET and not (hq_background and n == BG_PREVIEW_ASSET)
     ]
-    missing = [n for n in names if cached_ui_asset_path(n) is None]
+    assets: dict[str, str] = {}
+    missing: list[str] = []
+    for n in names:
+        cached = cached_ui_asset_path(n)
+        if cached is not None:
+            assets[n] = cached
+        else:
+            missing.append(n)
     if missing:
         if _ui_download is None or _ui_download.done():
             _ui_download = spawn(_download(missing))
         with contextlib.suppress(TimeoutError, OSError):
             await asyncio.wait_for(asyncio.shield(_ui_download), UI_ASSET_WAIT_S)
+        for n in missing:
+            if path := cached_ui_asset_path(n):
+                assets[n] = path
 
-    assets = {name: path for name in names if (path := cached_ui_asset_path(name))}
     if hq_background:
         assets[BG_ASSET] = hq_background
     return assets
@@ -162,18 +171,26 @@ def _background(
         # renders switch to the full-quality one as soon as it has been downloaded
         source = Path(src)
         derived = source.with_name(f"{source.stem}_{source.suffix[1:]}_{key}_v3.png")
-        try:
-            if derived.exists():
+        if derived.exists():
+            try:
                 with Image.open(derived) as im:
                     im.load()
                     return im.copy() if im.mode == "RGB" else im.convert("RGB")
+            except OSError:
+                with contextlib.suppress(OSError):
+                    derived.unlink(missing_ok=True)
+        try:
             with Image.open(src) as im:
                 rgb = im if im.mode == "RGB" else im.convert("RGB")
                 bg = _washed(_cover(rgb, size, BG_FOCUS_Y), band)
-            _save_atomic(bg, derived, "PNG")
-            return bg
         except OSError as e:
             logger.warning("Gacha render: background unusable (%s), using a plain one", e)
+        else:
+            try:
+                _save_atomic(bg, derived, "PNG")
+            except OSError as e:
+                logger.warning("Gacha render: could not cache background %s: %s", derived, e)
+            return bg
     return Image.new("RGB", size, FALLBACK_BG)
 
 
@@ -183,11 +200,15 @@ def _card_tile(path: str | None, size: tuple[int, int]) -> Image.Image | None:
         return None
     src = Path(path)
     derived = src.parent / "tiles" / f"{src.stem}_{size[0]}x{size[1]}.jpg"
-    try:
-        if derived.exists():
+    if derived.exists():
+        try:
             with Image.open(derived) as im:
                 im.load()
                 return im.copy() if im.mode == "RGB" else im.convert("RGB")
+        except OSError:
+            with contextlib.suppress(OSError):
+                derived.unlink(missing_ok=True)
+    try:
         with Image.open(src) as im:
             # Halve first with reduce() (cheap box filter), then a quality resize
             factor = max(1, min(im.width // size[0], im.height // size[1]) // 2)
@@ -196,11 +217,14 @@ def _card_tile(path: str | None, size: tuple[int, int]) -> Image.Image | None:
             tile = _cover(base, size)
             if tile.mode != "RGB":
                 tile = tile.convert("RGB")
-        _save_atomic(tile, derived, "JPEG", quality=92)
-        return tile
     except OSError as e:
         logger.warning("Gacha render: could not open card art %s: %s", path, e)
         return None
+    try:
+        _save_atomic(tile, derived, "JPEG", quality=92)
+    except OSError as e:
+        logger.warning("Gacha render: could not cache tile %s: %s", derived, e)
+    return tile
 
 
 def _load_icon(assets: dict[str, str], name: str, height: int) -> Image.Image | None:
@@ -288,7 +312,7 @@ def _decorate(tile: Image.Image, card: dict, overlays: _Overlays, trained: bool)
     if attr is not None:
         out.paste(attr, (out.width - attr.width - pad, pad), mask=attr)
 
-    star, count = overlays.star(card.get("cardRarityType", ""), trained)
+    star, count = overlays.star(card.get("cardRarityType") or "", trained)
     step = round(star.height * 0.82)  # stars overlap slightly
     y = out.height - star.height - pad
     for i in range(count):

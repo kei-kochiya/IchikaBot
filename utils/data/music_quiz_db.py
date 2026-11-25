@@ -69,7 +69,8 @@ class MusicQuizDB:
 
     @classmethod
     def reload(cls):
-        cls._instance = cls()
+        if cls._instance is None:
+            cls._instance = cls()
         cls._instance.load_db()
         return cls._instance
 
@@ -87,13 +88,13 @@ class MusicQuizDB:
             self.last_error = None
             logger.info("MusicQuizDB: Loaded %d songs (cached copy of song.xlsx)", len(cached))
             return
+        wb = None
         try:
             import openpyxl
 
             wb = openpyxl.load_workbook(SONG_DB_PATH, read_only=True, data_only=True)
             ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
-            wb.close()
         except ImportError:
             self.last_error = "Thiếu thư viện openpyxl (cần chạy: pip install openpyxl)"
             logger.error("MusicQuizDB: openpyxl is not installed!")
@@ -102,6 +103,10 @@ class MusicQuizDB:
             self.last_error = f"Lỗi đọc song.xlsx: {e}"
             logger.error("MusicQuizDB: Failed to load song.xlsx: %s", e)
             return
+        finally:
+            if wb is not None:
+                with contextlib.suppress(Exception):
+                    wb.close()
 
         self.last_error = None
 
@@ -116,11 +121,19 @@ class MusicQuizDB:
         for row in rows[start:]:
             if not row or row[0] is None:
                 continue
-            idx = str(row[0]).strip()
+            raw_idx = row[0]
+            if isinstance(raw_idx, float) and raw_idx.is_integer():
+                idx = str(int(raw_idx))
+            else:
+                idx = str(raw_idx).strip()
             title_jp = str(row[1]).strip() if len(row) > 1 and row[1] else None
             title_en = str(row[2]).strip() if len(row) > 2 and row[2] else None
             romaji = str(row[7]).strip() if len(row) > 7 and row[7] else None
-            is_comm = bool(row[8]) if len(row) > 8 and row[8] is not None else False
+            raw_comm = row[8] if len(row) > 8 else None
+            if isinstance(raw_comm, str):
+                is_comm = raw_comm.strip().lower() in ("true", "1", "yes")
+            else:
+                is_comm = bool(raw_comm) if raw_comm is not None else False
             db[idx] = {
                 "title_en": title_en,
                 "romaji_title": romaji,

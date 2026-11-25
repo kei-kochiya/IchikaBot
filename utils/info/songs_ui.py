@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import math
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,7 @@ def create_song_embed(song: dict, display_title: str, difficulties: dict) -> dis
             notes = diff_info[diff_name]["noteCount"]
             diff_lines.append(f"**{diff_name.title()}**: Lv.{level} ({notes} notes)")
 
-    release_ts = song.get("publishedAt", 0) / 1000
+    release_ts = (song.get("publishedAt") or 0) / 1000
     release_date = (
         datetime.fromtimestamp(release_ts, tz=JST).strftime("%Y-%m-%d")
         if release_ts > 0
@@ -62,77 +63,95 @@ def create_song_embed(song: dict, display_title: str, difficulties: dict) -> dis
 class SearchPaginationView(discord.ui.View):
     """A generic pagination view for search results."""
 
-    def __init__(self, results: list, title: str, formatter_func, items_per_page: int = 5):
-        super().__init__(timeout=180)
+    def __init__(
+        self,
+        results: list,
+        title: str,
+        formatter_func,
+        items_per_page: int = 5,
+        hint: str = "",
+    ):
         self.results = results
-        self.title = title
+        self.title = title[:256]
         self.formatter_func = formatter_func
         self.items_per_page = items_per_page
+        self.hint = hint
         self.current_page = 0
-        self.total_pages = math.ceil(len(results) / items_per_page)
-        self.update_buttons()
+        self.total_pages = max(1, math.ceil(len(results) / items_per_page))
+        super().__init__(timeout=180 if self.total_pages > 1 else None)
+        self._lock = asyncio.Lock()
 
-    def update_buttons(self):
-        self.clear_items()
-
-        # Prev button
-        prev_btn = discord.ui.Button(
+        self._prev_btn = discord.ui.Button(
             label="Trang trước",
             style=discord.ButtonStyle.secondary,
-            disabled=self.current_page == 0,
             custom_id="page_prev",
         )
-        prev_btn.callback = self.prev_callback
-        self.add_item(prev_btn)
-
-        # Page indicator
-        page_label = discord.ui.Button(
-            label=f"{self.current_page + 1}/{self.total_pages}",
+        self._prev_btn.callback = self.prev_callback
+        self._page_label = discord.ui.Button(
+            label=f"1/{self.total_pages}",
             style=discord.ButtonStyle.primary,
             disabled=True,
             custom_id="page_indicator",
         )
-        self.add_item(page_label)
-
-        # Next button
-        next_btn = discord.ui.Button(
+        self._next_btn = discord.ui.Button(
             label="Trang sau",
             style=discord.ButtonStyle.secondary,
-            disabled=self.current_page >= self.total_pages - 1,
             custom_id="page_next",
         )
-        next_btn.callback = self.next_callback
-        self.add_item(next_btn)
+        self._next_btn.callback = self.next_callback
+        self.add_item(self._prev_btn)
+        self.add_item(self._page_label)
+        self.add_item(self._next_btn)
+
+        self.update_buttons()
+        if self.total_pages <= 1:
+            self.stop()
+
+    def update_buttons(self):
+        self._prev_btn.disabled = self.current_page == 0
+        self._page_label.label = f"{self.current_page + 1}/{self.total_pages}"
+        self._next_btn.disabled = self.current_page >= self.total_pages - 1
+
+    async def _step(self, interaction: discord.Interaction, delta: int) -> None:
+        async with self._lock:
+            prev_page = self.current_page
+            self.current_page = max(0, min(self.total_pages - 1, self.current_page + delta))
+            self.update_buttons()
+            embed = self._create_embed()
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except discord.HTTPException:
+                self.current_page = prev_page
+                self.update_buttons()
 
     async def prev_callback(self, interaction: discord.Interaction):
-        self.current_page = max(0, self.current_page - 1)
-        self.update_buttons()
-        embed = self._create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._step(interaction, -1)
 
     async def next_callback(self, interaction: discord.Interaction):
-        self.current_page = min(self.total_pages - 1, self.current_page + 1)
-        self.update_buttons()
-        embed = self._create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._step(interaction, +1)
 
     def _create_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title=self.title,
-            description=f"Tìm thấy {len(self.results)} kết quả. Dùng `/song info` hoặc `!song` để xem chi tiết.",
-            color=discord.Color.blue(),
-        )
         start_idx = self.current_page * self.items_per_page
         end_idx = start_idx + self.items_per_page
         page_items = self.results[start_idx:end_idx]
 
-        lines = []
-        for item in page_items:
-            lines.append(self.formatter_func(item))
+        header = f"Tìm thấy {len(self.results)} kết quả."
+        if self.hint:
+            header = f"{header} {self.hint}"
 
-        embed.add_field(
-            name="Danh sách", value="\n".join(lines) if lines else "Không có dữ liệu", inline=False
+        lines = [self.formatter_func(item) for item in page_items]
+        body = "\n".join(lines) if lines else "Không có dữ liệu"
+        description = f"{header}\n\n{body}"
+        if len(description) > 4096:
+            description = description[:4093] + "..."
+
+        embed = discord.Embed(
+            title=self.title,
+            description=description,
+            color=discord.Color.blue(),
         )
+        if self.total_pages > 1:
+            embed.set_footer(text=f"Trang {self.current_page + 1}/{self.total_pages}")
         return embed
 
     async def on_timeout(self):

@@ -130,6 +130,8 @@ class AutoUpdater:
             tmp.replace(self._state_file)
         except OSError as e:
             logger.warning("AutoUpdater: Failed to persist update state: %s", e)
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -202,7 +204,7 @@ class AutoUpdater:
                 return self._finish(source_name, True, "Already up to date")
 
             try:
-                old_count, new_count = await asyncio.to_thread(
+                install_result = await asyncio.to_thread(
                     self._install, source, part_path, state.get("count")
                 )
             except ValueError as e:
@@ -210,6 +212,17 @@ class AutoUpdater:
                 logger.error("AutoUpdater[%s]: %s", source.name, msg)
                 return self._finish(source_name, False, msg)
 
+            if install_result is None:
+                self._get_state()[source_name] = {
+                    **state,
+                    "etag": etag or state.get("etag"),
+                    "sha256": digest,
+                }
+                await asyncio.to_thread(self._save_state)
+                logger.debug("AutoUpdater[%s]: Data is up to date", source.name)
+                return self._finish(source_name, True, "Already up to date")
+
+            old_count, new_count = install_result
             self._get_state()[source_name] = {"etag": etag, "sha256": digest, "count": new_count}
             await asyncio.to_thread(self._save_state)
 
@@ -237,10 +250,10 @@ class AutoUpdater:
 
     def _install(
         self, source: DataSource, part_path: Path, known_old_count: int | None
-    ) -> tuple[int | str, int]:
+    ) -> tuple[int | str, int] | None:
         """
         Validate the downloaded file and atomically move it into place.
-        Runs in a worker thread. Returns (old_count, new_count).
+        Runs in a worker thread. Returns (old_count, new_count), or None if unchanged.
         Raises ValueError if the download is not valid / usable JSON.
         """
         if source.transform is not None:
@@ -254,8 +267,7 @@ class AutoUpdater:
                 with open(source.local_path, encoding="utf-8") as f:
                     current = json.load(f)
             if not self._needs_update(current, new_data):
-                new_count = len(new_data) if isinstance(new_data, list | dict) else 1
-                return new_count, new_count
+                return None
             with open(part_path, "w", encoding="utf-8") as f:
                 json.dump(new_data, f, ensure_ascii=False)
             new_count = len(new_data) if isinstance(new_data, list | dict) else 1

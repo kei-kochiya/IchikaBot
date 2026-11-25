@@ -103,6 +103,7 @@ bot = commands.Bot(
     intents=intents,
     help_command=None,
     max_messages=100,
+    allowed_mentions=discord.AllowedMentions.none(),
     tree_cls=DefaultContextTree,  # use our tree with default contexts
 )
 
@@ -149,7 +150,8 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
         return  # Silently ignore invalid or unrecognized commands
 
     if isinstance(error, commands.NoPrivateMessage):
-        await ctx.send("Lệnh này chỉ dùng được trong server.")
+        with contextlib.suppress(discord.HTTPException):
+            await ctx.send("Lệnh này chỉ dùng được trong server.")
         return
 
     if isinstance(error, commands.CheckFailure):
@@ -197,7 +199,7 @@ async def load_cogs():
                     await bot.load_extension(module_name)
                     logger.info(f"Loaded extension: {module_name}")
                 except Exception as e:
-                    logger.error(f"Failed to load extension {module_name}: {e}")
+                    logger.error(f"Failed to load extension {module_name}: {e}", exc_info=True)
 
 
 async def main():
@@ -205,14 +207,18 @@ async def main():
         logger.error("DISCORD_TOKEN not found in .env file.")
         return
 
-    async with bot:
-        await database.init_db()
-        await load_cogs()
-        gc.collect()
-        try:
+    try:
+        async with bot:
+            await database.init_db()
+            await load_cogs()
+            gc.collect()
             await bot.start(TOKEN)
-        finally:
+    finally:
+        # Close shared HTTP session & SQLite DB *after* bot.__aexit__() has unloaded
+        # cogs and cancelled background tasks, isolating each teardown step.
+        try:
             await SharedResources.close_session()
+        finally:
             await database.close_db()
 
 

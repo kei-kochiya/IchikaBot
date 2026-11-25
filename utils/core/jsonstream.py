@@ -24,12 +24,22 @@ def _may_continue(obj: Any, buf: str, end: int) -> bool:
     """
     True if the value just decoded might be cut short by the end of the buffer.
 
-    Objects, arrays and strings are self-delimiting, but a bare number (or a value that
-    ends exactly at the buffer edge) could continue in the next chunk.
+    Objects, arrays, strings, booleans and null are self-delimiting; only a bare
+    number ending at (or followed solely by trailing number chars up to) the buffer
+    edge could continue in the next chunk.
     """
+    if isinstance(obj, bool) or not isinstance(obj, int | float):
+        return False
     if end >= len(buf):
         return True
-    return isinstance(obj, int | float) and buf[end] in _NUMBER_CHARS
+    return all(c in _NUMBER_CHARS for c in buf[end:])
+
+
+def _is_chunk_boundary_error(err: json.JSONDecodeError, buf: str) -> bool:
+    """True only when *err* can plausibly be resolved by reading more bytes."""
+    if err.msg.startswith("Unterminated string"):
+        return True
+    return err.pos >= len(buf) - 6
 
 
 def iter_json_array(path: Path | str, chunk_size: int = _CHUNK_CHARS) -> Iterator[Any]:
@@ -58,11 +68,19 @@ def iter_json_array(path: Path | str, chunk_size: int = _CHUNK_CHARS) -> Iterato
                     return ""
                 buf, pos = chunk, 0
 
+        def ensure_eof() -> None:
+            nonlocal pos
+            pos += 1
+            trailing = next_non_space()
+            if trailing:
+                raise ValueError(f"{path}: trailing data after JSON array ({trailing!r})")
+
         if next_non_space() != "[":
             raise ValueError(f"{path}: expected a top-level JSON array")
         pos += 1
 
         if next_non_space() == "]":
+            ensure_eof()
             return
 
         while True:
@@ -72,7 +90,9 @@ def iter_json_array(path: Path | str, chunk_size: int = _CHUNK_CHARS) -> Iterato
             while True:
                 try:
                     obj, end = decoder.raw_decode(buf, pos)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as err:
+                    if not _is_chunk_boundary_error(err, buf):
+                        raise
                     chunk = f.read(chunk_size)
                     if not chunk:
                         raise
@@ -92,6 +112,7 @@ def iter_json_array(path: Path | str, chunk_size: int = _CHUNK_CHARS) -> Iterato
             if sep == ",":
                 pos += 1
             elif sep == "]":
+                ensure_eof()
                 return
             else:
                 raise ValueError(f"{path}: malformed JSON array (unexpected {sep!r})")

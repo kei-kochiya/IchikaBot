@@ -76,7 +76,7 @@ def get_next_birthday() -> tuple[int, dict] | None:
 
     for idx, (char_id, char) in enumerate(game_data.characters.items()):
         delta = _days_until_mm_dd(char.get("birthday", ""), today, min_days=1)
-        if delta is None or delta > 365:
+        if delta is None:
             continue
         candidate = (delta, idx, {**char, "id": char_id})
         if best is None or (delta, idx) < (best[0], best[1]):
@@ -133,7 +133,7 @@ def resolve_character_and_countdown(
     If omitted or not found, falls back to the nearest upcoming birthday.
     """
     if character_query:
-        if character_query.isdigit():
+        if character_query.isascii() and character_query.isdigit():
             cid = int(character_query)
             target_char = game_data.get_character(cid)
         else:
@@ -143,6 +143,6 @@ def resolve_character_and_countdown(
             delta = _days_until_mm_dd(
                 target_char.get("birthday", ""), datetime.now(JST).date(), min_days=0
             )
-            if delta is not None and delta <= 365:
+            if delta is not None:
                 return (delta, {**target_char, "id": str(cid)})
     return get_next_birthday()

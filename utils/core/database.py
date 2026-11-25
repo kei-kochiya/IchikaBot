@@ -32,8 +32,11 @@ import never runs again.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -80,6 +83,8 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
         if await cur.fetchone():
             return  # Already done
 
+    all_ok = True
+
     # ── Pity migration ─────────────────────────────────────────────────────
     if PITY_FILE.exists():
         try:
@@ -89,8 +94,11 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
                     "INSERT OR REPLACE INTO pity (user_id, count) VALUES (?, ?)",
                     ((int(uid), int(count)) for uid, count in data.items()),
                 )
+                await conn.commit()
                 logger.info("DB migration: imported %d pity entries from %s", len(data), PITY_FILE)
         except Exception as exc:
+            all_ok = False
+            await conn.rollback()
             logger.warning("DB migration: pity import failed: %s", exc)
 
     # ── Birthday settings migration ────────────────────────────────────────
@@ -102,8 +110,11 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
                     "INSERT OR REPLACE INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?)",
                     (int(guild_id_str), "birthday_channel", str(channel_id)),
                 )
+            await conn.commit()
             logger.info("DB migration: imported %d birthday settings", len(data))
         except Exception as exc:
+            all_ok = False
+            await conn.rollback()
             logger.warning("DB migration: birthday settings import failed: %s", exc)
 
     # ── Card-of-Day settings migration ────────────────────────────────────
@@ -118,16 +129,21 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
                             "INSERT OR REPLACE INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?)",
                             (gid, f"cotd_{key}", str(cfg[key])),
                         )
+            await conn.commit()
             logger.info("DB migration: imported %d cotd guild configs", len(data))
         except Exception as exc:
+            all_ok = False
+            await conn.rollback()
             logger.warning("DB migration: cotd settings import failed: %s", exc)
 
-    # Mark migration complete
-    await conn.execute(
-        "INSERT OR REPLACE INTO guild_settings (guild_id, setting, value) VALUES (0, '_migrated', '1')"
-    )
-    await conn.commit()
-    logger.info("DB migration: complete.")
+    if all_ok:
+        await conn.execute(
+            "INSERT OR REPLACE INTO guild_settings (guild_id, setting, value) VALUES (0, '_migrated', '1')"
+        )
+        await conn.commit()
+        logger.info("DB migration: complete.")
+    else:
+        logger.warning("DB migration: skipped _migrated marker due to import errors; will retry.")
 
 
 # ── Connection management ──────────────────────────────────────────────────────
@@ -135,26 +151,40 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
 # A single long-lived connection is reused for every query.  Opening a fresh
 # aiosqlite connection per call spawns a worker thread and re-opens the file each
 # time (~1-4 ms of pure overhead per query); aiosqlite already serialises work on
-# the connection's own thread, so sharing one connection is safe.
+# the connection's own thread, so sharing one connection is safe.  Writes are
+# serialized through _write_lock so multi-statement transactions never interleave
+# and errors/cancellations roll back cleanly.
 
 _conn: aiosqlite.Connection | None = None
 _conn_path: Path | None = None
 _conn_lock = asyncio.Lock()
+_write_lock = asyncio.Lock()
 
 
 async def _connect() -> aiosqlite.Connection:
     pending = aiosqlite.connect(DB_FILE)
     # The worker thread is non-daemon by default; make sure a missed close_db()
     # (crash, KeyboardInterrupt) can never keep the interpreter from exiting.
-    worker = getattr(pending, "_thread", None)
-    if worker is not None:
+    worker = getattr(pending, "_thread", pending)
+    if hasattr(worker, "daemon"):
         worker.daemon = True
     conn = await pending
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
-    # Safe with WAL: a crash can lose the last transaction but never corrupts the file.
-    await conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        # Safe with WAL: a crash can lose the last transaction but never corrupts the file.
+        await conn.execute("PRAGMA synchronous=NORMAL")
+    except BaseException:
+        await conn.close()
+        raise
     return conn
+
+
+async def _close_unlocked() -> None:
+    global _conn, _conn_path
+    conn, _conn, _conn_path = _conn, None, None
+    if conn is not None:
+        await conn.close()
 
 
 async def _get_conn() -> aiosqlite.Connection:
@@ -165,7 +195,7 @@ async def _get_conn() -> aiosqlite.Connection:
         return _conn
     async with _conn_lock:
         if _conn is not None and _conn_path != target:
-            await close_db()
+            await _close_unlocked()
         if _conn is None:
             _conn = await _connect()
             _conn_path = target
@@ -174,10 +204,22 @@ async def _get_conn() -> aiosqlite.Connection:
 
 async def close_db() -> None:
     """Close the shared connection.  Call on bot shutdown."""
-    global _conn, _conn_path
-    conn, _conn, _conn_path = _conn, None, None
-    if conn is not None:
-        await conn.close()
+    async with _write_lock, _conn_lock:
+        await _close_unlocked()
+
+
+@asynccontextmanager
+async def _write_tx() -> AsyncIterator[aiosqlite.Connection]:
+    """Serialize writes on the shared connection with atomic commit/rollback."""
+    async with _write_lock:
+        conn = await _get_conn()
+        try:
+            yield conn
+            await conn.commit()
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await conn.rollback()
+            raise
 
 
 # ── Public API — lifecycle ─────────────────────────────────────────────────────
@@ -185,9 +227,10 @@ async def close_db() -> None:
 
 async def init_db() -> None:
     """Create tables and run one-time JSON migration.  Call before loading cogs."""
-    conn = await _get_conn()
-    await _create_tables(conn)
-    await _migrate_json(conn)
+    async with _write_lock:
+        conn = await _get_conn()
+        await _create_tables(conn)
+        await _migrate_json(conn)
     logger.info("DB: initialised at %s", DB_FILE)
 
 
@@ -204,13 +247,12 @@ async def get_pity(user_id: int) -> int:
 
 async def set_pity(user_id: int, count: int) -> None:
     """Upsert the user's pity count."""
-    conn = await _get_conn()
-    await conn.execute(
-        "INSERT INTO pity (user_id, count) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET count=excluded.count",
-        (user_id, count),
-    )
-    await conn.commit()
+    async with _write_tx() as conn:
+        await conn.execute(
+            "INSERT INTO pity (user_id, count) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET count=excluded.count",
+            (user_id, count),
+        )
 
 
 # ── Public API — guild settings ────────────────────────────────────────────────
@@ -229,36 +271,45 @@ async def get_setting(guild_id: int, setting: str) -> str | None:
 
 async def set_setting(guild_id: int, setting: str, value: str) -> None:
     """Upsert a guild setting."""
-    conn = await _get_conn()
-    await conn.execute(
-        "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
-        "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
-        (guild_id, setting, value),
-    )
-    await conn.commit()
+    async with _write_tx() as conn:
+        await conn.execute(
+            "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
+            "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
+            (guild_id, setting, value),
+        )
 
 
 async def set_settings(guild_id: int, values: dict[str, str]) -> None:
     """Upsert several settings for one guild in a single transaction."""
     if not values:
         return
-    conn = await _get_conn()
-    await conn.executemany(
-        "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
-        "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
-        [(guild_id, setting, value) for setting, value in values.items()],
-    )
-    await conn.commit()
+    async with _write_tx() as conn:
+        await conn.executemany(
+            "INSERT INTO guild_settings (guild_id, setting, value) VALUES (?, ?, ?) "
+            "ON CONFLICT(guild_id, setting) DO UPDATE SET value=excluded.value",
+            [(guild_id, setting, value) for setting, value in values.items()],
+        )
 
 
 async def delete_setting(guild_id: int, setting: str) -> None:
     """Delete a guild setting (no-op if not found)."""
-    conn = await _get_conn()
-    await conn.execute(
-        "DELETE FROM guild_settings WHERE guild_id=? AND setting=?",
-        (guild_id, setting),
-    )
-    await conn.commit()
+    async with _write_tx() as conn:
+        await conn.execute(
+            "DELETE FROM guild_settings WHERE guild_id=? AND setting=?",
+            (guild_id, setting),
+        )
+
+
+async def delete_settings(guild_id: int, settings: Iterable[str]) -> None:
+    """Delete several settings for one guild in a single atomic transaction."""
+    keys = list(settings)
+    if not keys:
+        return
+    async with _write_tx() as conn:
+        await conn.executemany(
+            "DELETE FROM guild_settings WHERE guild_id=? AND setting=?",
+            [(guild_id, setting) for setting in keys],
+        )
 
 
 async def get_all_settings(setting: str) -> dict[int, str]:
@@ -311,10 +362,9 @@ async def get_user_setting(user_id: int, setting: str) -> str | None:
 
 async def set_user_setting(user_id: int, setting: str, value: str) -> None:
     """Upsert a user's preference."""
-    conn = await _get_conn()
-    await conn.execute(
-        "INSERT INTO user_settings (user_id, setting, value) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, setting) DO UPDATE SET value=excluded.value",
-        (user_id, setting, value),
-    )
-    await conn.commit()
+    async with _write_tx() as conn:
+        await conn.execute(
+            "INSERT INTO user_settings (user_id, setting, value) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id, setting) DO UPDATE SET value=excluded.value",
+            (user_id, setting, value),
+        )

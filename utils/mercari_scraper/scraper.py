@@ -24,13 +24,14 @@ class AsyncMercariScraper:
         if self._c2c_client is None:
             from .c2c_client import AsyncC2CClient
 
-            self._c2c_client = AsyncC2CClient()
+            self._c2c_client = AsyncC2CClient(timeout=self.timeout)
         return self._c2c_client
 
     async def close(self) -> None:
         """Release underlying HTTP client resources."""
         if self._c2c_client is not None:
-            await self._c2c_client.close()
+            client, self._c2c_client = self._c2c_client, None
+            await client.close()
         await self._shops_client.close()
 
     async def __aenter__(self):
@@ -42,6 +43,8 @@ class AsyncMercariScraper:
     async def get_item(self, item_id_or_url: str) -> MercariItem | None:
         """Look up a single item by ID or full URL across Individual C2C or Mercari Shops."""
         item_id, source_hint = extract_item_info(item_id_or_url)
+        if not item_id:
+            return None
 
         if source_hint == ItemSource.SHOPS:
             return await self._shops_client.get_product(item_id)

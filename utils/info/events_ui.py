@@ -21,9 +21,9 @@ def format_timestamp(ms: int, style: str = "F") -> str:
 
 def get_event_status(event: dict) -> tuple[str, str]:
     now_ms = int(datetime.now(UTC).timestamp() * 1000)
-    start = event.get("startAt", 0)
-    end = event.get("closedAt", 0)
-    aggregate = event.get("aggregateAt", 0)
+    start = event.get("startAt") or 0
+    end = event.get("closedAt") or 0
+    aggregate = event.get("aggregateAt") or end
 
     if now_ms < start:
         return "Sắp diễn ra", format_timestamp(start, "R")
@@ -37,7 +37,8 @@ def get_event_status(event: dict) -> tuple[str, str]:
 
 def create_event_embed(event: dict, display_name: str, show_details: bool = True) -> discord.Embed:
     event_id = event.get("id", 0)
-    event_type = EVENT_TYPES.get(event.get("eventType", ""), event.get("eventType", "Unknown"))
+    raw_type = event.get("eventType") or ""
+    event_type = EVENT_TYPES.get(raw_type) or raw_type or "Unknown"
     status, status_info = get_event_status(event)
 
     embed = discord.Embed(

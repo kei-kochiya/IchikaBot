@@ -40,20 +40,21 @@ query GetProduct($id: String!) {
 
 
 def _parse_shops_node(node: dict[str, Any]) -> MercariItem:
-    item_id = node.get("id", "")
-    assets = node.get("assets", [])
+    item_id = node.get("id") or ""
+    assets = node.get("assets") or []
     photos = [a["imageUrl"] for a in assets if isinstance(a, dict) and a.get("imageUrl")]
     thumbnail_url = photos[0] if photos else ""
 
-    in_stock = node.get("inStock", True)
+    in_stock = node.get("inStock")
+    is_sold = False if in_stock is None else not in_stock
     return MercariItem(
         id=item_id,
-        name=node.get("name", ""),
-        price=int(node.get("price", 0)),
+        name=node.get("name") or "",
+        price=int(node.get("price") or 0),
         thumbnail_url=thumbnail_url,
         item_url=f"https://jp.mercari.com/shops/product/{item_id}",
         source=ItemSource.SHOPS,
-        is_sold=not in_stock,
+        is_sold=is_sold,
         photos=photos,
     )
 

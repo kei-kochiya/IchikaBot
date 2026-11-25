@@ -61,15 +61,18 @@ class CardOfDayCog(commands.Cog):
             # Rebuild the in-memory dict: {guild_id_str: {channel_id, interval_hours, last_post_ts}}
             self.settings = {}
             for gid, kv in rows.items():
-                cfg: dict = {}
-                if "channel_id" in kv:
-                    cfg["channel_id"] = int(kv["channel_id"])
+                if "channel_id" not in kv:
+                    logger.warning(
+                        "CardOfDay: Skipping incomplete config for guild %s (missing channel_id)",
+                        gid,
+                    )
+                    continue
+                cfg: dict = {"channel_id": int(kv["channel_id"])}
                 if "interval_hours" in kv:
                     cfg["interval_hours"] = float(kv["interval_hours"])
                 if "last_post_ts" in kv:
                     cfg["last_post_ts"] = float(kv["last_post_ts"])
-                if cfg:
-                    self.settings[str(gid)] = cfg
+                self.settings[str(gid)] = cfg
         except Exception as e:
             logger.error("CardOfDay: Failed to load settings: %s", e)
             self.settings = {}
@@ -107,6 +110,24 @@ class CardOfDayCog(commands.Cog):
         embed.timestamp = datetime.now(UTC)
         return embed
 
+    async def _build_card_payload(self) -> tuple[dict, dict, CardToggleView | None]:
+        """Pick a random 3/4★ card and prepare send kwargs + optional toggle view."""
+        card = random.choice(card_data.pool_3_4)
+        can_toggle = supports_trained_art(card)
+        is_trained = can_toggle or is_pre_trained_card(card)
+        img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
+        file = discord.File(img_path, filename="card.webp") if img_path else None
+        attachment_url = "attachment://card.webp" if file else None
+
+        embed = self.create_card_embed(card, attachment_url=attachment_url)
+        view = CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
+        send_kwargs: dict = {"embed": embed}
+        if file:
+            send_kwargs["file"] = file
+        if view:
+            send_kwargs["view"] = view
+        return card, send_kwargs, view
+
     # --- Loop ---
 
     @tasks.loop(minutes=1)
@@ -119,6 +140,8 @@ class CardOfDayCog(commands.Cog):
 
         for guild_id_str, cfg in list(self.settings.items()):
             channel_id = cfg.get("channel_id")
+            if not channel_id:
+                continue
             interval_hours = cfg.get("interval_hours", DEFAULT_INTERVAL_HOURS)
             last_post = cfg.get("last_post_ts", 0)
 
@@ -127,34 +150,21 @@ class CardOfDayCog(commands.Cog):
             if now_ts < self._retry_after.get(guild_id_str, 0):
                 continue  # Recent failure, wait before retrying
 
-            channel = self.bot.get_channel(int(channel_id))
-            if not channel:
-                continue
-
             try:
-                card = random.choice(card_data.pool_3_4)
-                can_toggle = supports_trained_art(card)
-                is_trained = can_toggle or is_pre_trained_card(card)
-                img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
-                file = discord.File(img_path, filename="card.webp") if img_path else None
-                attachment_url = "attachment://card.webp" if file else None
+                channel = self.bot.get_channel(int(channel_id))
+                if not channel:
+                    continue
 
-                embed = self.create_card_embed(card, attachment_url=attachment_url)
-                view = (
-                    CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
-                )
-                send_kwargs: dict = {"embed": embed}
-                if file:
-                    send_kwargs["file"] = file
-                if view:
-                    send_kwargs["view"] = view
+                card, send_kwargs, view = await self._build_card_payload()
                 msg = await channel.send(**send_kwargs)
                 if view:
                     view.message = msg
 
-                cfg["last_post_ts"] = now_ts
-                self._retry_after.pop(guild_id_str, None)
-                await database.set_setting(int(guild_id_str), "cotd_last_post_ts", str(now_ts))
+                # Only persist if /cotd disable did not remove this guild while we awaited
+                if self.settings.get(guild_id_str) is cfg:
+                    cfg["last_post_ts"] = now_ts
+                    self._retry_after.pop(guild_id_str, None)
+                    await database.set_setting(int(guild_id_str), "cotd_last_post_ts", str(now_ts))
                 logger.info("CardOfDay: Posted card %d in guild %s", card["id"], guild_id_str)
             except Exception as e:
                 # e.g. missing permissions: without a backoff this retries (and logs) every minute
@@ -176,6 +186,10 @@ class CardOfDayCog(commands.Cog):
         name="cotd",
         description="Card of the Day",
         guild_only=True,  # requires a guild: uses guild_id and manage_guild perms
+        allowed_contexts=app_commands.AppCommandContext(
+            guild=True, dm_channel=False, private_channel=False
+        ),
+        allowed_installs=app_commands.AppInstallationType(guild=True, user=False),
     )
 
     @cotd_group.command(name="channel", description="Đặt kênh gửi Card of the Day")
@@ -191,9 +205,10 @@ class CardOfDayCog(commands.Cog):
             }
         else:
             self.settings[guild_id]["channel_id"] = channel.id
+        self._retry_after.pop(guild_id, None)
 
         await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
-        interval = self.settings[guild_id]["interval_hours"]
+        interval = self.settings[guild_id].get("interval_hours", DEFAULT_INTERVAL_HOURS)
 
         embed = discord.Embed(
             title="Card of the Day đã được cài đặt!",
@@ -242,29 +257,19 @@ class CardOfDayCog(commands.Cog):
 
         await interaction.response.defer()
 
-        card = random.choice(card_data.pool_3_4)
-        can_toggle = supports_trained_art(card)
-        is_trained = can_toggle or is_pre_trained_card(card)
-        img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
-        file = discord.File(img_path, filename="card.webp") if img_path else None
-        attachment_url = "attachment://card.webp" if file else None
-
-        embed = self.create_card_embed(card, attachment_url=attachment_url)
-        view = CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
-        send_kwargs: dict = {"embed": embed}
-        if file:
-            send_kwargs["file"] = file
-        if view:
-            send_kwargs["view"] = view
+        _, send_kwargs, view = await self._build_card_payload()
         msg = await interaction.followup.send(**send_kwargs)
         if view:
             view.message = msg
 
-        # Reset timer so the next automatic post is a full interval away
+        # Reset timer so the next automatic post is a full interval away (only write timestamp
+        # so a concurrent /cotd disable cannot have cotd_channel_id resurrected in SQLite)
         guild_id = str(interaction.guild_id)
-        if guild_id in self.settings:
-            self.settings[guild_id]["last_post_ts"] = datetime.now(UTC).timestamp()
-            await self._save_guild_cfg(interaction.guild_id, self.settings[guild_id])
+        cfg = self.settings.get(guild_id)
+        if cfg is not None:
+            now_ts = datetime.now(UTC).timestamp()
+            cfg["last_post_ts"] = now_ts
+            await database.set_setting(interaction.guild_id, "cotd_last_post_ts", str(now_ts))
 
     @cotd_group.command(name="disable", description="Tắt Card of the Day")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -273,8 +278,10 @@ class CardOfDayCog(commands.Cog):
         if guild_id in self.settings:
             del self.settings[guild_id]
             self._retry_after.pop(guild_id, None)
-            for key in ("channel_id", "interval_hours", "last_post_ts"):
-                await database.delete_setting(interaction.guild_id, f"cotd_{key}")
+            await database.delete_settings(
+                interaction.guild_id,
+                ("cotd_channel_id", "cotd_interval_hours", "cotd_last_post_ts"),
+            )
             await interaction.response.send_message("Đã tắt Card of the Day.", ephemeral=True)
         else:
             await interaction.response.send_message("Chưa bật Card of the Day.", ephemeral=True)
@@ -319,10 +326,11 @@ class CardOfDayCog(commands.Cog):
     @disable.error
     async def cotd_admin_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                "Bạn cần quyền **Manage Server** để sử dụng lệnh này.",
-                ephemeral=True,
-            )
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.send_message(
+                    "Bạn cần quyền **Manage Server** để sử dụng lệnh này.",
+                    ephemeral=True,
+                )
 
 
 async def setup(bot: commands.Bot):

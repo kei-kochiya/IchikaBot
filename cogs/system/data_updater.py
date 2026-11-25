@@ -26,6 +26,9 @@ class DataUpdaterCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.initialized = False
+        # Guards both download/install AND singleton/cog reload so os.replace() never
+        # races against worker threads streaming the same JSON files (Windows PermissionError).
+        self._update_lock = asyncio.Lock()
 
     async def cog_load(self):
         """Initialize and start the update task."""
@@ -44,22 +47,26 @@ class DataUpdaterCog(commands.Cog):
     @tasks.loop(hours=CARD_UPDATE_INTERVAL_HOURS)
     async def scheduled_update(self):
         """Run updates for all registered data sources."""
-        logger.info("DataUpdater: Running scheduled update check...")
+        if self._update_lock.locked():
+            logger.info("DataUpdater: Skipping scheduled update; another update is in progress.")
+            return
+        async with self._update_lock:
+            logger.info("DataUpdater: Running scheduled update check...")
 
-        results = await run_all_updates()
+            results = await run_all_updates()
 
-        # Log summary
-        updated = sum(1 for success, msg in results.values() if success and "Updated" in msg)
-        failed = sum(1 for success, _ in results.values() if not success)
+            # Log summary
+            updated = sum(1 for success, msg in results.values() if success and "Updated" in msg)
+            failed = sum(1 for success, _ in results.values() if not success)
 
-        if updated > 0:
-            logger.info("DataUpdater: %d sources updated, %d failed", updated, failed)
-        else:
-            logger.debug("DataUpdater: All sources up to date")
+            if updated > 0:
+                logger.info("DataUpdater: %d sources updated, %d failed", updated, failed)
+            else:
+                logger.debug("DataUpdater: All sources up to date")
 
-        # Notify cogs to reload data if there were updates
-        if updated > 0:
-            await self._notify_cogs_to_reload(results)
+            # Notify cogs to reload data if there were updates
+            if updated > 0:
+                await self._notify_cogs_to_reload(results)
 
     @scheduled_update.before_loop
     async def before_scheduled_update(self):
@@ -94,7 +101,6 @@ class DataUpdaterCog(commands.Cog):
             "musics_jp": {"SongsCog"},
             "musics_en": {"SongsCog"},
             "music_difficulties_jp": {"SongsCog"},
-            "music_difficulties_en": {"SongsCog"},
             "events_jp": {"EventsCog"},
             "events_en": {"EventsCog"},
         }
@@ -120,7 +126,6 @@ class DataUpdaterCog(commands.Cog):
             "musics_jp",
             "musics_en",
             "music_difficulties_jp",
-            "music_difficulties_en",
         }:
             try:
                 await asyncio.to_thread(song_data.reload)
@@ -151,6 +156,8 @@ class DataUpdaterCog(commands.Cog):
         name="update_data", description="Kiểm tra và cập nhật dữ liệu game (Admin only)"
     )
     @app_commands.guild_only()
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
+    @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.checks.has_permissions(administrator=True)
     # Any server admin can run this, but the update is global: one run per minute, bot-wide
     @app_commands.checks.cooldown(1, 60.0, key=None)
@@ -158,17 +165,18 @@ class DataUpdaterCog(commands.Cog):
         """Manually trigger data update check."""
         await interaction.response.defer(ephemeral=True)
 
-        if auto_updater.busy:
+        if self._update_lock.locked() or auto_updater.busy:
             await interaction.followup.send(
                 "Đang có một lượt cập nhật khác chạy. Thử lại sau ít phút nhé.", ephemeral=True
             )
             return
 
-        results = await run_all_updates()
+        async with self._update_lock:
+            results = await run_all_updates()
 
-        # Mirror the scheduled task: refresh singletons and cogs if anything changed
-        if any(success and "Updated" in msg for success, msg in results.values()):
-            await self._notify_cogs_to_reload(results)
+            # Mirror the scheduled task: refresh singletons and cogs if anything changed
+            if any(success and "Updated" in msg for success, msg in results.values()):
+                await self._notify_cogs_to_reload(results)
 
         # Build response
         lines = []
@@ -191,14 +199,16 @@ class DataUpdaterCog(commands.Cog):
     async def update_error(self, interaction: discord.Interaction, error):
         """Handle permission errors."""
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                "Bạn cần quyền **Administrator** để dùng lệnh này.", ephemeral=True
-            )
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.send_message(
+                    "Bạn cần quyền **Administrator** để dùng lệnh này.", ephemeral=True
+                )
         elif isinstance(error, app_commands.CommandOnCooldown):
-            await interaction.response.send_message(
-                f"Dữ liệu vừa được cập nhật. Thử lại sau **{error.retry_after:.0f} giây** nhé.",
-                ephemeral=True,
-            )
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.send_message(
+                    f"Dữ liệu vừa được cập nhật. Thử lại sau **{error.retry_after:.0f} giây** nhé.",
+                    ephemeral=True,
+                )
 
 
 async def setup(bot: commands.Bot):

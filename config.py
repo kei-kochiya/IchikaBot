@@ -12,13 +12,15 @@ import aiohttp
 BASE_DIR = Path(__file__).resolve().parent
 
 # Ensure local bin directories are in PATH for container/Pterodactyl environments
+_path_entries = os.environ.get("PATH", "").split(os.pathsep)
 for _extra_bin in [
     os.path.expanduser("~/.local/bin"),
     "/home/container/.local/bin",
     str(BASE_DIR / "bin"),
 ]:
-    if os.path.isdir(_extra_bin) and _extra_bin not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = f"{_extra_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+    if os.path.isdir(_extra_bin) and _extra_bin not in _path_entries:
+        _path_entries.insert(0, _extra_bin)
+        os.environ["PATH"] = os.pathsep.join(_path_entries)
 
 DB_FILE = BASE_DIR / "ichika.db"
 
@@ -131,7 +133,7 @@ class SharedResources:
     """Singleton for shared resources like aiohttp session."""
 
     _instance = None
-    _session: aiohttp.ClientSession = None
+    _session: aiohttp.ClientSession | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -148,9 +150,9 @@ class SharedResources:
     @classmethod
     async def close_session(cls):
         """Close the shared session. Call on bot shutdown."""
-        if cls._session and not cls._session.closed:
-            await cls._session.close()
-            cls._session = None
+        session, cls._session = cls._session, None
+        if session and not session.closed:
+            await session.close()
 
 
 # Ensure directories exist

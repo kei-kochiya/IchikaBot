@@ -29,6 +29,7 @@ _DURATION_CACHE_LIMIT = 1024
 _VARIANT_INFO = {
     "fast": ("Tua nhanh 1.5x", "atempo=1.5"),
     "slow": ("Tua chậm 0.75x", f"aresample={_PCM_RATE},asetrate={int(_PCM_RATE * 0.75)}"),
+    "reverse": ("Phát ngược", "areverse"),
 }
 
 
@@ -134,14 +135,16 @@ def _load_clip(file_path: str) -> AudioSegment | None:
         if clip is not None:
             return clip
 
-    # Fallback: decode the whole track (slow and memory hungry, but always works)
-    try:
-        song = AudioSegment.from_file(file_path)
-    except Exception as e:
-        logger.error("Failed to load audio file: %s", e)
+    # Bounded fallback when ffprobe fails: decode at most the first safe-zone + clip window
+    # directly via ffmpeg with -nostdin and a strict timeout so bad files can never hang or
+    # allocate ~50+ MB of full-track PCM. Take the tail so the intro safe zone is skipped.
+    fallback_window_ms = SONG_SAFE_ZONE + SONG_CLIP_DURATION
+    clip = _extract_clip(file_path, 0, fallback_window_ms)
+    if clip is None:
         return None
-    start_time = _pick_start(len(song))
-    return song[start_time : start_time + SONG_CLIP_DURATION]
+    if len(clip) > SONG_CLIP_DURATION:
+        clip = clip[len(clip) - SONG_CLIP_DURATION :]
+    return clip if len(clip.raw_data) >= _MIN_AUDIO_BYTES else None
 
 
 def _extract_variant_wav(
@@ -206,17 +209,25 @@ def prepare_clip(file_path: str, variant: str | None = None) -> tuple[str | None
         return None, None
 
     effect_name = "Bình thường"
-    if variant == "fast":
-        clip = speedup(clip, playback_speed=1.5)
-        effect_name = "Tua nhanh 1.5x"
-    elif variant == "slow":
-        clip = clip._spawn(clip.raw_data, overrides={"frame_rate": int(clip.frame_rate * 0.75)})
-        effect_name = "Tua chậm 0.75x"
-    elif variant == "reverse":
-        clip = clip.reverse()
-        effect_name = "Phát ngược"
+    try:
+        if variant == "fast":
+            clip = speedup(clip, playback_speed=1.5)
+            effect_name = "Tua nhanh 1.5x"
+        elif variant == "slow":
+            clip = clip._spawn(
+                clip.raw_data, overrides={"frame_rate": int(clip.frame_rate * 0.75)}
+            )
+            effect_name = "Tua chậm 0.75x"
+        elif variant == "reverse":
+            clip = clip.reverse()
+            effect_name = "Phát ngược"
 
-    # WAV is written directly by Python (no second ffmpeg encode pass) and is cheaper for
-    # ffmpeg to decode again when streaming to Discord; the file only lives for one round.
-    clip.export(str(temp_filename), format="wav").close()
-    return str(temp_filename), effect_name
+        # WAV is written directly by Python (no second ffmpeg encode pass) and is cheaper for
+        # ffmpeg to decode again when streaming to Discord; the file only lives for one round.
+        clip.export(str(temp_filename), format="wav").close()
+        return str(temp_filename), effect_name
+    except Exception as e:
+        logger.warning("Failed to process/export audio clip for %s: %s", file_path, e)
+        with contextlib.suppress(OSError):
+            temp_filename.unlink(missing_ok=True)
+        return None, None

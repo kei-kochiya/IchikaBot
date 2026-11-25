@@ -50,7 +50,7 @@ def _build_item_embed(item: MercariItem, user_id: int) -> discord.Embed:
     source_label = "Mercari Shops" if item.source == ItemSource.SHOPS else "Mercari C2C"
 
     embed = discord.Embed(
-        title=item.name or "Không có tên",
+        title=(item.name or "Không có tên")[:256],
         url=item.item_url,
         color=embed_color,
     )
@@ -91,7 +91,8 @@ class MercariCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         if self._scraper:
-            await self._scraper.close()
+            scraper, self._scraper = self._scraper, None
+            await scraper.close()
 
     def _ensure_scraper(self) -> AsyncMercariScraper:
         # Created on first use: mercapi/httpx stay unloaded until someone looks up a link
@@ -107,7 +108,7 @@ class MercariCog(commands.Cog):
             item = await scraper.get_item(item_id_or_url)
         except Exception as e:
             logger.error("Mercari: lookup failed for %s: %s", item_id_or_url, e)
-            return f"Không thể lấy thông tin sản phẩm: `{e}`"
+            return "Không thể lấy thông tin sản phẩm lúc này. Thử lại sau ít phút nhé."
 
         if not item:
             return "Không tìm thấy sản phẩm hoặc bị Mercari chặn."

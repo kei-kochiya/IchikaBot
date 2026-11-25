@@ -3,6 +3,7 @@ Card utilities for Project Sekai Discord bot.
 Shared helper functions for card image URLs and views.
 """
 
+import asyncio
 import contextlib
 import random
 
@@ -64,8 +65,11 @@ async def update_card_attachment_message(
     build_embed,
     fallback_url: str,
     view: discord.ui.View,
-) -> None:
-    """Defer a button interaction, fetch/attach card art, and edit the message."""
+) -> bool:
+    """Defer a button interaction, fetch/attach card art, and edit the message.
+
+    Returns True if the edit succeeded, False if a Discord HTTP error occurred.
+    """
     if not interaction.response.is_done():
         with contextlib.suppress(discord.HTTPException):
             await interaction.response.defer()
@@ -77,7 +81,7 @@ async def update_card_attachment_message(
         if att.filename not in ("card.png", "card.webp")
     ]
 
-    with contextlib.suppress(discord.HTTPException):
+    try:
         if img_path:
             file = discord.File(img_path, filename="card.webp")
             embed = build_embed("attachment://card.webp")
@@ -94,6 +98,9 @@ async def update_card_attachment_message(
             await interaction.response.edit_message(
                 embed=embed, attachments=target_attachments, view=view
             )
+        return True
+    except discord.HTTPException:
+        return False
 
 
 class CardToggleView(discord.ui.View):
@@ -106,12 +113,13 @@ class CardToggleView(discord.ui.View):
     def __init__(
         self, embed: discord.Embed, card: dict, default_trained: bool = True, timeout: int = 180
     ):
-        super().__init__(timeout=timeout)
+        self.is_pre_trained = is_pre_trained_card(card)
+        self.supports_trained = supports_trained_art(card)
+        super().__init__(timeout=timeout if self.supports_trained else None)
         self.embed = embed
         self.card = card
         self.message = None  # Set by caller after sending: view.message = msg
-        self.is_pre_trained = is_pre_trained_card(card)
-        self.supports_trained = supports_trained_art(card)
+        self._lock = asyncio.Lock()
 
         # Start with trained for pre-trained cards, or if default_trained requested on toggleable cards
         self.is_trained = (default_trained and self.supports_trained) or self.is_pre_trained
@@ -124,6 +132,8 @@ class CardToggleView(discord.ui.View):
             )
             self.toggle_btn.callback = self.toggle_callback
             self.add_item(self.toggle_btn)
+        else:
+            self.stop()
 
     def get_current_image_url(self) -> str:
         """Get the current image URL based on trained state."""
@@ -132,28 +142,36 @@ class CardToggleView(discord.ui.View):
     async def toggle_callback(self, interaction: discord.Interaction):
         from utils.media.image_helper import get_card_image_path
 
-        self.is_trained = not self.is_trained
-        self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
 
-        embed = (
-            interaction.message.embeds[0]
-            if interaction.message and interaction.message.embeds
-            else self.embed
-        )
+        async with self._lock:
+            self.is_trained = not self.is_trained
+            self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
 
-        def build_embed(url: str) -> discord.Embed:
-            embed.set_image(url=url)
-            return embed
+            embed = (
+                interaction.message.embeds[0]
+                if interaction.message and interaction.message.embeds
+                else self.embed
+            )
 
-        await update_card_attachment_message(
-            interaction=interaction,
-            fetch_image=get_card_image_path,
-            asset_bundle=self.card["assetbundleName"],
-            is_trained=self.is_trained,
-            build_embed=build_embed,
-            fallback_url=self.get_current_image_url(),
-            view=self,
-        )
+            def build_embed(url: str) -> discord.Embed:
+                embed.set_image(url=url)
+                return embed
+
+            ok = await update_card_attachment_message(
+                interaction=interaction,
+                fetch_image=get_card_image_path,
+                asset_bundle=self.card["assetbundleName"],
+                is_trained=self.is_trained,
+                build_embed=build_embed,
+                fallback_url=self.get_current_image_url(),
+                view=self,
+            )
+            if not ok:
+                self.is_trained = not self.is_trained
+                self.toggle_btn.label = "Untrained" if self.is_trained else "Trained"
 
     async def on_timeout(self):
         for item in self.children:

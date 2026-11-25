@@ -51,12 +51,12 @@ class GameDataManager:
 
     def _load_data(self):
         """Load character, unit, and profile data from JSON files atomically."""
-        new_characters: dict[str, dict] = {}
-        new_characters_by_int: dict[int, dict] = {}
-        new_unit_colors: dict[str, str] = {}
-        new_unit_colors_by_int: dict[int, str] = {}
-        new_nicknames: dict[str, list] = {}
-        new_profiles: dict[int, dict] = {}
+        new_characters: dict[str, dict] | None = None
+        new_characters_by_int: dict[int, dict] | None = None
+        new_unit_colors: dict[str, str] | None = None
+        new_unit_colors_by_int: dict[int, str] | None = None
+        new_nicknames: dict[str, list] | None = None
+        new_profiles: dict[int, dict] | None = None
         try:
             with open(CHARACTERS_FILE, encoding="utf-8") as f:
                 new_characters, new_characters_by_int = _index_by_id(json.load(f))
@@ -79,8 +79,7 @@ class GameDataManager:
                 with open(NICKNAMES_FILE, encoding="utf-8") as f:
                     new_nicknames = json.load(f)
         except Exception as e:
-            logger.warning("GameDataManager: Failed to load nicknames: %s", e)
-            new_nicknames = {}
+            logger.warning("GameDataManager: Failed to load nicknames (keeping existing): %s", e)
 
         # Profiles (optional file)
         try:
@@ -89,27 +88,28 @@ class GameDataManager:
                     raw_profiles = json.load(f)
                     new_profiles = {p["characterId"]: p for p in raw_profiles}
         except Exception as e:
-            logger.warning("GameDataManager: Failed to load profiles: %s", e)
-            new_profiles = {}
+            logger.warning("GameDataManager: Failed to load profiles (keeping existing): %s", e)
 
-        # Precompute character name variants for fast get_character_by_name() lookups
-        search_names: list[tuple[int, dict, list[str]]] = []
-        for char_id, char in new_characters_by_int.items():
-            given = char.get("givenName", "").lower()
-            first = char.get("firstName", "").lower()
-            full = f"{first} {given}".strip()
-            rev = f"{given} {first}".strip()
-            candidates = [n for n in (given, first, full, rev) if n]
-            search_names.append((char_id, char, candidates))
-
-        # Atomic assignment
-        self.characters = new_characters
-        self.characters_by_int = new_characters_by_int
-        self.unit_colors = new_unit_colors
-        self.unit_colors_by_int = new_unit_colors_by_int
-        self.nicknames = new_nicknames
-        self.profiles = new_profiles
-        self._search_names = search_names
+        # Atomic assignment (only overwrite slices that loaded cleanly)
+        if new_characters is not None and new_characters_by_int is not None:
+            search_names: list[tuple[int, dict, list[str]]] = []
+            for char_id, char in new_characters_by_int.items():
+                given = char.get("givenName", "").lower()
+                first = char.get("firstName", "").lower()
+                full = f"{first} {given}".strip()
+                rev = f"{given} {first}".strip()
+                candidates = [n for n in (given, first, full, rev) if n]
+                search_names.append((char_id, char, candidates))
+            self.characters = new_characters
+            self.characters_by_int = new_characters_by_int
+            self._search_names = search_names
+        if new_unit_colors is not None and new_unit_colors_by_int is not None:
+            self.unit_colors = new_unit_colors
+            self.unit_colors_by_int = new_unit_colors_by_int
+        if new_nicknames is not None:
+            self.nicknames = new_nicknames
+        if new_profiles is not None:
+            self.profiles = new_profiles
 
         logger.info(
             "GameDataManager: Loaded %d characters, %d unit colors, %d profiles, nicknames for %d chars",
@@ -125,7 +125,11 @@ class GameDataManager:
 
     def get_profile(self, char_id: int | str) -> dict | None:
         """Get character profile by ID."""
-        char_id_int = int(char_id) if isinstance(char_id, str) and char_id.isdigit() else char_id
+        char_id_int = (
+            int(char_id)
+            if isinstance(char_id, str) and char_id.isascii() and char_id.isdigit()
+            else char_id
+        )
         if isinstance(char_id_int, int):
             return self.profiles.get(char_id_int)
         return None
@@ -220,7 +224,7 @@ class GameDataManager:
         search = current.lower()
 
         for char_id, char in self.characters_by_int.items():
-            if max_id and char_id > max_id:
+            if max_id is not None and char_id > max_id:
                 continue
 
             given = char.get("givenName", "")

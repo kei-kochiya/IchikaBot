@@ -44,15 +44,41 @@ async def _fetch(url: str, dest: Path) -> str | None:
     if _is_known_missing(url):
         return None
 
-    # Write to a side file first: readers check dest.exists(), and must never see a
+    # Write to a unique side file first: readers check dest.exists(), and must never see a
     # half-written image.
-    tmp = dest.with_name(dest.name + ".part")
+    tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         session = await SharedResources.get_session()
         async with session.get(url) as resp:
             if resp.status == 200:
+                content_type = getattr(resp, "content_type", None)
+                if (
+                    isinstance(content_type, str)
+                    and content_type
+                    and not content_type.startswith("image/")
+                    and content_type != "application/octet-stream"
+                ):
+                    logger.warning(
+                        "Failed to download %s: unexpected Content-Type %s", url, content_type
+                    )
+                    return None
+
+                written = 0
                 async with aiofiles.open(tmp, mode="wb") as f:
-                    await f.write(await resp.read())
+                    content = getattr(resp, "content", None)
+                    if content is not None and hasattr(content, "iter_chunked"):
+                        async for chunk in content.iter_chunked(65536):
+                            written += len(chunk)
+                            await f.write(chunk)
+                    else:
+                        data = await resp.read()
+                        written = len(data)
+                        if data:
+                            await f.write(data)
+
+                if written == 0:
+                    logger.warning("Failed to download %s: empty response body", url)
+                    return None
                 os.replace(tmp, dest)
                 return str(dest)
             if resp.status == 404:
@@ -62,7 +88,7 @@ async def _fetch(url: str, dest: Path) -> str | None:
             else:
                 logger.warning("Failed to download %s: HTTP %s", url, resp.status)
     except Exception as e:
-        logger.error("Error downloading %s: %s", url, e)
+        logger.error("Error downloading %s: %s: %s", url, type(e).__name__, e)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
@@ -109,7 +135,9 @@ def _png_to_webp(png: Path, dest: Path) -> str | None:
         with contextlib.suppress(OSError):
             png.unlink(missing_ok=True)
         return str(dest)
-    except OSError as e:
+    except (OSError, ValueError, SyntaxError) as e:
+        with contextlib.suppress(OSError):
+            png.unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             if dest.stat().st_size > 0:
                 return str(dest)
@@ -130,11 +158,20 @@ async def _card_art(asset_bundle_name: str, trained: bool) -> tuple[str | None, 
     if path or not _is_known_missing(webp_url):
         return path, False  # got it, or a network error: don't pile on more requests
 
-    # No WebP (yet) for this card: take the PNG and convert it, so the cache stays WebP
+    # No WebP (yet) for this card: take the PNG and convert it, so the cache stays WebP.
+    # Deduplicate the conversion in _inflight so concurrent callers never race on Windows.
     png_url = CARD_ART_URL.format(asset=asset_bundle_name, kind=kind, ext="png")
     png = await _cached_download(png_url, CACHE_DIR / f"{asset_bundle_name}_{sfx}.png")
     if png:
-        return await asyncio.to_thread(_png_to_webp, Path(png), dest), False
+        conv_key = f"webp:{dest}"
+        conv_task = _inflight.get(conv_key)
+        if conv_task is None or conv_task.get_loop() is not asyncio.get_running_loop():
+            conv_task = asyncio.ensure_future(asyncio.to_thread(_png_to_webp, Path(png), dest))
+            _inflight[conv_key] = conv_task
+            conv_task.add_done_callback(
+                lambda t: _inflight.pop(conv_key, None) if _inflight.get(conv_key) is t else None
+            )
+        return await asyncio.shield(conv_task), False
     return None, _is_known_missing(png_url)
 
 

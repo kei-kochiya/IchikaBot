@@ -152,16 +152,19 @@ class CardDataManager:
 
         # ── EN cards: prefix strings only (not full card objects) ────────────
         try:
-            self.en_prefix = self._stream_en_prefixes(CARDS_FILE_EN)
+            new_en_prefix = self._stream_en_prefixes(CARDS_FILE_EN)
+            self.en_prefix = new_en_prefix
             logger.info(
                 "CardData: %d EN prefix strings [Memory-Optimized]",
                 len(self.en_prefix),
             )
         except FileNotFoundError:
-            self.en_prefix = {}
+            if not self.en_prefix:
+                self.en_prefix = {}
+            else:
+                logger.warning("CardData: EN cards file missing on reload; keeping cached EN prefixes")
         except Exception as e:
-            logger.warning("CardData: Failed to load EN prefixes: %s", e)
-            self.en_prefix = {}
+            logger.warning("CardData: Failed to load EN prefixes (keeping existing): %s", e)
 
     def reload(self):
         """Reload from disk. Called by DataUpdater after file updates."""

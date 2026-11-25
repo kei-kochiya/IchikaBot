@@ -384,7 +384,7 @@ def matches_query(query: str, *fields: str) -> bool:
             return True
         if q_norm is None:
             q_norm = normalize_for_search(query)
-        if q_norm in normalize_for_search(field):
+        if q_norm and q_norm in normalize_for_search(field):
             return True
 
     return False

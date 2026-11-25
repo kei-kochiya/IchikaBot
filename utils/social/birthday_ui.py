@@ -1,6 +1,7 @@
+import asyncio
 import contextlib
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import discord
 
@@ -11,9 +12,7 @@ from utils.game.cards import (
     supports_trained_art,
     update_card_attachment_message,
 )
-from utils.social.birthday_helpers import get_birthday_card_for_character
-
-JST = timezone(timedelta(hours=9))
+from utils.social.birthday_helpers import JST, get_birthday_card_for_character
 
 UNIT_NAMES = {
     "leo_need": "Leo/need",
@@ -54,10 +53,7 @@ def create_birthday_embed(
             release_year = datetime.fromtimestamp(release_ts / 1000, tz=JST).year
             embed.add_field(name="Card Year", value=str(release_year), inline=True)
 
-        card_url = (
-            attachment_url
-            or f"https://storage.sekai.best/sekai-jp-assets/character/member/{card['assetbundleName']}/card_normal.png"
-        )
+        card_url = attachment_url or get_card_image_url(card["assetbundleName"], trained=False)
         embed.set_image(url=card_url)
         embed.set_footer(text=card.get("prefix", "Birthday Card"))
     else:
@@ -83,7 +79,9 @@ def create_daily_card_embed(
     unit_display = UNIT_NAMES.get(unit, unit)
 
     # Countdown text
-    if days_until_bday == 1:
+    if days_until_bday == 0:
+        countdown_text = "**Hôm nay** là sinh nhật!"
+    elif days_until_bday == 1:
         countdown_text = "**Ngày mai** là sinh nhật!"
     elif days_until_bday <= 7:
         countdown_text = f"Còn **{days_until_bday} ngày** nữa là sinh nhật!"
@@ -115,59 +113,67 @@ class BirthdayCardView(discord.ui.View):
         self.character = character
         self.cards = cards  # Sorted newest first
         self.current_index = current_index
-        self.update_buttons()
+        self.message = None
+        self._lock = asyncio.Lock()
 
-    def update_buttons(self):
-        # Clear existing buttons
-        self.clear_items()
-
-        # Previous (older) button
-        prev_btn = discord.ui.Button(
+        self._prev_btn = discord.ui.Button(
             label="Older",
             style=discord.ButtonStyle.secondary,
-            disabled=self.current_index >= len(self.cards) - 1,
             custom_id="birthday_prev",
         )
-        prev_btn.callback = self.prev_callback
-        self.add_item(prev_btn)
-
-        # Year indicator
-        year_label = discord.ui.Button(
+        self._prev_btn.callback = self.prev_callback
+        self._year_label = discord.ui.Button(
             label=f"{self.current_index + 1}/{len(self.cards)}",
             style=discord.ButtonStyle.primary,
             disabled=True,
             custom_id="birthday_indicator",
         )
-        self.add_item(year_label)
-
-        # Next (newer) button
-        next_btn = discord.ui.Button(
+        self._next_btn = discord.ui.Button(
             label="Newer",
             style=discord.ButtonStyle.secondary,
-            disabled=self.current_index <= 0,
             custom_id="birthday_next",
         )
-        next_btn.callback = self.next_callback
-        self.add_item(next_btn)
+        self._next_btn.callback = self.next_callback
+        self.add_item(self._prev_btn)
+        self.add_item(self._year_label)
+        self.add_item(self._next_btn)
+        self.update_buttons()
+
+    def update_buttons(self):
+        # Mutate existing button attributes in place so live ViewStore items stay attached
+        self._prev_btn.disabled = self.current_index >= len(self.cards) - 1
+        self._year_label.label = f"{self.current_index + 1}/{len(self.cards)}"
+        self._next_btn.disabled = self.current_index <= 0
 
     async def _step(self, interaction: discord.Interaction, delta: int) -> None:
         from utils.media.image_helper import get_card_image_path
 
-        self.current_index = max(0, min(self.current_index + delta, len(self.cards) - 1))
-        self.update_buttons()
-        card = self.cards[self.current_index]
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
 
-        await update_card_attachment_message(
-            interaction=interaction,
-            fetch_image=get_card_image_path,
-            asset_bundle=card["assetbundleName"],
-            is_trained=False,
-            build_embed=lambda url: self._create_embed(
-                attachment_url=url if url.startswith("attachment://") else None
-            ),
-            fallback_url=get_card_image_url(card["assetbundleName"], trained=False),
-            view=self,
-        )
+        async with self._lock:
+            prev_index = self.current_index
+            self.current_index = max(0, min(self.current_index + delta, len(self.cards) - 1))
+            self.update_buttons()
+            card = self.cards[self.current_index]
+
+            ok = await update_card_attachment_message(
+                interaction=interaction,
+                fetch_image=get_card_image_path,
+                asset_bundle=card["assetbundleName"],
+                is_trained=False,
+                build_embed=lambda url, c=card: create_birthday_embed(
+                    self.character,
+                    c,
+                    attachment_url=url if url.startswith("attachment://") else None,
+                ),
+                fallback_url=get_card_image_url(card["assetbundleName"], trained=False),
+                view=self,
+            )
+            if not ok:
+                self.current_index = prev_index
+                self.update_buttons()
 
     async def prev_callback(self, interaction: discord.Interaction):
         await self._step(interaction, +1)

@@ -134,7 +134,7 @@ class EventDataManager:
 
     def search_events(self, query: str, limit: int = 50) -> list[dict]:
         """Search events by name, ID, or romaji. Returns JP events for correct timing."""
-        if query.isdigit():
+        if query.isascii() and query.isdigit():
             target_id = int(query)
             event = self.get_event_by_id(target_id)
             if event:

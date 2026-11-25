@@ -3,6 +3,7 @@ Card Cog - Display Project Sekai card information.
 Supports both JP and EN card data with English search.
 """
 
+import asyncio
 import contextlib
 import logging
 from itertools import islice
@@ -26,10 +27,11 @@ logger = logging.getLogger(__name__)
 
 class CardView(discord.ui.View):
     def __init__(self, card_data, char_data, base_image_url):
-        super().__init__(timeout=120)
+        toggleable = supports_trained_art(card_data)
+        super().__init__(timeout=120 if toggleable else None)
         self.card_data = card_data
-        self.char_data = char_data
         self.base_image_url = base_image_url
+        self._lock = asyncio.Lock()
         is_pre_trained = is_pre_trained_card(card_data)
         self.is_normal = not is_pre_trained
 
@@ -39,13 +41,15 @@ class CardView(discord.ui.View):
             custom_id=f"switch_{card_data['id']}_type",
         )
 
-        if not supports_trained_art(card_data):
+        if not toggleable:
             self.switch_button.disabled = True
             self.switch_button.label = "Trained Only" if is_pre_trained else "No Trained Art"
             self.switch_button.style = discord.ButtonStyle.secondary
 
         self.switch_button.callback = self.switch_callback
         self.add_item(self.switch_button)
+        if not toggleable:
+            self.stop()
 
     async def switch_callback(self, interaction: discord.Interaction):
         embed = (
@@ -59,27 +63,38 @@ class CardView(discord.ui.View):
                     await interaction.response.defer()
             return
 
-        self.is_normal = not self.is_normal
-        self.switch_button.label = "Trained" if self.is_normal else "Normal"
-        self.switch_button.style = (
-            discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
-        )
+        if not interaction.response.is_done():
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.defer()
 
-        suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
+        async with self._lock:
+            self.is_normal = not self.is_normal
+            self.switch_button.label = "Trained" if self.is_normal else "Normal"
+            self.switch_button.style = (
+                discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
+            )
 
-        def build_embed(url: str) -> discord.Embed:
-            embed.set_image(url=url)
-            return embed
+            suffix = "card_normal.png" if self.is_normal else "card_after_training.png"
 
-        await update_card_attachment_message(
-            interaction=interaction,
-            fetch_image=get_card_image_path,
-            asset_bundle=self.card_data["assetbundleName"],
-            is_trained=not self.is_normal,
-            build_embed=build_embed,
-            fallback_url=f"{self.base_image_url}/{suffix}",
-            view=self,
-        )
+            def build_embed(url: str) -> discord.Embed:
+                embed.set_image(url=url)
+                return embed
+
+            ok = await update_card_attachment_message(
+                interaction=interaction,
+                fetch_image=get_card_image_path,
+                asset_bundle=self.card_data["assetbundleName"],
+                is_trained=not self.is_normal,
+                build_embed=build_embed,
+                fallback_url=f"{self.base_image_url}/{suffix}",
+                view=self,
+            )
+            if not ok:
+                self.is_normal = not self.is_normal
+                self.switch_button.label = "Trained" if self.is_normal else "Normal"
+                self.switch_button.style = (
+                    discord.ButtonStyle.primary if self.is_normal else discord.ButtonStyle.secondary
+                )
 
     async def on_timeout(self):
         for item in self.children:
@@ -108,8 +123,11 @@ class CardCog(commands.Cog):
             char_name = get_character_name(card["characterId"], full=True)
             rarity = card["cardRarityType"]
             rarity_str = "Birthday" if "birthday" in rarity else f"{rarity[-1]}★"
-            display = f"{rarity_str} // {prefix} [{char_name}]"[:100]
-            return (display.lower(), display, str(card["id"]))
+            full_label = f"{rarity_str} // {prefix} [{char_name}]"
+            display = full_label[:100]
+            jp_prefix = card.get("prefix") or ""
+            hay = f"{full_label}\x00{jp_prefix}" if jp_prefix and jp_prefix != prefix else full_label
+            return (hay.lower(), display, str(card["id"]))
 
         for card_id, en_pfx in card_data.en_prefix.items():
             if card_id in seen_ids:
@@ -149,11 +167,13 @@ class CardCog(commands.Cog):
             selected_card = card_data.get_by_id(card_id)
         except ValueError:
             name_lower = card_name.lower()
-            # Search EN prefixes first
+            # Search EN prefixes first (skip EN-only IDs missing from JP cards)
             for cid, prefix in card_data.en_prefix.items():
                 if name_lower in prefix.lower():
-                    selected_card = card_data.get_by_id(cid)
-                    break
+                    candidate = card_data.get_by_id(cid)
+                    if candidate is not None:
+                        selected_card = candidate
+                        break
             # Fall back to JP
             if not selected_card:
                 for card in card_data.cards:
@@ -183,7 +203,9 @@ class CardCog(commands.Cog):
             ASSETS_PATH / "common" / "logo_mini" / f"{char_info.get('unit', 'unknown')}.png"
         )
 
-        clean_name = char_info.get("givenName", "").lower().replace(" ", "")
+        clean_name = (
+            (char_info.get("givenName") or char_info.get("firstName") or "").lower().replace(" ", "")
+        )
         icon_img_path = ASSETS_PATH / "chara_icons" / f"{clean_name}.png"
 
         files_to_send = []

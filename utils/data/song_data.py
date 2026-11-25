@@ -34,11 +34,14 @@ SONG_KEYS = frozenset(
 def _search_entry(
     song_id: int, song: dict | None, title: str, pron: str, comp: str, ac_label: str
 ) -> tuple:
+    # Call uncached normalization here: results are stored permanently in the index, so
+    # routing them through normalize_for_search's LRU cache would evict live query entries.
+    norm_uncached = getattr(normalize_for_search, "__wrapped__", normalize_for_search)
     ac_fields = [f for f in (title, pron) if f]
     ac_lower = "\x00".join(f.lower() for f in ac_fields)
-    ac_norm = "\x00".join(normalize_for_search(f) for f in ac_fields)
+    ac_norm = "\x00".join(norm_uncached(f) for f in ac_fields)
     all_lower = f"{ac_lower}\x00{comp.lower()}" if comp else ac_lower
-    all_norm = f"{ac_norm}\x00{normalize_for_search(comp)}" if comp else ac_norm
+    all_norm = f"{ac_norm}\x00{norm_uncached(comp)}" if comp else ac_norm
     return (song_id, song, all_lower, all_norm, ac_lower, ac_norm, ac_label, str(song_id))
 
 
@@ -46,7 +49,7 @@ def _entry_matches(entry: tuple, q_lower: str, q_norm: str, ac_only: bool = Fals
     if "\x00" in q_lower:
         return False
     lowers, norms = (entry[4], entry[5]) if ac_only else (entry[2], entry[3])
-    return q_lower in lowers or q_norm in norms
+    return q_lower in lowers or (bool(q_norm) and q_norm in norms)
 
 
 class SongDataManager:
@@ -198,7 +201,7 @@ class SongDataManager:
 
     def search_songs(self, query: str, limit: int = 50) -> list[dict]:
         """Search songs by name, ID, or romaji across EN and JP."""
-        if query.isdigit():
+        if query.isascii() and query.isdigit():
             target_id = int(query)
             song = self.get_song_by_id(target_id)
             if song:

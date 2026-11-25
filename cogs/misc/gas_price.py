@@ -72,11 +72,6 @@ _X_REQUEST = (
 # ---------------------------------------------------------------------------
 
 
-def _get_current_vn_date() -> str:
-    """Return the current date in Vietnam time (UTC+7) in YYYY-MM-DD format."""
-    return datetime.now(_VN_TZ).strftime("%Y-%m-%d")
-
-
 # Vietnam adjusts retail fuel prices at 15:00 (on adjustment days)
 PRICE_UPDATE_HOUR = 15
 
@@ -84,7 +79,12 @@ PRICE_UPDATE_HOUR = 15
 def _is_fresh(cache: dict | None, now: datetime) -> bool:
     """Cached prices stay valid for the rest of the Vietnam day, except that prices
     fetched before 15:00 are fetched again once it is past 15:00, when prices change."""
-    if not cache or not cache.get("products") or cache.get("date") != now.strftime("%Y-%m-%d"):
+    if (
+        not cache
+        or not isinstance(cache.get("products"), list)
+        or not cache["products"]
+        or cache.get("date") != now.strftime("%Y-%m-%d")
+    ):
         return False
     fetched_hour = cache.get("fetched_hour")
     if fetched_hour is None:  # written by an older version: keep the old daily behaviour
@@ -100,7 +100,7 @@ def _load_cache(file_path: Path | str = _CACHE_FILE) -> dict | None:
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and "date" in data and "products" in data:
+        if isinstance(data, dict) and "date" in data and isinstance(data.get("products"), list):
             return data
     except Exception as exc:
         logger.warning("GasPrice: Failed to read cache file %s: %s", path, exc)
@@ -138,16 +138,41 @@ async def fetch_prices(session: aiohttp.ClientSession) -> list[dict]:
     ) as resp:
         resp.raise_for_status()
         data = await resp.json(content_type=None)
-    objects = data.get("Objects", [])
+    objects = (data.get("Objects") if isinstance(data, dict) else None) or []
     return sorted(objects, key=lambda o: int(o.get("DIsplayOrder") or 99))
+
+
+def _parse_modified_ts(raw: object) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    ts = raw.strip()
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(_VN_TZ)
+
+
+def _format_price(val: object) -> str | None:
+    if val is None or isinstance(val, bool):
+        return None
+    try:
+        num = int(val) if isinstance(val, int) else float(val)
+    except (ValueError, TypeError):
+        return None
+    return f"{num:,.0f}" if isinstance(num, float) and num.is_integer() else f"{num:,}"
 
 
 def _build_embed(products: list[dict]) -> discord.Embed:
     """Build a Discord embed from the list of price products."""
     updated_times = [
-        datetime.fromisoformat(o["LastModified"].rstrip("Z")).replace(tzinfo=UTC).astimezone(_VN_TZ)
+        dt
         for o in products
-        if o.get("LastModified")
+        if isinstance(o, dict) and (dt := _parse_modified_ts(o.get("LastModified"))) is not None
     ]
     last_update = max(updated_times) if updated_times else None
 
@@ -157,12 +182,14 @@ def _build_embed(products: list[dict]) -> discord.Embed:
         color=discord.Color.orange(),
     )
 
-    for product in products:
-        name = product.get("Title") or product.get("EnglishTitle") or "?"
-        z1 = product.get("Zone1Price")
-        z2 = product.get("Zone2Price")
+    for product in products[:25]:
+        if not isinstance(product, dict):
+            continue
+        name = str(product.get("Title") or product.get("EnglishTitle") or "?")[:256]
+        z1 = _format_price(product.get("Zone1Price"))
+        z2 = _format_price(product.get("Zone2Price"))
         value = (
-            f"Vùng 1: **{z1:,} đ**\nVùng 2: **{z2:,} đ**"
+            f"Vùng 1: **{z1} đ**\nVùng 2: **{z2} đ**"
             if z1 is not None and z2 is not None
             else "Không có dữ liệu"
         )
@@ -189,7 +216,7 @@ class GasPriceCog(commands.Cog):
         self._lock = asyncio.Lock()
 
     async def cog_load(self) -> None:
-        self._cache = _load_cache(self.cache_file)
+        self._cache = await asyncio.to_thread(_load_cache, self.cache_file)
 
     async def cog_unload(self) -> None:
         if self._session and not self._session.closed:
@@ -217,7 +244,7 @@ class GasPriceCog(commands.Cog):
                 return _build_embed(self._cache["products"])
 
             # Check persistent disk cache
-            disk_cache = _load_cache(self.cache_file)
+            disk_cache = await asyncio.to_thread(_load_cache, self.cache_file)
             if _is_fresh(disk_cache, now):
                 self._cache = disk_cache
                 return _build_embed(disk_cache["products"])
@@ -227,6 +254,13 @@ class GasPriceCog(commands.Cog):
 
             try:
                 products = await self.fetch_prices(session)
+                if not products:
+                    fallback = self._cache or disk_cache
+                    if fallback and fallback.get("products"):
+                        return _build_embed(fallback["products"])
+                    return "PVOIL chưa trả về bảng giá. Thử lại sau ít phút nhé."
+                # Validate & construct embed BEFORE committing to memory/disk cache
+                embed = _build_embed(products)
             except aiohttp.ClientResponseError as exc:
                 logger.error("GasPrice: HTTP error %s from upstream API", exc.status)
                 fallback = self._cache or disk_cache
@@ -240,22 +274,16 @@ class GasPriceCog(commands.Cog):
                     return _build_embed(fallback["products"])
                 return "Chưa lấy được giá xăng dầu. Thử lại sau ít phút nhé."
 
-            if not products:
-                fallback = self._cache or disk_cache
-                if fallback and fallback.get("products"):
-                    return _build_embed(fallback["products"])
-                return "PVOIL chưa trả về bảng giá. Thử lại sau ít phút nhé."
-
-            # Save new cache
+            # Save new cache only after embed built cleanly
             new_cache = {
                 "date": today_str,
                 "fetched_hour": now.hour,
                 "products": products,
             }
             self._cache = new_cache
-            _save_cache(new_cache, self.cache_file)
+            await asyncio.to_thread(_save_cache, new_cache, self.cache_file)
 
-            return _build_embed(products)
+            return embed
 
     # ------------------------------------------------------------------
     # Slash command

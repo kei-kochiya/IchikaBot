@@ -135,7 +135,7 @@ class GachaCog(commands.Cog):
             await self.update_user_pity(user_id, final_pity)
 
         assets = await get_ui_assets()
-        content, data, filename = await self._build_result(
+        content, image_io, filename = await self._build_result(
             interaction.user, results, final_pity, assets
         )
         # A plain image attachment rather than an embed: Discord shows it larger (an embed
@@ -143,14 +143,14 @@ class GachaCog(commands.Cog):
         # reads like the in-game screen instead of a framed card.
         await interaction.followup.send(
             content=content,
-            file=discord.File(BytesIO(data), filename=filename),
+            file=discord.File(image_io, filename=filename),
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
     async def _build_result(
         self, user: discord.abc.User, results: list[dict], final_pity: int, assets: dict
-    ) -> tuple[str, bytes, str]:
-        """Render the result: (one-line caption, image bytes, filename)."""
+    ) -> tuple[str, BytesIO, str]:
+        """Render the result: (one-line caption, image buffer, filename)."""
         loop = asyncio.get_running_loop()
         name = discord.utils.escape_markdown(user.display_name)
         pity = f"Pity {final_pity}/{PITY_THRESHOLD}"
@@ -160,7 +160,7 @@ class GachaCog(commands.Cog):
             # a pity reset, must never happen without the user seeing which card it was
             local_path = await _card_art(card)
             image = await loop.run_in_executor(None, render_single_pull, card, local_path, assets)
-            data, filename = image.getvalue(), "card.jpg"
+            filename = "card.jpg"
             rarity = RARITY_ICONS.get(card["cardRarityType"], "")
             prefix = discord.utils.escape_markdown(self.get_display_prefix(card))
             content = f"**{name}** · {rarity} **{prefix}** · {pity}"
@@ -168,17 +168,17 @@ class GachaCog(commands.Cog):
             # Fetch all ten images concurrently (duplicates share one download)
             image_paths = await asyncio.gather(*(_card_art(card) for card in results))
             image = await loop.run_in_executor(None, render_ten_pull, results, image_paths, assets)
-            data, filename = image.getvalue(), "gacha_10.jpg"
+            filename = "gacha_10.jpg"
             c4 = sum(c["cardRarityType"] == "rarity_4" for c in results)
             c3 = sum(c["cardRarityType"] == "rarity_3" for c in results)
             content = f"**{name}** quay 10 lần · 4★ **{c4}** · 3★ **{c3}** · {pity}"
-        return content, data, filename
+        return content, image, filename
 
     @gacha_group.command(name="pity", description="Kiểm tra số lần quay đã tích lũy")
     async def check_pity(self, interaction: discord.Interaction):
         """Check current pity count."""
         pity = await self.get_user_pity(interaction.user.id)
-        remaining = PITY_THRESHOLD - pity
+        remaining = max(1, PITY_THRESHOLD - pity)
 
         embed = discord.Embed(
             title="Pity của bạn",

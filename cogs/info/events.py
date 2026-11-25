@@ -48,11 +48,13 @@ class EventsCog(commands.Cog):
         """Search events by name, ID, or romaji. Returns JP events for correct timing."""
         return event_data.search_events(query, limit)
 
-    def _build_history_reply(self, count: int) -> tuple[discord.Embed, discord.ui.View | None]:
+    def _build_history_reply(
+        self, count: int
+    ) -> tuple[discord.Embed | None, discord.ui.View | None]:
         count = max(1, min(count, 50))
         past_events = event_data.get_past_events(count)
         if not past_events:
-            return None, None  # type: ignore[return-value]
+            return None, None
 
         def formatter(event: dict) -> str:
             event_type = EVENT_TYPES.get(event.get("eventType", ""), "Khác")
@@ -60,7 +62,13 @@ class EventsCog(commands.Cog):
             name = self.get_display_name(event, event["id"])
             return f"• **{event_type} {name}**\n  ID: {event['id']} | Kết thúc: {end_date}"
 
-        view = SearchPaginationView(past_events, "Lịch sử sự kiện", formatter, items_per_page=10)
+        view = SearchPaginationView(
+            past_events,
+            "Lịch sử sự kiện",
+            formatter,
+            items_per_page=10,
+            hint="Dùng `/event search` hoặc `!eventsearch` để xem chi tiết.",
+        )
         return view._create_embed(), view
 
     def _build_search_reply(self, name: str) -> tuple[discord.Embed | None, discord.ui.View | None]:
@@ -78,7 +86,11 @@ class EventsCog(commands.Cog):
             return f"• **{event_type} {display_name}**\n  {status} | ID: {event['id']}"
 
         view = SearchPaginationView(
-            results, f"Kết quả tìm kiếm: {name}", formatter, items_per_page=10
+            results,
+            f"Kết quả tìm kiếm: {name}",
+            formatter,
+            items_per_page=10,
+            hint="Dùng `/event search <ID>` để xem chi tiết.",
         )
         return view._create_embed(), view
 
@@ -102,7 +114,10 @@ class EventsCog(commands.Cog):
         await interaction.response.defer()
         embed, view = self._build_history_reply(count)
         if embed is None:
-            await interaction.followup.send("Không có sự kiện đã kết thúc!")
+            await interaction.followup.send("Không có sự kiện đã kết thúc!", ephemeral=True)
+            return
+        if view is None:
+            await interaction.followup.send(embed=embed)
             return
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
@@ -113,7 +128,11 @@ class EventsCog(commands.Cog):
         await interaction.response.defer()
         embed, view = self._build_search_reply(name)
         if embed is None:
-            await interaction.followup.send(f"Không tìm thấy sự kiện: **{name}**")
+            await interaction.followup.send(
+                f"Không tìm thấy sự kiện: **{name[:100]}**",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
         if view is None:
             await interaction.followup.send(embed=embed)
@@ -138,6 +157,9 @@ class EventsCog(commands.Cog):
         if embed is None:
             await ctx.send("Không có sự kiện đã kết thúc!")
             return
+        if view is None:
+            await ctx.send(embed=embed)
+            return
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
 
@@ -150,7 +172,10 @@ class EventsCog(commands.Cog):
 
         embed, view = self._build_search_reply(name)
         if embed is None:
-            await ctx.send(f"Không tìm thấy sự kiện: **{name}**")
+            await ctx.send(
+                f"Không tìm thấy sự kiện: **{name[:100]}**",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
         if view is None:
             await ctx.send(embed=embed)
