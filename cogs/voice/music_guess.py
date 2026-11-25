@@ -547,7 +547,8 @@ class MusicGuess(commands.Cog):
             game["wrong_reactions"].append(message)
 
             if game["guesses"][user_id] >= MAX_GUESSES:
-                await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
+                with contextlib.suppress(discord.HTTPException):
+                    await message.reply("Tiếc quá, cậu hết lượt đoán rồi!", delete_after=5)
 
     @commands.Cog.listener()
     async def on_voice_state_update(

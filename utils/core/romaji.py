@@ -197,14 +197,6 @@ KATAKANA_TO_ROMAJI = {
     "ッ": "",  # Double consonant marker
     # Extended katakana
     "ヴ": "vu",
-    "ファ": "fa",
-    "フィ": "fi",
-    "フェ": "fe",
-    "フォ": "fo",
-    "ティ": "ti",
-    "ディ": "di",
-    "トゥ": "tu",
-    "ドゥ": "du",
     # Long vowel
     "ー": "",
 }
@@ -293,6 +285,8 @@ COMBINATIONS_KATA = {
     # Extended combinations
     "ティ": "ti",
     "ディ": "di",
+    "トゥ": "tu",
+    "ドゥ": "du",
     "ファ": "fa",
     "フィ": "fi",
     "フェ": "fe",

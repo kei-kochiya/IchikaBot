@@ -274,6 +274,12 @@ class GuessCog(commands.Cog):
             )
             return
 
+        if not self.cards:
+            await interaction.response.send_message(
+                "Dữ liệu card chưa sẵn sàng. Vui lòng thử lại sau ít phút.", ephemeral=True
+            )
+            return
+
         if self._is_channel_active(channel_id):
             await interaction.response.send_message(
                 "Ai đó đang thử tài rồi, hãy chơi cùng họ nhé!", ephemeral=True

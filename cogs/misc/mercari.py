@@ -1,6 +1,5 @@
 """
-Mercari Cog - Look up Mercari item info from a URL or item ID, and search Mercari listings.
-Supports both Individual C2C Marketplace items and Mercari Shops storefront items.
+Mercari Cog - Look up Mercari item info from a URL or item ID (C2C & Shops).
 Global cooldown: 5 seconds per user.
 """
 
@@ -13,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.mercari_scraper import ItemSource, ItemStatus, MercariItem, extract_item_info
+from utils.mercari_scraper import ItemSource, MercariItem, extract_item_info
 
 if TYPE_CHECKING:
     from utils.mercari_scraper import AsyncMercariScraper
@@ -84,7 +83,7 @@ def _build_item_embed(item: MercariItem, user_id: int) -> discord.Embed:
 
 
 class MercariCog(commands.Cog):
-    """Mercari Cog - Look up item info and search listings using mercari_scraper."""
+    """Mercari Cog - Look up item info from a Mercari URL or item ID."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -95,14 +94,13 @@ class MercariCog(commands.Cog):
             await self._scraper.close()
 
     def _ensure_scraper(self) -> AsyncMercariScraper:
-        # Created on first use: the HTTP clients cost ~12 MB, wasted until someone searches
+        # Created on first use: mercapi/httpx stay unloaded until someone looks up a link
         if self._scraper is None:
             from utils.mercari_scraper import AsyncMercariScraper
 
             self._scraper = AsyncMercariScraper()
         return self._scraper
 
-    # Shared lookup logic
     async def _lookup(self, item_id_or_url: str, user_id: int) -> discord.Embed | str:
         scraper = self._ensure_scraper()
         try:
@@ -171,103 +169,6 @@ class MercariCog(commands.Cog):
     @prefix_mercari.error
     async def prefix_mercari_error(self, ctx: commands.Context, error):
         await self._reply_prefix_cooldown(ctx, error)
-
-    # Search command: /mercarisearch
-    @app_commands.command(
-        name="mercarisearch",
-        description="Tìm kiếm sản phẩm trên Mercari JP (C2C & Shops)",
-    )
-    @app_commands.describe(
-        query="Từ khóa tìm kiếm (tiếng Nhật hoặc tiếng Anh)",
-        source="Nguồn tìm kiếm (Tất cả, C2C, Shops)",
-    )
-    @app_commands.choices(
-        source=[
-            app_commands.Choice(name="Tất cả (C2C + Shops)", value="all"),
-            app_commands.Choice(name="Cá nhân (C2C)", value="individual"),
-            app_commands.Choice(name="Cửa hàng (Shops)", value="shops"),
-        ]
-    )
-    @app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
-    async def slash_mercarisearch(
-        self,
-        interaction: discord.Interaction,
-        query: str,
-        source: str = "all",
-    ):
-        await interaction.response.defer()
-        result = await self._search_embed(query, source, interaction.user.id)
-        if isinstance(result, str):
-            await interaction.followup.send(result, ephemeral=True)
-        else:
-            await interaction.followup.send(embed=result)
-
-    @slash_mercarisearch.error
-    async def slash_mercarisearch_error(self, interaction: discord.Interaction, error):
-        await self._reply_slash_cooldown(interaction, error)
-
-    # Prefix search: !mercarisearch
-    @commands.command(name="mercarisearch", aliases=["msearch", "mersearch"])
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def prefix_mercarisearch(self, ctx: commands.Context, *, query: str | None = None):
-        if not query:
-            await ctx.send("Vui lòng cung cấp từ khóa: `!mercarisearch <từ khóa>`")
-            return
-
-        async with ctx.typing():
-            result = await self._search_embed(query, "all", ctx.author.id)
-
-        if isinstance(result, str):
-            await ctx.send(result)
-        else:
-            await ctx.send(embed=result)
-
-    @prefix_mercarisearch.error
-    async def prefix_mercarisearch_error(self, ctx: commands.Context, error):
-        await self._reply_prefix_cooldown(ctx, error)
-
-    async def _search_embed(self, query: str, source_str: str, user_id: int) -> discord.Embed | str:
-        scraper = self._ensure_scraper()
-        item_source = ItemSource.ALL
-        if source_str == "individual":
-            item_source = ItemSource.INDIVIDUAL
-        elif source_str == "shops":
-            item_source = ItemSource.SHOPS
-
-        try:
-            items = await scraper.search(
-                query=query,
-                source=item_source,
-                status=ItemStatus.ON_SALE,
-                limit=6,
-            )
-        except Exception as e:
-            logger.error("Mercari search failed for '%s': %s", query, e)
-            return f"Lỗi khi tìm kiếm: `{e}`"
-
-        if not items:
-            return f"Không có sản phẩm nào đang bán cho từ khóa `{query}`. Thử từ khóa khác nhé."
-
-        embed = discord.Embed(
-            title=f"Kết quả tìm kiếm: {query}",
-            color=discord.Color.blue(),
-        )
-
-        for i, it in enumerate(items, 1):
-            vnd = _compute_vnd_price(it.price, user_id)
-            src_tag = "Shops" if it.source == ItemSource.SHOPS else "C2C"
-            short_name = (it.name[:55] + "...") if len(it.name) > 55 else it.name
-            embed.add_field(
-                name=f"{i}. [{src_tag}] ¥{it.price:,} (~{vnd:,} VND)",
-                value=f"[{short_name}]({it.item_url})",
-                inline=False,
-            )
-
-        if items[0].thumbnail_url:
-            embed.set_thumbnail(url=items[0].thumbnail_url)
-
-        embed.set_footer(text=f"Hiển thị {len(items)} kết quả đang bán • Mercari JP")
-        return embed
 
 
 async def setup(bot: commands.Bot):

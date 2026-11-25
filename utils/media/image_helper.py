@@ -7,6 +7,7 @@ import contextlib
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 
 import aiofiles
@@ -93,16 +94,25 @@ CARD_ART_URL = "https://storage.sekai.best/sekai-jp-assets/character/member/{ass
 
 def _png_to_webp(png: Path, dest: Path) -> str | None:
     """Convert a downloaded PNG into the WebP the cache serves, then drop the PNG."""
+    with contextlib.suppress(OSError):
+        if dest.stat().st_size > 0:
+            png.unlink(missing_ok=True)
+            return str(dest)
+
     from PIL import Image  # only needed on this rare path
 
-    tmp = dest.with_name(dest.name + ".part")
+    tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         with Image.open(png) as im:
             im.convert("RGB").save(tmp, "WEBP", quality=90, method=4)
         os.replace(tmp, dest)
-        png.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            png.unlink(missing_ok=True)
         return str(dest)
     except OSError as e:
+        with contextlib.suppress(OSError):
+            if dest.stat().st_size > 0:
+                return str(dest)
         logger.warning("Could not convert %s to WebP: %s", png, e)
         return None
     finally:

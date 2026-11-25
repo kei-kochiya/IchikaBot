@@ -294,7 +294,7 @@ class SongDataManager:
 
         for entry in en_index:
             song_id = entry[0]
-            if _entry_matches(entry, q_lower, q_norm, ac_only=True):
+            if entry[1] and _entry_matches(entry, q_lower, q_norm, ac_only=True):
                 choices.append(app_commands.Choice(name=entry[6], value=entry[7]))
                 seen_ids.add(song_id)
                 if len(choices) >= 25:

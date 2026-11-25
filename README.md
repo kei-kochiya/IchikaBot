@@ -11,7 +11,7 @@ A Discord bot for *Project Sekai: Colorful Stage!* It looks up cards, songs, eve
 - **Character guess.** Name the character from part of a card, at three difficulties. Easy crops onto the card's own character (found with the game's close-up of them), normal crops anywhere on the card, and hard shows the card black-and-white, pixelated, blurred or inverted. Each player picks their default with `/guessmode`; it is easy until they do.
 - **Music quiz.** The bot joins your voice channel and plays a 20-second clip. Commissioned songs by default, or every song; hard mode plays the clip faster, slower or reversed.
 - **Announcements.** A post at midnight JST on each character's birthday (and a countdown card on other days), and a card of the day every 0.5 to 24 hours. Both are set up per server.
-- **Utilities.** Mercari Japan item lookup and search with an estimated price in VND, and today's PVOIL fuel prices in Vietnam.
+- **Utilities.** Mercari Japan item lookup by link or ID with an estimated price in VND, and today's PVOIL fuel prices in Vietnam.
 
 ## Commands
 
@@ -35,7 +35,6 @@ Slash commands are the main way in. Most also have a prefix form: type `!` (or `
 | `/guessmode [mode]` | | Set your default difficulty, or show it |
 | `/songguess [mode] [pool]` | `!sg`, `!sgv`, `!sga`, `!sgav` | Start a music quiz (`v`: with effects, `a`: all songs) |
 | `/mercari <link or ID>` | `!mercari`, `!mer` | Look up a Mercari item |
-| `/mercarisearch <keyword>` | `!msearch` | Search Mercari |
 | `/gasprice` | `!gasprice` | Today's fuel prices |
 
 In both games, answer with `-g <answer>` in the channel where the round started.
@@ -103,6 +102,6 @@ ruff check .
 ruff format --check .
 ```
 
-The test suite runs offline, except `tests/test_mercari/test_scraper.py` and `tests/test_mercari/test_memory.py`, which call the live Mercari API. CI runs the tests on Python 3.11 to 3.13, the linter and `pip-audit`.
+The default test suite runs completely offline. Live contract checks against external APIs are marked `@pytest.mark.live` and can be run with `pytest -m live`. CI runs the tests on Python 3.11 to 3.13, the linter and `pip-audit`.
 
 [ARCHITECT.md](./ARCHITECT.md) explains how the code is organised: the cogs, the shared data loaders, the database and the data updater.

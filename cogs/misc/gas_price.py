@@ -10,8 +10,11 @@ or missing, pull from API and save new cache.
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
+import os
+import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,7 +23,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import BASE_DIR
+from config import BASE_DIR, SharedResources
 
 logger = logging.getLogger(__name__)
 
@@ -105,13 +108,19 @@ def _load_cache(file_path: Path | str = _CACHE_FILE) -> dict | None:
 
 
 def _save_cache(data: dict, file_path: Path | str = _CACHE_FILE) -> None:
-    """Persist price cache to disk."""
+    """Persist price cache to disk atomically."""
     path = Path(file_path)
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.part")
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
     except Exception as exc:
         logger.warning("GasPrice: Failed to save cache file %s: %s", path, exc)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +189,6 @@ class GasPriceCog(commands.Cog):
         self._lock = asyncio.Lock()
 
     async def cog_load(self) -> None:
-        self._session = aiohttp.ClientSession()
         self._cache = _load_cache(self.cache_file)
 
     async def cog_unload(self) -> None:
@@ -215,11 +223,10 @@ class GasPriceCog(commands.Cog):
                 return _build_embed(disk_cache["products"])
 
             # Stale or missing cache -> pull fresh data from API
-            if self._session is None:
-                self._session = aiohttp.ClientSession()
+            session = self._session or await SharedResources.get_session()
 
             try:
-                products = await self.fetch_prices(self._session)
+                products = await self.fetch_prices(session)
             except aiohttp.ClientResponseError as exc:
                 logger.error("GasPrice: HTTP error %s from upstream API", exc.status)
                 fallback = self._cache or disk_cache

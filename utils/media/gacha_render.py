@@ -19,6 +19,7 @@ import contextlib
 import logging
 import math
 import os
+import uuid
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -118,7 +119,7 @@ async def get_ui_assets() -> dict[str, str]:
 def _save_atomic(img: Image.Image, dest: Path, fmt: str, **kwargs) -> None:
     """Write a derived cache file so readers never see a half-written image."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".part")
+    tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         img.save(tmp, fmt, **kwargs)
         os.replace(tmp, dest)
@@ -256,14 +257,20 @@ class _Overlays:
             self._icons[name] = _load_icon(self._assets, name, height)
         return self._icons[name]
 
+    def _fallback_star(self) -> Image.Image:
+        key = "_drawn_star"
+        if key not in self._icons:
+            self._icons[key] = _drawn_star(self.star_h)
+        return self._icons[key]  # type: ignore[return-value]
+
     def star(self, rarity: str, trained: bool) -> tuple[Image.Image, int]:
         """(star image, how many to draw) for a cardRarityType."""
         if rarity == "rarity_birthday":
             icon = self.icon(STAR_BIRTHDAY, self.star_h)
-            return (icon or _drawn_star(self.star_h)), 1
+            return (icon or self._fallback_star()), 1
         count = int(rarity[-1]) if rarity[-1:].isdigit() else 1
         icon = self.icon(STAR_TRAINED if trained else STAR_NORMAL, self.star_h)
-        return (icon or _drawn_star(self.star_h)), count
+        return (icon or self._fallback_star()), count
 
     def attribute(self, attr: str | None) -> Image.Image | None:
         if attr not in ATTRIBUTES:

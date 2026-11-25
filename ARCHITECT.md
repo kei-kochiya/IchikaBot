@@ -39,7 +39,7 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 - **`utils/game/`**: Card filtering, random sampling, and trained/untrained art validation (`cards.py`).
 - **`utils/social/`**: Date calculations and Embed generation for social features (`birthday_helpers.py`, `birthday_ui.py`).
 - **`utils/info/`**: Shared Embed generation and Pagination Views (`songs_ui.py`, `events_ui.py`).
-- **`utils/mercari_scraper/`**: High-performance, low-RAM Mercari Japan scraper library supporting both individual C2C listings (`c2c_client.py`) and Mercari Shops products (`shops_client.py`). The scraper classes (and their `httpx`/`mercapi` dependencies, ~12 MB) are imported lazily on first use; `extract_item_info` lives in the light `urls.py`.
+- **`utils/mercari_scraper/`**: Lightweight Mercari Japan item lookup supporting individual C2C listings (`c2c_client.py`) and Mercari Shops products (`shops_client.py`, via shared `aiohttp`). `AsyncC2CClient` (and its `mercapi`/`httpx` dependencies, ~12 MB) is imported lazily only on first C2C lookup; `extract_item_info` lives in the light `urls.py`.
 
 ---
 
@@ -54,7 +54,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 | **`cogs/info/`** | Database lookups (Cards, Profiles, Songs, Events). | `utils.info.*`, `utils.data.*`, `utils.core.romaji` |
 | **`cogs/social/`** | Server engagement (Character Birthdays, Scheduled Card of the Day). | `utils.social.*`, `utils.data.*`, `utils.core.database` |
 | **`cogs/system/`** | Bot administration (Auto-updater for assets, Interactive Help). | `utils.core.autoupdater` |
-| **`cogs/misc/`** | Utilities: Mercari JP search (`mercari.py`) & Vietnam fuel prices (`gas_price.py`). | `utils.mercari_scraper.*`, `aiohttp` |
+| **`cogs/misc/`** | Utilities: Mercari JP item lookup (`mercari.py`) & Vietnam fuel prices (`gas_price.py`). | `utils.mercari_scraper.*`, `aiohttp` |
 
 ---
 

@@ -7,6 +7,7 @@ import discord
 from utils.data.game_data import get_character_name, get_unit_color
 from utils.game.cards import (
     get_card_image_url,
+    is_pre_trained_card,
     supports_trained_art,
     update_card_attachment_message,
 )
@@ -96,8 +97,8 @@ def create_daily_card_embed(
     )
     embed.add_field(name="Birthday", value=character.get("birthday", "Unknown"), inline=True)
 
-    # Use trained art for 3/4 star if supported
-    is_trained = supports_trained_art(card)
+    # Use trained art for 3/4 star or pre-trained cards
+    is_trained = supports_trained_art(card) or is_pre_trained_card(card)
     card_url = attachment_url or get_card_image_url(card["assetbundleName"], trained=is_trained)
 
     embed.set_image(url=card_url)
@@ -219,7 +220,7 @@ async def prepare_daily_card_message(
 ) -> tuple[discord.Embed | None, discord.File | None, discord.ui.View | None]:
     """Prepare embed, cached card image file, and toggle view for a countdown daily card announcement."""
     from utils.data.card_data import card_data
-    from utils.game.cards import CardToggleView, get_random_card, is_pre_trained_card
+    from utils.game.cards import CardToggleView, get_random_card
     from utils.media.image_helper import get_card_image_path
 
     char_pool = card_data.by_char_3_4.get(int(character["id"]))
@@ -231,11 +232,12 @@ async def prepare_daily_card_message(
     if not card:
         return None, None, None
 
-    is_trained = supports_trained_art(card) or is_pre_trained_card(card)
+    can_toggle = supports_trained_art(card)
+    is_trained = can_toggle or is_pre_trained_card(card)
     img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
     file = discord.File(img_path, filename="card.webp") if img_path else None
     attachment_url = "attachment://card.webp" if file else None
 
     embed = create_daily_card_embed(character, card, days_until_bday, attachment_url=attachment_url)
-    view = CardToggleView(embed, card, default_trained=is_trained) if is_trained else None
+    view = CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
     return embed, file, view

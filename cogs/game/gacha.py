@@ -104,6 +104,12 @@ class GachaCog(commands.Cog):
         ]
     )
     async def pull(self, interaction: discord.Interaction, amount: int = 10):
+        if not (self.cards_2 and self.cards_3 and self.cards_4):
+            await interaction.response.send_message(
+                "Dữ liệu card chưa sẵn sàng. Vui lòng thử lại sau ít phút.", ephemeral=True
+            )
+            return
+
         await interaction.response.defer()
         user_id = interaction.user.id
 

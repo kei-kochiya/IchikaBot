@@ -110,7 +110,7 @@ def _extract_clip(file_path: str, start_ms: int, length_ms: int) -> AudioSegment
         logger.warning("Fast clip extraction failed for %s: %s", file_path, e)
         return None
 
-    if len(proc.stdout) < _PCM_RATE * _PCM_CHANNELS * _PCM_WIDTH:  # < 1 second of audio
+    if len(proc.stdout) < _MIN_AUDIO_BYTES:  # < 1 second of audio
         return None
     return AudioSegment(
         data=proc.stdout,
@@ -177,8 +177,8 @@ def _extract_variant_wav(
             timeout=60,
             check=True,
         )
-        # Ensure at least ~1s (or non-empty valid audio) was written
-        if dest.stat().st_size > 44:
+        # Ensure at least ~1s of valid audio was written (44-byte WAV header + PCM)
+        if dest.stat().st_size >= 44 + _MIN_AUDIO_BYTES:
             return True
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning("Direct variant extraction failed for %s: %s", file_path, e)

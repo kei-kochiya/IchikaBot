@@ -133,18 +133,24 @@ class CardOfDayCog(commands.Cog):
 
             try:
                 card = random.choice(card_data.pool_3_4)
-                is_trained = supports_trained_art(card) or is_pre_trained_card(card)
+                can_toggle = supports_trained_art(card)
+                is_trained = can_toggle or is_pre_trained_card(card)
                 img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
                 file = discord.File(img_path, filename="card.webp") if img_path else None
                 attachment_url = "attachment://card.webp" if file else None
 
                 embed = self.create_card_embed(card, attachment_url=attachment_url)
-                view = CardToggleView(embed, card, default_trained=is_trained)
+                view = (
+                    CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
+                )
+                send_kwargs: dict = {"embed": embed}
                 if file:
-                    msg = await channel.send(embed=embed, file=file, view=view)
-                else:
-                    msg = await channel.send(embed=embed, view=view)
-                view.message = msg
+                    send_kwargs["file"] = file
+                if view:
+                    send_kwargs["view"] = view
+                msg = await channel.send(**send_kwargs)
+                if view:
+                    view.message = msg
 
                 cfg["last_post_ts"] = now_ts
                 self._retry_after.pop(guild_id_str, None)
@@ -237,18 +243,22 @@ class CardOfDayCog(commands.Cog):
         await interaction.response.defer()
 
         card = random.choice(card_data.pool_3_4)
-        is_trained = supports_trained_art(card) or is_pre_trained_card(card)
+        can_toggle = supports_trained_art(card)
+        is_trained = can_toggle or is_pre_trained_card(card)
         img_path = await get_card_image_path(card["assetbundleName"], is_trained=is_trained)
         file = discord.File(img_path, filename="card.webp") if img_path else None
         attachment_url = "attachment://card.webp" if file else None
 
         embed = self.create_card_embed(card, attachment_url=attachment_url)
-        view = CardToggleView(embed, card, default_trained=is_trained)
+        view = CardToggleView(embed, card, default_trained=is_trained) if can_toggle else None
+        send_kwargs: dict = {"embed": embed}
         if file:
-            msg = await interaction.followup.send(embed=embed, file=file, view=view)
-        else:
-            msg = await interaction.followup.send(embed=embed, view=view)
-        view.message = msg
+            send_kwargs["file"] = file
+        if view:
+            send_kwargs["view"] = view
+        msg = await interaction.followup.send(**send_kwargs)
+        if view:
+            view.message = msg
 
         # Reset timer so the next automatic post is a full interval away
         guild_id = str(interaction.guild_id)

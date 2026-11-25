@@ -13,16 +13,21 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(scope="module")
+def _sample_wav(tmp_path_factory):
+    """Generate the 75-second test track once per module instead of per test."""
+    path = tmp_path_factory.mktemp("audio") / "song.wav"
+    Sine(440).to_audio_segment(duration=75_000).export(str(path), format="wav").close()
+    return str(path)
+
+
 @pytest.fixture
-def track(tmp_path, monkeypatch):
+def track(_sample_wav, tmp_path, monkeypatch):
     """A 75 second 'song' (long enough that the safe zones leave room to pick a clip)."""
     clips_dir = tmp_path / "clips"
     clips_dir.mkdir()
     monkeypatch.setattr(audio_fx, "TEMP_DIR", clips_dir)
-
-    path = tmp_path / "song.wav"
-    Sine(440).to_audio_segment(duration=75_000).export(str(path), format="wav").close()
-    return str(path)
+    return _sample_wav
 
 
 def _seconds(path: str) -> float:

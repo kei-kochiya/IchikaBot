@@ -127,7 +127,7 @@ def test_single_pull(tmp_path):
             assert img.size == (tw + 2 * m, th + 2 * m)
 
 
-def _fake_ui_storage(monkeypatch, slow=(), fail=(), delay=0.01):
+def _fake_ui_storage(monkeypatch, slow=(), fail=(), delay=0.01, gate=None):
     """In-memory stand-in for the UI image cache: a download "writes" the file."""
     import asyncio
 
@@ -136,7 +136,13 @@ def _fake_ui_storage(monkeypatch, slow=(), fail=(), delay=0.01):
 
     async def fake_download(name, url):
         requested.append(name)
-        await asyncio.sleep(delay if name in slow else 0)
+        if name in slow:
+            if gate is not None:
+                await gate.wait()
+            else:
+                await asyncio.sleep(delay)
+        else:
+            await asyncio.sleep(0)
         if name in fail:
             return None
         on_disk.add(name)
@@ -180,7 +186,12 @@ async def test_slow_ui_downloads_do_not_hold_up_a_pull(monkeypatch):
 
 
 async def test_full_quality_background_is_fetched_in_the_background(monkeypatch):
-    on_disk, requested = _fake_ui_storage(monkeypatch, slow=[gacha_render.BG_ASSET])
+    import asyncio
+
+    release_hq = asyncio.Event()
+    on_disk, requested = _fake_ui_storage(
+        monkeypatch, slow=[gacha_render.BG_ASSET], gate=release_hq
+    )
 
     # First pull: the small WebP stands in, nobody waits for the PNG
     first = await gacha_render.get_ui_assets()
@@ -192,6 +203,7 @@ async def test_full_quality_background_is_fetched_in_the_background(monkeypatch)
     assert requested.count(gacha_render.BG_ASSET) == 1
 
     # Once the PNG is on disk it is used, and nothing more is downloaded
+    release_hq.set()
     await gacha_render._hq_background_download
     requested.clear()
     later = await gacha_render.get_ui_assets()

@@ -75,11 +75,6 @@ COMMAND_CATEGORIES = {
         "description": "Tra cứu giá Mercari JP",
         "commands": [
             ("/mercari <url_or_id>", "!mercari / !mer", "Tra cứu sản phẩm theo link hoặc ID"),
-            (
-                "/mercarisearch <keyword>",
-                "!mercarisearch / !msearch",
-                "Tìm kiếm sản phẩm trên Mercari",
-            ),
         ],
     },
 }

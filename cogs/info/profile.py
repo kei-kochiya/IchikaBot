@@ -21,6 +21,7 @@ from utils.game.cards import (
     get_card_image_url,
     get_random_card,
     is_pre_trained_card,
+    supports_trained_art,
 )
 from utils.media.image_helper import get_card_image_path
 
@@ -138,7 +139,8 @@ class ProfileCog(commands.Cog):
 
         kwargs: dict = {"embed": embed}
         if card:
-            kwargs["view"] = CardToggleView(embed, card, default_trained=False)
+            if supports_trained_art(card):
+                kwargs["view"] = CardToggleView(embed, card, default_trained=False)
             if file:
                 kwargs["file"] = file
         return kwargs

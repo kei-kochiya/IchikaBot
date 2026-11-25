@@ -31,6 +31,7 @@ and a migration-complete marker is written to guild_settings so the
 import never runs again.
 """
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -138,6 +139,7 @@ async def _migrate_json(conn: aiosqlite.Connection) -> None:
 
 _conn: aiosqlite.Connection | None = None
 _conn_path: Path | None = None
+_conn_lock = asyncio.Lock()
 
 
 async def _connect() -> aiosqlite.Connection:
@@ -158,12 +160,16 @@ async def _connect() -> aiosqlite.Connection:
 async def _get_conn() -> aiosqlite.Connection:
     """Return the shared connection, (re)opening it if it is missing or DB_FILE changed."""
     global _conn, _conn_path
-    if _conn is not None and _conn_path != Path(DB_FILE):
-        await close_db()
-    if _conn is None:
-        _conn = await _connect()
-        _conn_path = Path(DB_FILE)
-    return _conn
+    target = Path(DB_FILE)
+    if _conn is not None and _conn_path == target:
+        return _conn
+    async with _conn_lock:
+        if _conn is not None and _conn_path != target:
+            await close_db()
+        if _conn is None:
+            _conn = await _connect()
+            _conn_path = target
+        return _conn
 
 
 async def close_db() -> None:

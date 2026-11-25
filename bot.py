@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import SharedResources
+from config import BASE_DIR, SharedResources
 from utils.core import database
 
 # Load the .env file first: it can set LOG_LEVEL
@@ -181,15 +181,16 @@ async def sync(ctx):
 
 async def load_cogs():
     """Recursively finds and loads all cog files in the 'cogs' directory."""
-    if not os.path.exists("./cogs"):
+    cogs_dir = BASE_DIR / "cogs"
+    if not cogs_dir.exists():
         logger.error("'cogs' directory not found.")
         return
 
-    for root, _dirs, files in os.walk("./cogs"):
+    for root, _dirs, files in os.walk(cogs_dir):
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("__"):
                 # Convert path to module notation: cogs/voice/music_guess.py -> cogs.voice.music_guess
-                relative_path = os.path.relpath(os.path.join(root, filename), ".")
+                relative_path = os.path.relpath(os.path.join(root, filename), BASE_DIR)
                 module_name = relative_path.replace(os.path.sep, ".")[:-3]
 
                 try:
