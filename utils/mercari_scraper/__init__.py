@@ -1,6 +1,4 @@
-"""
-Mercari JP item lookup (Individual C2C & Mercari Shops).
-"""
+"""Mercari JP item lookup package (C2C listings & Mercari Shops)."""
 
 from .enums import ItemSource
 from .models import MercariItem

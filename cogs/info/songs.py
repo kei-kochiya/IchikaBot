@@ -1,7 +1,4 @@
-"""
-Songs Database Cog - Browse and search Project Sekai songs.
-Supports both JP and EN song data with English search.
-"""
+"""Songs database cog for browsing and searching JP/EN Project Sekai songs."""
 
 import logging
 

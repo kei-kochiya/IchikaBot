@@ -1,7 +1,4 @@
-"""
-Mercari Cog - Look up Mercari item info from a URL or item ID (C2C & Shops).
-Global cooldown: 5 seconds per user.
-"""
+"""Mercari Japan item lookup cog (C2C listings & Mercari Shops, 5s cooldown)."""
 
 from __future__ import annotations
 

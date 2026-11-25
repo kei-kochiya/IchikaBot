@@ -1,16 +1,6 @@
-"""
-Pillow renderer for Project Sekai Best 30 (B30) images.
+"""Pillow 1000x1500 renderer for Project Sekai Best 30 (B30) charts (styled after pjskb30).
 
-Faithfully mirrors the layout and styling of auburnsummer/pjskb30 & auburnsummer/sbotgab30:
-  - 1000 x 1500 canvas with pastel background and #b4ccfa header bar (title left, Ranking right).
-  - 3 columns x 10 rows grid (gutter 30x35, cards ~293x108).
-  - AP cards: white-to-#f2feff diagonal fill + 5px pink-to-cyan (#FF8EFF -> #00E3C7) gradient border.
-  - FC cards: white fill + 2px #FE83FE border.
-  - Difficulty pills overlapping top-left corner: Expert (#FF457A), Master (#781c94),
-    Append (#7857ff -> #fcacf7 gradient + white border) displaying diffConstant (e.g. 32.5).
-  - AP/FC diamond (or 4-point star for Append) overlapping bottom-right corner with AP/FC text.
-
-Run `render_b30_image()` in an executor (`loop.run_in_executor` / `asyncio.to_thread`).
+Run `render_b30_image()` in a worker thread (`run_in_executor` / `asyncio.to_thread`).
 """
 
 from __future__ import annotations

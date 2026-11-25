@@ -1,7 +1,4 @@
-"""
-Card utilities for Project Sekai Discord bot.
-Shared helper functions for card image URLs and views.
-"""
+"""Shared Project Sekai card helpers: art URLs, rarity filtering, and trained-art toggle views."""
 
 import asyncio
 import contextlib
@@ -31,16 +28,7 @@ def supports_trained_art(card: dict) -> bool:
 
 
 def get_random_card(cards: list, char_id: int, rarity: list[str] | None = None) -> dict | None:
-    """Get a random card for a character from a list of cards.
-
-    Args:
-        cards: List of all card dictionaries
-        char_id: Character ID to filter by
-        rarity: List of rarity types to include (default: all with prefix)
-
-    Returns:
-        Random matching card or None if not found
-    """
+    """Return a random card matching *char_id* and *rarity* (default: all titled cards), or None."""
     char_id_int = int(char_id) if isinstance(char_id, str) else char_id
 
     if rarity:

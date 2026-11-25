@@ -1,17 +1,4 @@
-"""
-Find a card's own character in its card art, for the easy /guess crops.
-
-sekai.best's ``member_cutout`` is a close-up of the card's character for every card, but
-it is recomposed artwork (often rotated, redrawn larger, background layers shifted), so it
-cannot be lined up with the card art pixel for pixel. Its colours still identify the
-character: colours of the close-up's head (hair, face) that are much more common there
-than in the whole card mark the character in the card art. Card backgrounds are mostly
-blurred, so sharpness separates the character from look-alike scenery, and the crop goes to
-the strongest connected region of that score, so it keeps the card's own background.
-
-Pillow only, ~0.1 s per card. On a random sample of 30 cards about 9 in 10 crops landed on
-the right character, nearly always on hair or face.
-"""
+"""Locate a card's character region for easy `/guess` crops using `member_cutout` color/sharpness (~0.1s, Pillow only)."""
 
 import random
 

@@ -1,10 +1,4 @@
-"""
-tasks.py — Small helpers for fire-and-forget asyncio work.
-
-``asyncio.create_task`` only keeps a *weak* reference to the task, so a task that nobody
-awaits can be garbage collected before it finishes.  ``spawn`` keeps a strong reference
-until the task is done.
-"""
+"""Helpers for fire-and-forget asyncio tasks that hold strong references and log failures."""
 
 import asyncio
 import contextlib

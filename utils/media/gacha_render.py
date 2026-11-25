@@ -1,17 +1,6 @@
-"""
-Gacha result images in the style of the in-game result screen: the game's gacha result
-background, the cached card art on top, and the rarity stars + attribute icon overlaid on
-each card.
+"""In-game-style gacha result renderer (Pillow, cached UI assets/tiles with graceful fallbacks).
 
-The UI images are game assets fetched once (gacha background from sekai.best, rarity
-stars and attribute icons from the sekai-viewer repository) and cached in CACHE_DIR/ui.
-Every one of them is optional: without them the render falls back to a dark background,
-drawn stars and no attribute icon, so a CDN outage never breaks /gacha.
-
-Decoding full-size card art and shrinking it costs ~60-90 ms, so each card's resized tile
-is cached next to the card art (CACHE_DIR/tiles) and re-used in later pulls (~0.4 ms).
-
-The render_* functions are synchronous (Pillow): run them in an executor.
+Run `render_*` functions off the event loop via `asyncio.to_thread` / `run_in_executor`.
 """
 
 import asyncio

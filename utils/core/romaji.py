@@ -1,7 +1,4 @@
-"""
-Romaji conversion utilities for Japanese text search support.
-Converts between hiragana, katakana, and romaji.
-"""
+"""Japanese hiragana/katakana-to-romaji conversion and search matching helpers."""
 
 from functools import lru_cache
 
@@ -359,10 +356,7 @@ def to_romaji(text: str) -> str:
 # keystroke; caching the (pure) normalization turns each scan into dict lookups.
 @lru_cache(maxsize=4096)
 def normalize_for_search(text: str) -> str:
-    """
-    Normalize text for search comparison.
-    Converts Japanese to romaji and lowercases everything.
-    """
+    """Convert Japanese kana to romaji and lowercase *text* for search comparison."""
     if not text:
         return ""
 
@@ -370,10 +364,7 @@ def normalize_for_search(text: str) -> str:
 
 
 def matches_query(query: str, *fields: str) -> bool:
-    """
-    Check if a query matches any of the given fields.
-    Supports romaji, hiragana, katakana, and English.
-    """
+    """Return True if *query* matches any of *fields* across kana, romaji, or English."""
     q_lower = query.lower()
     q_norm: str | None = None
 

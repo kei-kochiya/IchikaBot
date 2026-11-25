@@ -1,12 +1,4 @@
-"""
-Project Sekai B30 chart constants & rating calculation.
-
-Faithfully follows https://github.com/auburnsummer/pjskb30:
-  - Primary Google Sheet CSV + Override Google Sheet CSV merged by (song_id, difficulty).
-  - AP (full_perfect) -> rating = diff_constant
-  - FC (full_combo)   -> rating = diff_constant - 1.0
-  - Top 30 charts sorted descending by effective rating.
-"""
+"""Project Sekai Best 30 (B30) chart constants loader, clear parser, and rating calculator (pjskb30)."""
 
 from __future__ import annotations
 

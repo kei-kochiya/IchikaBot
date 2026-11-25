@@ -18,30 +18,19 @@ MIN_PARTIAL_LEN = 3
 
 
 def _fold_unicode(text: str) -> str:
-    """
-    Unicode-normalise before the ASCII filter: NFKD turns full-width / compatibility
-    forms into plain ones ("ｔｅｌｌ" -> "tell", "Ⅲ" -> "III") and splits accented letters
-    into base letter + combining mark, which is then dropped ("Ángel" -> "Angel").
-    """
+    """NFKD-normalize Unicode and drop combining marks (e.g. `"Ángel"` -> `"Angel"`)."""
     decomposed = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 @lru_cache(maxsize=2048)
 def normalize(text: str) -> str:
-    """
-    Unicode-fold, then keep only alphanumeric characters, strip everything else
-    (including spaces), and lowercase. Applied to both song titles and player guesses
-    before comparison.
-    """
+    """Unicode-fold, strip non-alphanumerics, and lowercase for guess/title matching."""
     return re.sub(r"[^a-zA-Z0-9]", "", _fold_unicode(text)).lower()
 
 
 def is_correct_guess(raw_guess: str, norm_targets: list[str]) -> bool:
-    """
-    Check whether raw_guess matches any of the normalized target strings: exactly, or as
-    any piece of it at least MIN_PARTIAL_LEN normalized characters long.
-    """
+    """Return True if *raw_guess* matches any normalized target exactly or as a >=MIN_PARTIAL_LEN substring."""
     ng = normalize(raw_guess)
     if not ng:
         return False

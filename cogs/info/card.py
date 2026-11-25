@@ -1,7 +1,4 @@
-"""
-Card Cog - Display Project Sekai card information.
-Supports both JP and EN card data with English search.
-"""
+"""Card lookup cog supporting JP/EN card data and English search."""
 
 import asyncio
 import contextlib

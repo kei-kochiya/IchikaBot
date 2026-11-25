@@ -1,14 +1,7 @@
-"""
-Async Project Sekai (EN & JP) API client for account linking and Transfer-ID sync.
+"""Async Project Sekai (EN/JP) API client for profile lookup and Transfer-ID sync.
 
-Supports:
-  - Auto-updating appVersion/appHash from YangTheParrot/sekai-apphash & Sekai-World versions.json.
-  - Persistent anonymous bot account per region for public profile lookups (bio verification),
-    with automatic re-registration if the persisted credential is ever invalidated.
-  - Faithful Sbotga/Haruki Transfer-ID flow:
-      Bootstrap -> Preview (isExecuteInherit=False) -> Execute (isExecuteInherit=True)
-      -> Login -> IssueInheritCode (new Transfer ID & password!) -> FetchSuite (FC/AP clears).
-  - Secret redaction so Transfer IDs, passwords, JWTs, and credentials never appear in logs/errors.
+Handles version/apphash auto-refresh, persistent anonymous bot accounts, JP CloudFront cookies,
+one-shot Transfer-ID sync with immediate code re-issuance, and secret redaction.
 """
 
 from __future__ import annotations

@@ -1,6 +1,4 @@
-"""
-Birthday Cog - Character birthday announcements for Project Sekai.
-"""
+"""Character birthday announcements and countdown cog for Project Sekai."""
 
 import contextlib
 import logging

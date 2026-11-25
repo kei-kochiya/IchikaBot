@@ -73,12 +73,7 @@ def _probe_duration_ms(file_path: str) -> int | None:
 
 
 def _extract_clip(file_path: str, start_ms: int, length_ms: int) -> AudioSegment | None:
-    """
-    Decode only [start, start + length) of the track.
-
-    Seeking before decoding means a ~5 minute song costs one short ffmpeg run and a
-    few MB of RAM instead of fully decoding the whole file into ~50 MB of PCM.
-    """
+    """Decode only `[start, start + length)` via ffmpeg seek so full tracks are never decoded into RAM."""
     try:
         proc = subprocess.run(
             [

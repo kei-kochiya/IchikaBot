@@ -1,12 +1,4 @@
-"""
-Shared card data singleton.
-
-Loads JP/EN card data using streaming and memory pruning to keep RAM usage minimal.
-
-Memory comparison:
-  ORIGINAL (full json.load): JP (~78MB) + EN (~63MB fragmentation) ≈ 140+ MB
-  OPTIMIZED (streaming + pruning heavy tables): JP (~4.7MB) + EN (~1MB) ≈ ~5.7 MB (96% RAM reduction)
-"""
+"""Shared card data singleton using streaming JSON load and key pruning (~96% RAM reduction)."""
 
 import logging
 import sys
@@ -41,18 +33,7 @@ _INTERNED_CARD_KEYS = ("cardRarityType", "attr", "initialSpecialTrainingStatus")
 
 
 class CardDataManager:
-    """
-    Singleton. All cogs import the module-level `card_data` instance.
-
-    Attributes
-    ----------
-    cards        : list[dict]     All JP cards. Shared across cogs (not copied).
-    cards_by_id  : dict[int,dict] O(1) lookup by card ID (values are refs into cards).
-    en_prefix    : dict[int,str]  EN prefix strings only — NOT full EN card objects.
-    pool_2/3/4   : list[dict]     Pre-filtered by rarity (refs into cards, not copies).
-    pool_3_4     : list[dict]     Union of pool_3 and pool_4.
-    by_char_3_4  : dict[int,list[dict]] 3★/4★ cards indexed by characterId.
-    """
+    """Singleton card store (`card_data`) with O(1) ID lookup, rarity pools, and lightweight EN prefixes."""
 
     _instance = None
     _initialized = False
@@ -82,11 +63,7 @@ class CardDataManager:
         excluded_keys: set[str] | None = None,
         included_keys: frozenset[str] | set[str] | None = None,
     ) -> list[dict]:
-        """
-        Stream the cards array one element at a time so the full multi-megabyte parse
-        tree (hundreds of thousands of per-level parameter dicts) never exists in memory.
-        Works for pretty-printed and minified files alike.
-        """
+        """Stream cards one element at a time and drop heavy per-level tables to minimize RAM."""
         if included_keys is not None:
             cards: list[dict] = []
             for card in iter_json_array(filepath):

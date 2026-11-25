@@ -1,7 +1,4 @@
-"""
-Card of the Day Cog - Posts a random 3/4★ trained card at a configurable interval.
-Admins can set the channel and interval (in hours) per guild.
-"""
+"""Scheduled Card of the Day cog posting a random 3★/4★ trained card per guild."""
 
 import contextlib
 import logging

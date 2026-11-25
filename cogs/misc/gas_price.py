@@ -1,12 +1,4 @@
-"""
-Gas Price Cog - Fetch and display current retail fuel prices from Petrolimex.
-
-Source: https://www.pvoil.com.vn/tin-gia-xang-dau (data sourced via Petrolimex CMS API,
-which is the same underlying price data published by all Vietnamese fuel retailers).
-Cooldown: 10 seconds per user to avoid hammering the upstream API.
-Cache: Lazy daily cache — if cache is from today, use cached data; if from another date
-or missing, pull from API and save new cache.
-"""
+"""Vietnam retail fuel price cog (PVOIL / Petrolimex CMS API, daily disk cache, 10s cooldown)."""
 
 import asyncio
 import base64

@@ -1,6 +1,4 @@
-"""
-Character Profile Cog - Detailed character information from Project Sekai.
-"""
+"""Character profile lookup cog for Project Sekai."""
 
 import logging
 import random

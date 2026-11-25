@@ -1,7 +1,4 @@
-"""
-Game Data Utility - Centralized access to character and unit data.
-Used by multiple cogs to avoid code duplication.
-"""
+"""Centralized character, unit color, profile, and nickname data singleton (`game_data`)."""
 
 import json
 import logging
@@ -21,10 +18,7 @@ def _index_by_id(raw: dict | list) -> tuple[dict[str, dict], dict[int, dict]]:
 
 
 class GameDataManager:
-    """
-    Singleton manager for game data (characters, units, profiles).
-    Provides shared access and helper methods used across multiple cogs.
-    """
+    """Singleton manager for static character, unit color, nickname, and profile data."""
 
     _instance = None
     _initialized = False
@@ -143,13 +137,7 @@ class GameDataManager:
         return self.characters.get(str(char_id))
 
     def get_character_name(self, char_id: int | str, full: bool = False) -> str:
-        """
-        Get character name from ID.
-
-        Args:
-            char_id: Character ID (int or str)
-            full: If True, return "FirstName GivenName", else just givenName
-        """
+        """Return `"FirstName GivenName"` when *full* is True, otherwise just `givenName`."""
         char = self.get_character(char_id)
         if not char:
             return f"Character {char_id}"
@@ -162,14 +150,7 @@ class GameDataManager:
         return char.get("givenName", char.get("firstName", f"Character {char_id}"))
 
     def get_character_by_name(self, name: str) -> tuple[int | None, dict | None]:
-        """
-        Find character by name, case-insensitive. Tries, in order: an exact name ("an",
-        "shiraishi an", "an shiraishi"), an exact nickname, a name prefix, then any
-        partial match. Without the ranking "an" matched Minori H*an*asato before An.
-
-        Returns:
-            (char_id, char_data) or (None, None) if not found
-        """
+        """Find `(char_id, char_data)` case-insensitively: exact name, nickname, prefix, then substring."""
         query = name.strip().lower()
         if not query:
             return None, None
@@ -212,14 +193,7 @@ class GameDataManager:
     def character_autocomplete_choices(
         self, current: str, max_id: int | None = None, limit: int = 25
     ) -> list[app_commands.Choice[str]]:
-        """
-        Generate autocomplete choices for character selection.
-
-        Args:
-            current: Current user input
-            max_id: Only include characters with ID <= max_id (e.g., 26 for main chars)
-            limit: Maximum choices to return (Discord limit is 25)
-        """
+        """Generate up to *limit* Discord autocomplete choices matching *current* (optionally <= *max_id*)."""
         choices = []
         search = current.lower()
 

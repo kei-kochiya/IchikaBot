@@ -42,7 +42,7 @@ Thư mục `utils/` là xương sống của bot. Các Cog nên gọi lại các
 - **`utils/social/`**: Tính toán ngày theo múi giờ JST và dựng Embed/View cho tính năng sinh nhật (`birthday_helpers.py`, `birthday_ui.py`).
 - **`utils/info/`**: Dựng Embed và giao diện phân trang dùng chung (`songs_ui.py`, `events_ui.py`).
 - **`utils/mercari_scraper/`**: Tra cứu sản phẩm Mercari Nhật hỗ trợ cả tin đăng cá nhân C2C (`c2c_client.py`) và Mercari Shops (`shops_client.py` dùng chung `aiohttp`). `AsyncC2CClient` (cùng `mercapi`/`httpx`, ~12 MB) chỉ được lazy import ở lần tra cứu C2C đầu tiên; phần phân tích URL nhẹ nằm riêng trong `urls.py`.
-- **`utils/pjsk/`**: Bộ client & engine tính B30 cho Project Sekai (EN & JP), được lazy-load hoàn toàn: mã hóa AES-128-CBC + MessagePack (`crypto.py`), client bất đồng bộ hỗ trợ tra cứu hồ sơ công khai và đồng bộ Transfer ID có cơ chế crash-recovery (`client.py`), bộ tải & tính hằng số chart từ Google Sheets `pjskb30` (`constants.py`), và bộ render ảnh thẻ B30 kích thước 1000×1500 bằng Pillow (`b30_render.py`). Hai thư viện `cryptography` và `msgpack` không bao giờ bị import lúc khởi động bot.
+- **`utils/pjsk/`**: Bộ client & engine tính B30 cho Project Sekai (EN & JP), được lazy-load hoàn toàn: mã hóa AES-128-CBC + MessagePack (`crypto.py`), client bất đồng bộ hỗ trợ tra cứu hồ sơ công khai và đồng bộ Transfer ID có cơ chế crash-recovery (`client.py`), giao diện Modal/View & gửi DM (`ui.py`), bộ tải & tính hằng số chart từ Google Sheets `pjskb30` (`constants.py`), và bộ render ảnh thẻ B30 kích thước 1000×1500 bằng Pillow (`b30_render.py`). Hai thư viện `cryptography` và `msgpack` không bao giờ bị import lúc khởi động bot.
 
 ---
 

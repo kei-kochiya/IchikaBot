@@ -1,12 +1,6 @@
-"""
-Cryptographic & wire-format helpers for Project Sekai (EN & JP) game APIs.
+"""AES-128-CBC + MessagePack wire codec and HS256 inherit JWT helpers for PJSK (EN/JP).
 
-Wire format (verified against MetaSekaiLab/sssekai and live EN/JP servers):
-  - Request/response bodies: MessagePack (use_single_float=True) -> PKCS7(128) -> AES-128-CBC.
-  - Inherit verify header (x-inherit-id-verify-token): HS256 JWT of {"inheritId", "password"}.
-
-Import this module lazily inside PJSK API calls so `cryptography` and `msgpack`
-stay unloaded until a PJSK command is actually used.
+Import lazily inside PJSK API calls so `cryptography` and `msgpack` stay unloaded at bot startup.
 """
 
 from __future__ import annotations

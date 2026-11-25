@@ -1,8 +1,4 @@
-"""
-Shared song and music difficulties data singleton.
-
-Loads JP music data ONCE and keeps only lightweight EN search/display strings to minimize RAM.
-"""
+"""Shared song and difficulty data singleton loading JP music data and lightweight EN titles."""
 
 import logging
 import random
@@ -53,10 +49,7 @@ def _entry_matches(entry: tuple, q_lower: str, q_norm: str, ac_only: bool = Fals
 
 
 class SongDataManager:
-    """
-    Singleton for managing Project Sekai songs and difficulties data.
-    Provides memory-efficient access and helper methods used by SongsCog and others.
-    """
+    """Singleton managing Project Sekai songs, difficulties, and multilingual search indices."""
 
     _instance = None
     _initialized = False

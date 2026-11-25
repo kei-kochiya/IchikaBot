@@ -1,7 +1,4 @@
-"""
-Centralized configuration for the Discord bot.
-Contains all constants, paths, and shared resources.
-"""
+"""Centralized bot configuration: paths, constants, URLs, and shared HTTP session."""
 
 import os
 from pathlib import Path

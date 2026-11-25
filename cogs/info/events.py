@@ -1,7 +1,4 @@
-"""
-Event Tracker Cog - Track current and past Project Sekai events.
-Supports both JP and EN event data with English search.
-"""
+"""Event tracker cog for current, past, and searchable JP/EN Project Sekai events."""
 
 import logging
 

@@ -1,7 +1,4 @@
-"""
-Data Updater Cog - Centralized scheduled updates for all game data files.
-This replaces the individual check_updates tasks in each cog.
-"""
+"""Scheduled background updater cog for Sekai-World master game data."""
 
 import asyncio
 import contextlib

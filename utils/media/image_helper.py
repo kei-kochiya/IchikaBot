@@ -1,6 +1,4 @@
-"""
-Image helper utilities for downloading and caching card images.
-"""
+"""Async image downloader and disk cache for card art (WebP), cutouts, UI assets, and song jackets."""
 
 import asyncio
 import contextlib

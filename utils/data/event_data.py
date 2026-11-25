@@ -1,8 +1,4 @@
-"""
-Shared event data singleton.
-
-Loads JP event data ONCE and keeps only lightweight EN name strings to minimize RAM.
-"""
+"""Shared event data singleton loading JP events and lightweight EN names."""
 
 import logging
 import sys
@@ -28,10 +24,7 @@ def _slim_event(event: dict) -> dict:
 
 
 class EventDataManager:
-    """
-    Singleton for managing Project Sekai event data.
-    Provides memory-efficient access and helper methods used by EventsCog and others.
-    """
+    """Singleton managing Project Sekai event data and lookup helpers."""
 
     _instance = None
     _initialized = False

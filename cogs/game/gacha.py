@@ -1,6 +1,4 @@
-"""
-Gacha Cog - Gacha simulation for Project Sekai.
-"""
+"""Gacha simulator cog for Project Sekai."""
 
 import asyncio
 import logging

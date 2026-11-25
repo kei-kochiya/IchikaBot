@@ -1,7 +1,4 @@
-"""
-Centralized Auto-updater Utility
-Handles fetching and updating JSON data files from remote sources.
-"""
+"""Centralized auto-updater for fetching and validating Sekai-World JSON datasets."""
 
 import asyncio
 import contextlib
@@ -38,12 +35,7 @@ class DataSource:
 
 
 def _validate_json_file(path: Path) -> int:
-    """
-    Validate that *path* holds well-formed JSON and return its item count.
-
-    Top-level arrays (every registered source) are validated by streaming, so the
-    parse tree is never held in memory. Anything else falls back to a full parse.
-    """
+    """Validate that *path* contains well-formed JSON and return its item count (streaming arrays)."""
     with open(path, "rb") as f:
         head = f.read(4096).lstrip()
     if head.startswith(b"["):
@@ -54,24 +46,9 @@ def _validate_json_file(path: Path) -> int:
 
 
 class AutoUpdater:
-    """
-    Centralized auto-updater for fetching and updating JSON data files.
+    """Centralized updater using ETag conditional fetches, streaming validation, and atomic writes.
 
-    Memory/bandwidth features:
-    - Conditional requests (ETag / If-None-Match): an unchanged file costs one tiny
-      304 response instead of a multi-megabyte download and parse.
-    - The body is streamed to disk and validated by streaming, so peak memory stays
-      at a few buffers instead of several full copies of the parsed data.
-    - Changes are detected by content hash, so edits that do not change the item count
-      are picked up as well.
-    - Heavy work (validation, hashing, replace) runs off the event loop.
-
-    Security features:
-    - Only fetches from whitelisted URLs (configured in config.py)
-    - Validates response is valid JSON before replacing the local file
-    - Atomic writes to prevent corruption
-    - Rejects empty datasets
-    - Only one update run at a time
+    Restricts downloads to whitelisted URLs, rejects empty datasets, and serializes runs.
     """
 
     # Whitelisted URL prefixes for security
@@ -93,11 +70,7 @@ class AutoUpdater:
         return self._lock.locked()
 
     def register(self, source: DataSource) -> bool:
-        """
-        Register a data source for auto-updating.
-
-        Returns False if URL is not in whitelist.
-        """
+        """Register a data source for auto-updating; returns False if *url* is not whitelisted."""
         # Security: Validate URL is in whitelist
         if not any(source.url.startswith(prefix) for prefix in self.ALLOWED_URL_PREFIXES):
             logger.warning(
@@ -136,12 +109,7 @@ class AutoUpdater:
     # ── Public API ──────────────────────────────────────────────────────────
 
     async def check_and_update(self, source_name: str) -> tuple[bool, str]:
-        """
-        Check for updates and download if available.
-
-        Returns:
-            (success: bool, message: str)
-        """
+        """Check *name* for upstream changes, download if newer, and return `(updated, message)`."""
         async with self._lock:
             return await self._check_and_update(source_name)
 
@@ -251,11 +219,7 @@ class AutoUpdater:
     def _install(
         self, source: DataSource, part_path: Path, known_old_count: int | None
     ) -> tuple[int | str, int] | None:
-        """
-        Validate the downloaded file and atomically move it into place.
-        Runs in a worker thread. Returns (old_count, new_count), or None if unchanged.
-        Raises ValueError if the download is not valid / usable JSON.
-        """
+        """Validate *tmp_path* in a worker thread and atomically replace *local_path* if changed."""
         if source.transform is not None:
             # Transforms need the whole structure in memory; none of the built-in sources use one.
             with open(part_path, encoding="utf-8") as f:
@@ -353,9 +317,5 @@ async def register_all_sources():
 
 
 async def run_all_updates() -> dict[str, tuple[bool, str]]:
-    """
-    Run updates for all registered sources.
-
-    This can be called from a scheduled task or manually.
-    """
+    """Run updates for all registered sources (scheduled or manual)."""
     return await auto_updater.check_all()

@@ -1,6 +1,4 @@
-"""
-Help Cog - Custom help command for both prefix and slash commands.
-"""
+"""Interactive help cog for both slash and prefix commands."""
 
 import logging
 

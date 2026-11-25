@@ -1,14 +1,4 @@
-"""
-jsonstream.py — Incremental JSON array reader.
-
-The Sekai master-data files are single top-level JSON arrays that can be tens of
-megabytes once parsed into Python objects.  ``iter_json_array`` yields the array
-elements one at a time so callers can prune, count or validate them while holding
-only a single element (plus one read buffer) in memory.
-
-It is format-agnostic: pretty-printed, minified and one-element-per-line files
-all work.
-"""
+"""Incremental JSON array reader (`iter_json_array`) for multi-MB Sekai master-data files."""
 
 import json
 from collections.abc import Iterator
@@ -21,13 +11,7 @@ _CHUNK_CHARS = 1 << 16  # 64K chars: small buffer fits L2 cache and cuts peak me
 
 
 def _may_continue(obj: Any, buf: str, end: int) -> bool:
-    """
-    True if the value just decoded might be cut short by the end of the buffer.
-
-    Objects, arrays, strings, booleans and null are self-delimiting; only a bare
-    number ending at (or followed solely by trailing number chars up to) the buffer
-    edge could continue in the next chunk.
-    """
+    """Return True if a decoded bare number could continue across the read-buffer boundary."""
     if isinstance(obj, bool) or not isinstance(obj, int | float):
         return False
     if end >= len(buf):
@@ -43,12 +27,7 @@ def _is_chunk_boundary_error(err: json.JSONDecodeError, buf: str) -> bool:
 
 
 def iter_json_array(path: Path | str, chunk_size: int = _CHUNK_CHARS) -> Iterator[Any]:
-    """
-    Yield each element of the top-level JSON array stored in *path*.
-
-    Raises ``ValueError`` if the file is not a JSON array and
-    ``json.JSONDecodeError`` (a ``ValueError``) if it is malformed.
-    """
+    """Yield each element of a top-level JSON array in *path*; raises `ValueError` if invalid."""
     decoder = json.JSONDecoder()
     with open(path, encoding="utf-8") as f:
         buf = ""

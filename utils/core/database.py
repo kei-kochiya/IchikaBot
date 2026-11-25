@@ -1,34 +1,7 @@
-"""
-database.py — Async SQLite layer for IchikaBot.
+"""Async SQLite persistence layer for IchikaBot (pity, guild/user settings, and PJSK/B30 data).
 
-Replaces flat JSON files:
-  - pityData.json          → table: pity
-  - birthdaySettings.json  → table: guild_settings (setting='birthday_channel')
-  - cardOfDaySettings.json → table: guild_settings (setting='cotd_*')
-
-Tables
-------
-pity
-    user_id  INTEGER PRIMARY KEY
-    count    INTEGER NOT NULL DEFAULT 0
-
-guild_settings
-    guild_id INTEGER
-    setting  TEXT
-    value    TEXT
-    PRIMARY KEY (guild_id, setting)
-
-user_settings  (per-user preferences, e.g. setting='guess_mode')
-    user_id  INTEGER
-    setting  TEXT
-    value    TEXT
-    PRIMARY KEY (user_id, setting)
-
-Migration
----------
-On first init, if the legacy JSON files exist their data is imported
-and a migration-complete marker is written to guild_settings so the
-import never runs again.
+Shares one long-lived WAL connection; all writes serialize through `_write_tx()` with atomic
+commit/rollback. Legacy JSON files are imported once on first `init_db()`.
 """
 
 import asyncio
@@ -367,11 +340,7 @@ async def get_all_settings(setting: str) -> dict[int, str]:
 
 
 async def get_all_settings_prefix(prefix: str) -> dict[int, dict[str, str]]:
-    """
-    Return {guild_id: {key_suffix: value}} for all settings whose key
-    starts with *prefix*.  Used by CardOfDay which stores multiple keys
-    per guild (cotd_channel_id, cotd_interval_hours, cotd_last_post_ts).
-    """
+    """Return `{guild_id: {key_suffix: value}}` for all guild settings starting with *prefix*."""
     conn = await _get_conn()
     async with conn.execute(
         "SELECT guild_id, setting, value FROM guild_settings "
