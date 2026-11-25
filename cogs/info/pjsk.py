@@ -58,6 +58,13 @@ def _get_transfer_lock(discord_id: int, region: str) -> asyncio.Lock:
     return lock
 
 
+def _cleanup_transfer_lock(discord_id: int, region: str, lock: asyncio.Lock) -> None:
+    """Evict an idle per-user transfer lock so `_transfer_locks` stays bounded."""
+    key = (discord_id, region.lower())
+    if _transfer_locks.get(key) is lock and not lock.locked():
+        _transfer_locks.pop(key, None)
+
+
 def _generate_verify_code() -> str:
     suffix = "".join(secrets.choice(_VERIFY_ALPHABET) for _ in range(6))
     return f"ICHIKA-{suffix}"
@@ -147,6 +154,25 @@ class LinkVerifyView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
 
+    async def on_timeout(self) -> None:
+        self._done = True
+        self._disable_all()
+        self.stop()
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item,
+    ) -> None:
+        logger.exception("Unhandled error in LinkVerifyView: %s", error)
+        msg = "Đã xảy ra lỗi không mong muốn khi xác minh tài khoản. Vui lòng thử lại sau."
+        with contextlib.suppress(discord.HTTPException):
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+
     @discord.ui.button(label="Xác minh Bio", style=discord.ButtonStyle.success)
     async def verify_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -179,6 +205,9 @@ class LinkVerifyView(discord.ui.View):
                 await interaction.followup.send(f"Không thể kiểm tra hồ sơ: {exc}", ephemeral=True)
                 return
 
+            if self._done:
+                return
+
             if self.verify_code not in profile.bio:
                 safe_bio = _safe_inline_code(profile.bio or "(trống)")
                 embed = discord.Embed(
@@ -204,6 +233,9 @@ class LinkVerifyView(discord.ui.View):
                     f"Tài khoản PJSK `{self.pjsk_user_id}` ({self.region.upper()}) đã được liên kết với một tài khoản Discord khác.",
                     ephemeral=True,
                 )
+                return
+
+            if self._done:
                 return
 
             try:
@@ -249,8 +281,10 @@ class LinkVerifyView(discord.ui.View):
                 "Chỉ người gọi lệnh mới có thể bấm nút này.", ephemeral=True
             )
             return
-        if self._done:
-            await interaction.response.send_message("Phiên xác minh đã kết thúc.", ephemeral=True)
+        if self._done or self._lock.locked():
+            await interaction.response.send_message(
+                "Phiên xác minh đang được xử lý hoặc đã kết thúc.", ephemeral=True
+            )
             return
         self._done = True
         self._disable_all()
@@ -312,6 +346,13 @@ class LinkUserIDModal(discord.ui.Modal):
         except PJSKError as exc:
             await interaction.followup.send(f"Không thể tìm thấy hồ sơ: {exc}", ephemeral=True)
             return
+        except Exception as exc:
+            logger.exception("Unexpected error in LinkUserIDModal: %s", exc)
+            await interaction.followup.send(
+                "Đã xảy ra lỗi không mong muốn khi tra cứu hồ sơ. Vui lòng thử lại sau.",
+                ephemeral=True,
+            )
+            return
 
         code = _generate_verify_code()
         embed = discord.Embed(
@@ -333,6 +374,15 @@ class LinkUserIDModal(discord.ui.Modal):
             initial_name=profile.name,
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        logger.exception("Unhandled error in LinkUserIDModal: %s", error)
+        msg = "Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau."
+        with contextlib.suppress(discord.HTTPException):
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
 
 
 # ── Views & Modals for Transfer-ID Sync ───────────────────────────────────────
@@ -457,145 +507,162 @@ class TransferConfirmView(discord.ui.View):
         tid, tpw = self.transfer_id, self.transfer_password
         self._clear_secrets()
 
-        async with op_lock:
-            progress_embed = discord.Embed(
-                title="Đang đăng nhập & đồng bộ dữ liệu...",
-                description=(
-                    "Bot đang đăng nhập để lấy dữ liệu FC/AP và tạo **Transfer ID mới** trả lại cho bạn.\n\n"
-                    "Nếu tin nhắn này không cập nhật sau 1 phút, hãy dùng lệnh "
-                    f"`/pjsk recover region:{self.region}` hoặc đăng nhập lại bằng Game Center / Google Play.\n\n"
-                    f"**Transfer ID cũ:** `{tid}`\n"
-                    f"**Mật khẩu cũ:** `{tpw}`"
-                ),
-                color=discord.Color.dark_gray(),
-            )
-            await interaction.response.edit_message(embed=progress_embed, view=self)
-
-            from utils.pjsk.client import PJSKError, PJSKSyncPartialError, get_pjsk_client
-
-            client = get_pjsk_client(self.region)
-
-            async def _save_recovery(uid: int, cred: str) -> None:
-                await database.save_pjsk_recovery(
-                    self.discord_id, self.region, uid, cred, time.time()
-                )
-
-            try:
-                result = await client.execute_transfer_and_sync(
-                    tid,
-                    tpw,
-                    on_credential_acquired=_save_recovery,
-                )
-            except PJSKSyncPartialError as partial:
-                warn_embed = discord.Embed(
-                    title="Đã tạo Transfer ID mới (lỗi tải dữ liệu bài hát)",
+        try:
+            async with op_lock:
+                progress_embed = discord.Embed(
+                    title="Đang đăng nhập & đồng bộ dữ liệu...",
                     description=(
-                        "Bot đã đăng nhập và tạo thành công **Transfer ID mới** cho bạn, nhưng bước tải danh sách bài hát bị lỗi.\n"
-                        "Hãy dùng thông tin bên dưới để đăng nhập lại vào game ngay:\n\n"
-                        f"**Transfer ID mới:** `{partial.new_transfer_id}`\n"
-                        f"**Mật khẩu mới:** `{partial.new_password}`\n\n"
-                        f"-# Chi tiết lỗi: {partial}"
-                    ),
-                    color=discord.Color.orange(),
-                )
-                delivered = await _deliver_dm_embed(
-                    embed=warn_embed,
-                    interaction=interaction,
-                    message=self.message,
-                    user=interaction.user,
-                    view=self,
-                )
-                if delivered:
-                    await database.delete_pjsk_recovery(self.discord_id, self.region)
-                return
-            except PJSKError as exc:
-                err_embed = discord.Embed(
-                    title="Đồng bộ thất bại!",
-                    description=(
-                        f"Lỗi: {exc}\n\n"
-                        "Nếu tài khoản của bạn đã bị đăng xuất khỏi thiết bị, hãy chạy ngay "
-                        f"`/pjsk recover region:{self.region}` để bot cấp lại Transfer ID mới, "
-                        "hoặc đăng nhập lại bằng Game Center / Google Play.\n\n"
+                        "Bot đang đăng nhập để lấy dữ liệu FC/AP và tạo **Transfer ID mới** trả lại cho bạn.\n\n"
+                        "Nếu tin nhắn này không cập nhật sau 1 phút, hãy dùng lệnh "
+                        f"`/pjsk recover region:{self.region}` hoặc đăng nhập lại bằng Game Center / Google Play.\n\n"
                         f"**Transfer ID cũ:** `{tid}`\n"
                         f"**Mật khẩu cũ:** `{tpw}`"
                     ),
-                    color=discord.Color.red(),
+                    color=discord.Color.dark_gray(),
                 )
-                await _deliver_dm_embed(
-                    embed=err_embed,
-                    interaction=interaction,
-                    message=self.message,
-                    user=interaction.user,
-                    view=self,
-                )
-                return
-            except Exception as exc:
-                logger.exception("Unexpected error during PJSK transfer sync: %s", exc)
-                err_embed = discord.Embed(
-                    title="Đã xảy ra lỗi ngoài ý muốn!",
+                await interaction.response.edit_message(embed=progress_embed, view=self)
+
+                from utils.pjsk.client import PJSKError, PJSKSyncPartialError, get_pjsk_client
+
+                client = get_pjsk_client(self.region)
+
+                async def _save_recovery(uid: int, cred: str) -> None:
+                    try:
+                        await database.save_pjsk_recovery(
+                            self.discord_id, self.region, uid, cred, time.time()
+                        )
+                    except Exception as db_exc:
+                        logger.exception(
+                            "Failed to persist crash-recovery credential for discord=%s region=%s: %s",
+                            self.discord_id,
+                            self.region,
+                            db_exc,
+                        )
+
+                try:
+                    result = await client.execute_transfer_and_sync(
+                        tid,
+                        tpw,
+                        on_credential_acquired=_save_recovery,
+                    )
+                except PJSKSyncPartialError as partial:
+                    warn_embed = discord.Embed(
+                        title="Đã tạo Transfer ID mới (lỗi tải dữ liệu bài hát)",
+                        description=(
+                            "Bot đã đăng nhập và tạo thành công **Transfer ID mới** cho bạn, nhưng bước tải danh sách bài hát bị lỗi.\n"
+                            "Hãy dùng thông tin bên dưới để đăng nhập lại vào game ngay:\n\n"
+                            f"**Transfer ID mới:** `{partial.new_transfer_id}`\n"
+                            f"**Mật khẩu mới:** `{partial.new_password}`\n\n"
+                            f"-# Chi tiết lỗi: {str(partial)[:500]}"
+                        ),
+                        color=discord.Color.orange(),
+                    )
+                    delivered = await _deliver_dm_embed(
+                        embed=warn_embed,
+                        interaction=interaction,
+                        message=self.message,
+                        user=interaction.user,
+                        view=self,
+                    )
+                    if delivered:
+                        await database.delete_pjsk_recovery(self.discord_id, self.region)
+                    return
+                except PJSKError as exc:
+                    err_embed = discord.Embed(
+                        title="Đồng bộ thất bại!",
+                        description=(
+                            f"Lỗi: {str(exc)[:500]}\n\n"
+                            "Nếu tài khoản của bạn đã bị đăng xuất khỏi thiết bị, hãy chạy ngay "
+                            f"`/pjsk recover region:{self.region}` để bot cấp lại Transfer ID mới, "
+                            "hoặc đăng nhập lại bằng Game Center / Google Play.\n\n"
+                            f"**Transfer ID cũ:** `{tid}`\n"
+                            f"**Mật khẩu cũ:** `{tpw}`"
+                        ),
+                        color=discord.Color.red(),
+                    )
+                    await _deliver_dm_embed(
+                        embed=err_embed,
+                        interaction=interaction,
+                        message=self.message,
+                        user=interaction.user,
+                        view=self,
+                    )
+                    return
+                except Exception as exc:
+                    logger.exception("Unexpected error during PJSK transfer sync: %s", exc)
+                    err_embed = discord.Embed(
+                        title="Đã xảy ra lỗi ngoài ý muốn!",
+                        description=(
+                            "Nếu bạn bị đăng xuất khỏi game, hãy chạy ngay "
+                            f"`/pjsk recover region:{self.region}` để cấp lại Transfer ID mới, "
+                            "hoặc đăng nhập lại bằng Game Center / Google Play."
+                        ),
+                        color=discord.Color.red(),
+                    )
+                    await _deliver_dm_embed(
+                        embed=err_embed,
+                        interaction=interaction,
+                        message=self.message,
+                        user=interaction.user,
+                        view=self,
+                    )
+                    return
+
+                # Save clears in try/except so a transient DB error NEVER prevents delivering the new Transfer ID!
+                db_save_note = ""
+                try:
+                    saved = await database.replace_pjsk_clears(
+                        self.discord_id,
+                        self.region,
+                        result.clears,
+                        pjsk_name=result.name,
+                        synced_at=time.time(),
+                        expected_pjsk_user_id=self.pjsk_user_id,
+                    )
+                    if not saved:
+                        db_save_note = (
+                            "\n\n⚠️ *Lưu ý: Liên kết tài khoản đã thay đổi trong lúc đồng bộ "
+                            "nên dữ liệu bài hát không được ghi đè.*"
+                        )
+                except Exception as db_exc:
+                    logger.exception("Failed to save PJSK clears after transfer: %s", db_exc)
+                    db_save_note = (
+                        "\n\n⚠️ *Lưu ý: Đã tạo Transfer ID mới thành công nhưng bước lưu bài hát vào DB bị lỗi; "
+                        "hãy vào lại game trước rồi thử sync lại sau.*"
+                    )
+
+                ap_total = sum(1 for st in result.clears.values() if st == "ap")
+                fc_total = sum(1 for st in result.clears.values() if st == "fc")
+
+                success_embed = discord.Embed(
+                    title=f"Đồng bộ thành công! ({self.region.upper()})",
                     description=(
-                        "Nếu bạn bị đăng xuất khỏi game, hãy chạy ngay "
-                        f"`/pjsk recover region:{self.region}` để cấp lại Transfer ID mới, "
-                        "hoặc đăng nhập lại bằng Game Center / Google Play."
+                        f"Đã cập nhật dữ liệu của **{_safe_display_name(result.name)}** (Rank **{result.rank}**): "
+                        f"**{ap_total}** AP · **{fc_total}** FC (từ {result.total_musics} bài hát).\n\n"
+                        "**Dùng Transfer ID mới bên dưới để lấy lại tài khoản trong game:**\n"
+                        "-# Title Screen → Menu → Account Transfer → Transfer to Different OS\n\n"
+                        f"**Transfer ID mới:** `{result.new_transfer_id}`\n"
+                        f"**Mật khẩu mới:** `{result.new_password}`\n\n"
+                        "Hoặc bạn có thể đăng nhập lại bằng **Game Center** / **Google Play**.\n"
+                        "**Sau khi vào lại game, hãy tạo lại Transfer ID mới để bảo mật tài khoản.**\n\n"
+                        f"Dùng `/b30 region:{self.region}` để xem bảng B30 của bạn!"
+                        f"{db_save_note}"
                     ),
-                    color=discord.Color.red(),
+                    color=discord.Color.green(),
                 )
-                await _deliver_dm_embed(
-                    embed=err_embed,
+                success_embed.set_footer(text=f"{self.region.upper()} · Dữ liệu đã được lưu")
+                delivered = await _deliver_dm_embed(
+                    embed=success_embed,
                     interaction=interaction,
                     message=self.message,
                     user=interaction.user,
                     view=self,
                 )
-                return
-
-            # Save clears in try/except so a transient DB error NEVER prevents delivering the new Transfer ID!
-            db_save_note = ""
-            try:
-                await database.replace_pjsk_clears(
-                    self.discord_id,
-                    self.region,
-                    result.clears,
-                    pjsk_name=result.name,
-                    synced_at=time.time(),
-                )
-            except Exception as db_exc:
-                logger.exception("Failed to save PJSK clears after transfer: %s", db_exc)
-                db_save_note = (
-                    "\n\n⚠️ *Lưu ý: Đã tạo Transfer ID mới thành công nhưng bước lưu bài hát vào DB bị lỗi; "
-                    "hãy vào lại game trước rồi thử sync lại sau.*"
-                )
-
-            ap_total = sum(1 for st in result.clears.values() if st == "ap")
-            fc_total = sum(1 for st in result.clears.values() if st == "fc")
-
-            success_embed = discord.Embed(
-                title=f"Đồng bộ thành công! ({self.region.upper()})",
-                description=(
-                    f"Đã cập nhật dữ liệu của **{_safe_display_name(result.name)}** (Rank **{result.rank}**): "
-                    f"**{ap_total}** AP · **{fc_total}** FC (từ {result.total_musics} bài hát).\n\n"
-                    "**Dùng Transfer ID mới bên dưới để lấy lại tài khoản trong game:**\n"
-                    "-# Title Screen → Menu → Account Transfer → Transfer to Different OS\n\n"
-                    f"**Transfer ID mới:** `{result.new_transfer_id}`\n"
-                    f"**Mật khẩu mới:** `{result.new_password}`\n\n"
-                    "Hoặc bạn có thể đăng nhập lại bằng **Game Center** / **Google Play**.\n"
-                    "**Sau khi vào lại game, hãy tạo lại Transfer ID mới để bảo mật tài khoản.**\n\n"
-                    f"Dùng `/b30 region:{self.region}` để xem bảng B30 của bạn!"
-                    f"{db_save_note}"
-                ),
-                color=discord.Color.green(),
-            )
-            success_embed.set_footer(text=f"{self.region.upper()} · Dữ liệu đã được lưu")
-            delivered = await _deliver_dm_embed(
-                embed=success_embed,
-                interaction=interaction,
-                message=self.message,
-                user=interaction.user,
-                view=self,
-            )
-            # Only wipe crash-recovery credential AFTER the DM containing the new Transfer ID succeeded!
-            if delivered:
-                await database.delete_pjsk_recovery(self.discord_id, self.region)
+                # Only wipe crash-recovery credential AFTER the DM containing the new Transfer ID succeeded!
+                if delivered:
+                    await database.delete_pjsk_recovery(self.discord_id, self.region)
+        finally:
+            _cleanup_transfer_lock(self.discord_id, self.region, op_lock)
 
 
 class TransferIDModal(discord.ui.Modal):
@@ -638,24 +705,38 @@ class TransferIDModal(discord.ui.Modal):
                     color=discord.Color.blurple(),
                 )
             )
+        except discord.Forbidden:
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.edit_original_response(
+                    embed=discord.Embed(
+                        title="Không thể gửi DM cho bạn",
+                        description=(
+                            "Bot bắt buộc gửi Transfer ID mới qua **DM** để bảo mật và tránh mất mã.\n"
+                            "Hãy bật **Cho phép nhận tin nhắn trực tiếp từ thành viên server** rồi thử lại."
+                        ),
+                        color=discord.Color.red(),
+                    )
+                )
+            return
+        except discord.HTTPException as exc:
+            logger.warning("Failed to open DM for PJSK transfer: %s", exc)
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.edit_original_response(
+                    embed=discord.Embed(
+                        title="Không thể gửi DM lúc này",
+                        description="Discord trả về lỗi khi mở DM. Vui lòng thử lại sau ít phút.",
+                        color=discord.Color.red(),
+                    )
+                )
+            return
+
+        with contextlib.suppress(discord.HTTPException):
             await interaction.edit_original_response(
                 embed=discord.Embed(
                     description="Đã mở DM thành công! Hãy kiểm tra tin nhắn riêng để tiếp tục.",
                     color=discord.Color.green(),
                 )
             )
-        except discord.Forbidden:
-            await interaction.edit_original_response(
-                embed=discord.Embed(
-                    title="Không thể gửi DM cho bạn",
-                    description=(
-                        "Bot bắt buộc gửi Transfer ID mới qua **DM** để bảo mật và tránh mất mã.\n"
-                        "Hãy bật **Cho phép nhận tin nhắn trực tiếp từ thành viên server** rồi thử lại."
-                    ),
-                    color=discord.Color.red(),
-                )
-            )
-            return
 
         from utils.pjsk.client import PJSKError, get_pjsk_client
 
@@ -744,8 +825,10 @@ def _parse_suite_upload_sync(
     from utils.pjsk.constants import extract_music_clears
 
     suite = json.loads(raw_bytes.decode("utf-8-sig"))
-    if not isinstance(suite, dict) or "userMusics" not in suite:
-        raise ValueError("File không chứa trường `userMusics`.")
+    if not isinstance(suite, dict) or (
+        "userMusics" not in suite and "userMusicResults" not in suite
+    ):
+        raise ValueError("File không chứa trường `userMusics` hoặc `userMusicResults`.")
     gamedata = suite.get("userGamedata") if isinstance(suite.get("userGamedata"), dict) else {}
     raw_uid = gamedata.get("userId")
     file_uid: int | None = None
@@ -786,6 +869,25 @@ class PJSKCog(commands.Cog):
     @app_commands.choices(region=REGION_CHOICES)
     async def pjsk_unlink(self, interaction: discord.Interaction, region: str = "en") -> None:
         reg = region.lower()
+        op_lock = _get_transfer_lock(interaction.user.id, reg)
+        if op_lock.locked():
+            await interaction.response.send_message(
+                f"Đang có phiên sync/recover chạy cho server **{reg.upper()}**. "
+                "Vui lòng đợi hoàn tất trước khi hủy liên kết.",
+                ephemeral=True,
+            )
+            return
+        _cleanup_transfer_lock(interaction.user.id, reg, op_lock)
+
+        pending_recovery = await database.get_pjsk_recovery(interaction.user.id, reg)
+        if pending_recovery is not None:
+            await interaction.response.send_message(
+                f"Bạn đang có mã khôi phục Transfer ID chưa nhận cho server **{reg.upper()}**! "
+                f"Hãy chạy `/pjsk recover region:{reg}` trước để lấy lại tài khoản rồi mới hủy liên kết.",
+                ephemeral=True,
+            )
+            return
+
         removed = await database.delete_pjsk_link(interaction.user.id, reg)
         if not removed:
             await interaction.response.send_message(
@@ -798,6 +900,7 @@ class PJSKCog(commands.Cog):
         )
 
     @pjsk_group.command(name="profile", description="Xem hồ sơ Project Sekai đã liên kết")
+    @app_commands.checks.cooldown(1, 5.0)
     @app_commands.describe(
         region="Chọn server (EN hoặc JP)",
         user="Người dùng Discord muốn xem (mặc định là bạn)",
@@ -813,10 +916,15 @@ class PJSKCog(commands.Cog):
         reg = region.lower()
         link = await database.get_pjsk_link(target.id, reg)
         if not link:
-            who = "Bạn" if target.id == interaction.user.id else f"**{target.display_name}**"
+            who = (
+                "Bạn"
+                if target.id == interaction.user.id
+                else f"**{_safe_display_name(target.display_name)}**"
+            )
             await interaction.response.send_message(
                 f"{who} chưa liên kết tài khoản PJSK **{reg.upper()}**. Dùng `/pjsk link region:{reg}` để liên kết.",
                 ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
             return
 
@@ -830,9 +938,14 @@ class PJSKCog(commands.Cog):
             await interaction.followup.send(f"Không thể tải hồ sơ PJSK: {exc}")
             return
 
+        safe_bio = (
+            discord.utils.escape_markdown(discord.utils.escape_mentions(profile.bio))[:1024]
+            if profile.bio
+            else "*Không có Bio*"
+        )
         embed = discord.Embed(
-            title=f"{profile.name}  [{reg.upper()}]",
-            description=profile.bio or "*Không có Bio*",
+            title=f"{_safe_display_name(profile.name)}  [{reg.upper()}]"[:256],
+            description=safe_bio,
             color=discord.Color.from_rgb(102, 178, 255),
         )
         embed.add_field(name="User ID", value=f"`{profile.user_id}`", inline=True)
@@ -912,67 +1025,84 @@ class PJSKCog(commands.Cog):
             )
             return
 
-        async with op_lock:
-            rec = await database.get_pjsk_recovery(interaction.user.id, reg)
-            if not rec:
-                await interaction.response.send_message(
-                    f"Không có phiên transfer nào đang chờ khôi phục cho server **{reg.upper()}**.",
-                    ephemeral=True,
-                )
-                return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async with op_lock:
+                rec = await database.get_pjsk_recovery(interaction.user.id, reg)
+                if not rec:
+                    await interaction.followup.send(
+                        f"Không có phiên transfer nào đang chờ khôi phục cho server **{reg.upper()}**.",
+                        ephemeral=True,
+                    )
+                    return
 
-            await interaction.response.send_message(
-                "Đang gửi Transfer ID khôi phục qua DM cho bạn...", ephemeral=True
-            )
-            try:
-                dm_msg = await interaction.user.send(
-                    f"Đang tạo lại Transfer ID khôi phục cho server **{reg.upper()}**..."
-                )
-            except discord.Forbidden:
-                await interaction.edit_original_response(
-                    content="Không thể gửi DM cho bạn. Hãy bật nhận DM rồi thử lại `/pjsk recover`."
-                )
-                return
+                try:
+                    dm_msg = await interaction.user.send(
+                        f"Đang tạo lại Transfer ID khôi phục cho server **{reg.upper()}**..."
+                    )
+                except discord.HTTPException:
+                    await interaction.followup.send(
+                        "Không thể gửi DM cho bạn. Hãy bật nhận DM rồi thử lại `/pjsk recover`.",
+                        ephemeral=True,
+                    )
+                    return
 
-            from utils.pjsk.client import PJSKError, get_pjsk_client
+                from utils.pjsk.client import PJSKError, get_pjsk_client
 
-            try:
-                client = get_pjsk_client(reg)
-                new_tid, new_pw = await client.reissue_transfer_from_credential(
-                    rec["pjsk_user_id"], rec["credential"]
-                )
-            except PJSKError as exc:
-                await dm_msg.edit(content=f"Khôi phục thất bại: {exc}")
-                return
-            except Exception as exc:
-                logger.exception("Unexpected error during /pjsk recover: %s", exc)
-                await dm_msg.edit(
-                    content="Khôi phục gặp lỗi không mong muốn. Vui lòng thử lại sau ít phút."
-                )
-                return
+                try:
+                    client = get_pjsk_client(reg)
+                    new_tid, new_pw = await client.reissue_transfer_from_credential(
+                        rec["pjsk_user_id"], rec["credential"]
+                    )
+                except PJSKError as exc:
+                    await dm_msg.edit(content=f"Khôi phục thất bại: {str(exc)[:500]}")
+                    await interaction.followup.send(
+                        "Khôi phục thất bại — xem chi tiết trong DM.", ephemeral=True
+                    )
+                    return
+                except Exception as exc:
+                    logger.exception("Unexpected error during /pjsk recover: %s", exc)
+                    await dm_msg.edit(
+                        content="Khôi phục gặp lỗi không mong muốn. Vui lòng thử lại sau ít phút."
+                    )
+                    await interaction.followup.send(
+                        "Khôi phục gặp lỗi ngoài ý muốn — xem chi tiết trong DM.", ephemeral=True
+                    )
+                    return
 
-            rec_embed = discord.Embed(
-                title=f"Khôi phục Transfer ID thành công ({reg.upper()})",
-                description=(
-                    "Hãy dùng thông tin bên dưới để đăng nhập lại vào game:\n\n"
-                    f"**Transfer ID mới:** `{new_tid}`\n"
-                    f"**Mật khẩu mới:** `{new_pw}`\n\n"
-                    "**Sau khi vào lại game, hãy tạo lại Transfer ID mới để bảo mật.**"
-                ),
-                color=discord.Color.green(),
-            )
-            delivered = await _deliver_dm_embed(
-                embed=rec_embed,
-                message=dm_msg,
-                user=interaction.user,
-            )
-            if delivered:
-                await database.delete_pjsk_recovery(interaction.user.id, reg)
+                rec_embed = discord.Embed(
+                    title=f"Khôi phục Transfer ID thành công ({reg.upper()})",
+                    description=(
+                        "Hãy dùng thông tin bên dưới để đăng nhập lại vào game:\n\n"
+                        f"**Transfer ID mới:** `{new_tid}`\n"
+                        f"**Mật khẩu mới:** `{new_pw}`\n\n"
+                        "**Sau khi vào lại game, hãy tạo lại Transfer ID mới để bảo mật.**"
+                    ),
+                    color=discord.Color.green(),
+                )
+                delivered = await _deliver_dm_embed(
+                    embed=rec_embed,
+                    message=dm_msg,
+                    user=interaction.user,
+                )
+                if delivered:
+                    await database.delete_pjsk_recovery(interaction.user.id, reg)
+                    await interaction.followup.send(
+                        "Đã gửi Transfer ID khôi phục mới vào DM của bạn!", ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "Không thể gửi kết quả khôi phục qua DM. Vui lòng thử `/pjsk recover` lại sau.",
+                        ephemeral=True,
+                    )
+        finally:
+            _cleanup_transfer_lock(interaction.user.id, reg, op_lock)
 
     @pjsk_group.command(
         name="import",
         description="Nhập dữ liệu FC/AP từ file suite.json (thay thế hoặc bổ sung cho Transfer ID)",
     )
+    @app_commands.checks.cooldown(1, 15.0)
     @app_commands.describe(
         region="Chọn server (EN hoặc JP)",
         suite_file="File suite.json xuất từ game/Haruki/sssekai",
@@ -985,6 +1115,15 @@ class PJSKCog(commands.Cog):
         suite_file: discord.Attachment,
     ) -> None:
         reg = region.lower()
+        op_lock = _get_transfer_lock(interaction.user.id, reg)
+        if op_lock.locked():
+            await interaction.response.send_message(
+                f"Đang có phiên sync/recover chạy cho server **{reg.upper()}**. Vui lòng đợi hoàn tất trước.",
+                ephemeral=True,
+            )
+            return
+        _cleanup_transfer_lock(interaction.user.id, reg, op_lock)
+
         link = await database.get_pjsk_link(interaction.user.id, reg)
         if not link:
             await interaction.response.send_message(
@@ -1003,6 +1142,7 @@ class PJSKCog(commands.Cog):
             clears, file_uid, parsed_name = await asyncio.to_thread(
                 _parse_suite_upload_sync, raw_bytes
             )
+            del raw_bytes
         except Exception as exc:
             await interaction.followup.send(f"File JSON không hợp lệ: {exc}", ephemeral=True)
             return
@@ -1015,9 +1155,20 @@ class PJSKCog(commands.Cog):
             return
 
         name = parsed_name or link.get("pjsk_name") or "Player"
-        await database.replace_pjsk_clears(
-            interaction.user.id, reg, clears, pjsk_name=name, synced_at=time.time()
+        saved = await database.replace_pjsk_clears(
+            interaction.user.id,
+            reg,
+            clears,
+            pjsk_name=name,
+            synced_at=time.time(),
+            expected_pjsk_user_id=link["pjsk_user_id"],
         )
+        if not saved:
+            await interaction.followup.send(
+                f"Liên kết tài khoản **{reg.upper()}** đã thay đổi trong lúc nhập dữ liệu. Vui lòng thử lại.",
+                ephemeral=True,
+            )
+            return
         ap_total = sum(1 for st in clears.values() if st == "ap")
         fc_total = sum(1 for st in clears.values() if st == "fc")
         await interaction.followup.send(
@@ -1038,20 +1189,30 @@ class PJSKCog(commands.Cog):
         reg = region.lower()
         link = await database.get_pjsk_link(target.id, reg)
         if not link:
-            who = "Bạn" if target.id == interaction.user.id else f"**{target.display_name}**"
+            who = (
+                "Bạn"
+                if target.id == interaction.user.id
+                else f"**{_safe_display_name(target.display_name)}**"
+            )
             await interaction.response.send_message(
                 f"{who} chưa liên kết tài khoản PJSK **{reg.upper()}**. Dùng `/pjsk link region:{reg}` trước nhé.",
                 ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
             return
 
         clears = await database.get_pjsk_clears(target.id, reg)
         if not clears:
-            who = "Bạn" if target.id == interaction.user.id else f"**{target.display_name}**"
+            who = (
+                "Bạn"
+                if target.id == interaction.user.id
+                else f"**{_safe_display_name(target.display_name)}**"
+            )
             await interaction.response.send_message(
                 f"{who} chưa có dữ liệu bài hát cho **{reg.upper()}**. "
                 f"Hãy dùng `/pjsk sync region:{reg}` (hoặc `/pjsk import region:{reg}`) để cập nhật trước nhé.",
                 ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
             return
 
@@ -1114,6 +1275,7 @@ class PJSKCog(commands.Cog):
         )
 
     @pjsk_group.command(name="b30", description="Xem bảng Best 30 (B30) rating Project Sekai")
+    @app_commands.checks.cooldown(1, 5.0)
     @app_commands.describe(
         region="Chọn server (EN hoặc JP)",
         user="Người dùng Discord muốn xem (mặc định là bạn)",
@@ -1128,6 +1290,7 @@ class PJSKCog(commands.Cog):
         await self._send_b30(interaction, region, user)
 
     @app_commands.command(name="b30", description="Xem nhanh bảng Best 30 (B30) Project Sekai")
+    @app_commands.checks.cooldown(1, 5.0)
     @app_commands.describe(
         region="Chọn server (EN hoặc JP)",
         user="Người dùng Discord muốn xem (mặc định là bạn)",

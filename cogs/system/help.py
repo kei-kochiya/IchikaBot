@@ -85,8 +85,8 @@ COMMAND_CATEGORIES = {
             ("/pjsk profile [region] [user]", "-", "Xem hồ sơ PJSK đã liên kết"),
             ("/pjsk sync [region]", "-", "Đồng bộ FC/AP qua Transfer ID và nhận mã mới"),
             ("/pjsk recover [region]", "-", "Khôi phục Transfer ID nếu sync bị gián đoạn"),
-            ("/pjsk import [region] <file>", "-", "Nhập dữ liệu FC/AP từ file suite.json"),
-            ("/b30 [region] [user]", "-", "Xem bảng Best 30 (B30) rating"),
+            ("/pjsk import <region> <file>", "-", "Nhập dữ liệu FC/AP từ file suite.json"),
+            ("/b30 [region] [user]", "/pjsk b30", "Xem bảng Best 30 (B30) rating"),
         ],
     },
 }

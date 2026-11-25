@@ -71,7 +71,7 @@ def decrypt_unpack(blob: bytes, region: str) -> Any:
     raw = decrypt_bytes(blob, region)
     if not raw:
         return {}
-    return msgpack.unpackb(raw, raw=False, strict_map_key=False)
+    return msgpack.unpackb(raw, raw=False, strict_map_key=False, unicode_errors="replace")
 
 
 def _b64url(data: bytes) -> str:
@@ -99,7 +99,10 @@ def decode_jwt_payload(token: str) -> dict[str, Any]:
         raise ValueError("Invalid JWT format")
     b64 = parts[1]
     b64 += "=" * (-len(b64) % 4)
-    return json.loads(base64.urlsafe_b64decode(b64))
+    payload = json.loads(base64.urlsafe_b64decode(b64))
+    if not isinstance(payload, dict):
+        raise ValueError("JWT payload is not a JSON object")
+    return payload
 
 
 def decode_jwt_user_id(token: str) -> int:
@@ -113,10 +116,9 @@ def decode_jwt_user_id(token: str) -> int:
 
 def pjsk_id_to_created_ts(user_id: int) -> int | None:
     """Decode EN/JP PJSK snowflake user ID into an approximate Unix timestamp (seconds)."""
-    if user_id <= 0:
+    if user_id <= 0 or user_id >= (1 << 64):
         return None
-    bits = format(user_id, "064b")
-    ms = int(bits[:42], 2) + 1_600_218_000_000
+    ms = (user_id >> 22) + 1_600_218_000_000
     ts = ms // 1000
     # Sanity-check against PJSK launch (Sep 2020) and far future
     if 1_600_000_000 <= ts <= 2_500_000_000:

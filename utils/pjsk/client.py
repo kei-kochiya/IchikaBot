@@ -32,12 +32,6 @@ import aiohttp
 
 from config import CACHE_DIR, SharedResources
 from utils.pjsk.constants import extract_music_clears
-from utils.pjsk.crypto import (
-    decode_jwt_user_id,
-    decrypt_unpack,
-    pack_encrypt,
-    sign_inherit_jwt,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +70,7 @@ INHERIT_TOKEN_ENV = {
     "en": "PJSK_EN_INHERIT_TOKEN",
 }
 
-_COOKIE_ATTRS = frozenset(
-    {"expires", "max-age", "domain", "path", "samesite", "priority", "version", "comment"}
-)
+_DECRYPT_OFFLOAD_BYTES = 65536
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
@@ -201,15 +193,42 @@ def generate_transfer_password(length: int = 12) -> str:
     return "".join(chars)
 
 
-def build_cookie_header(set_cookies: list[str]) -> str:
-    """Extract name=value pairs from Set-Cookie headers (newest wins on duplicate names)."""
+_COOKIE_ATTRS = frozenset(
+    {
+        "expires",
+        "max-age",
+        "domain",
+        "path",
+        "samesite",
+        "priority",
+        "version",
+        "comment",
+        "secure",
+        "httponly",
+        "partitioned",
+    }
+)
+_SET_COOKIE_SPLIT_RE = re.compile(r",\s*(?=[A-Za-z0-9!#$%&'*+.^_`|~-]+=)")
+
+
+def build_cookie_header(set_cookies: list[str], existing: str = "") -> str:
+    """Extract name=value pairs from Set-Cookie headers, optionally merging into *existing*."""
     cookies: dict[str, str] = {}
+    if existing:
+        for pair in existing.split(";"):
+            pair = pair.strip()
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                k = k.strip()
+                if k:
+                    cookies[k] = v.strip()
+
     for raw in set_cookies:
-        for part in raw.replace(",", ";").split(";"):
-            part = part.strip()
-            if "=" not in part:
+        for header_entry in _SET_COOKIE_SPLIT_RE.split(raw):
+            first = header_entry.split(";", 1)[0].strip()
+            if "=" not in first:
                 continue
-            name, value = part.split("=", 1)
+            name, value = first.split("=", 1)
             name = name.strip()
             if not name or any(c.isspace() for c in name) or name.lower() in _COOKIE_ATTRS:
                 continue
@@ -272,18 +291,25 @@ def parse_transfer_preview(data: dict[str, Any]) -> TransferPreview:
 
 
 def _redact(text: str, secrets_list: list[str]) -> str:
-    out = text
-    for secret in secrets_list:
-        if secret:
-            out = out.replace(secret, "<redacted>")
-    return out
+    ordered = sorted({s for s in secrets_list if s}, key=len, reverse=True)
+    if not ordered:
+        return text
+    pattern = re.compile("|".join(re.escape(s) for s in ordered))
+    return pattern.sub("<redacted>", text)
 
 
 def _read_version_cache_sync(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        for key in ("app_version", "app_hash", "data_version", "asset_version"):
+            if not isinstance(data.get(key), str) or not data[key]:
+                return None
+        float(data.get("fetched_at", 0))
+        return data
     except Exception:
         return None
 
@@ -405,7 +431,16 @@ class PJSKClient:
         secrets_to_redact: list[str] | None = None,
     ) -> tuple[int, Any, dict[str, str], list[str]]:
         """Send an encrypted PJSK request and return (status, decoded, lower_headers, set_cookies)."""
+        from utils.pjsk.crypto import decrypt_unpack
+
         session = await self._get_session()
+        # Prevent aiohttp's shared CookieJar from clobbering our explicit Cookie header
+        # (especially expired JP CloudFront signed cookies during refresh).
+        jar = getattr(session, "cookie_jar", None)
+        if isinstance(jar, aiohttp.CookieJar):
+            jar.clear_domain("sekai.colorfulpalette.org")
+            jar.clear_domain("sekai-en.com")
+
         redact_list = secrets_to_redact or []
         try:
             async with session.request(method, url, data=body, headers=headers) as resp:
@@ -415,7 +450,10 @@ class PJSKClient:
                 decoded: Any = None
                 if raw:
                     try:
-                        decoded = decrypt_unpack(raw, self.region)
+                        if len(raw) > _DECRYPT_OFFLOAD_BYTES:
+                            decoded = await asyncio.to_thread(decrypt_unpack, raw, self.region)
+                        else:
+                            decoded = decrypt_unpack(raw, self.region)
                     except Exception:
                         decoded = None
                 return resp.status, decoded, resp_headers, set_cookies
@@ -431,53 +469,73 @@ class PJSKClient:
         if not force and self._version and (now - self._version.fetched_at) < VERSION_CACHE_TTL:
             return self._version
 
-        if not force:
-            cached = await asyncio.to_thread(_read_version_cache_sync, self._version_cache_file)
-            if cached and (now - float(cached.get("fetched_at", 0))) < VERSION_CACHE_TTL:
-                self._version = VersionInfo(
-                    app_version=cached["app_version"],
-                    app_hash=cached["app_hash"],
-                    data_version=cached["data_version"],
-                    asset_version=cached["asset_version"],
-                    fetched_at=float(cached["fetched_at"]),
-                )
-                return self._version
+        stale_disk: VersionInfo | None = None
+        cached = await asyncio.to_thread(_read_version_cache_sync, self._version_cache_file)
+        if cached:
+            stale_disk = VersionInfo(
+                app_version=cached["app_version"],
+                app_hash=cached["app_hash"],
+                data_version=cached["data_version"],
+                asset_version=cached["asset_version"],
+                fetched_at=float(cached["fetched_at"]),
+            )
+            if not force and (now - stale_disk.fetched_at) < VERSION_CACHE_TTL:
+                self._version = stale_disk
+                return stale_disk
 
         session = await self._get_session()
         no_cache = {"Cache-Control": "no-cache", "Pragma": "no-cache"} if force else None
+
+        async def _get_json(url: str) -> dict[str, Any] | None:
+            if not url:
+                return None
+            with contextlib.suppress(Exception):
+                async with session.get(url, headers=no_cache) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        return data if isinstance(data, dict) else None
+            return None
+
+        ver_json, ah_json = await asyncio.gather(
+            _get_json(self.version_url),
+            _get_json(self.apphash_url),
+        )
 
         app_ver = ""
         app_hash = ""
         data_ver = "0.0.0.0"
         asset_ver = "0.0.0.0"
 
-        with contextlib.suppress(Exception):
-            async with session.get(self.version_url, headers=no_cache) as resp:
-                if resp.status == 200:
-                    ver_json = await resp.json(content_type=None)
-                    app_ver = str(ver_json.get("appVersion") or "")
-                    app_hash = str(ver_json.get("appHash") or "")
-                    data_ver = str(ver_json.get("dataVersion") or data_ver)
-                    asset_ver = str(ver_json.get("assetVersion") or asset_ver)
+        if ver_json:
+            app_ver = str(ver_json.get("appVersion") or "")
+            app_hash = str(ver_json.get("appHash") or "")
+            data_ver = str(ver_json.get("dataVersion") or data_ver)
+            asset_ver = str(ver_json.get("assetVersion") or asset_ver)
 
-        if self.apphash_url:
-            with contextlib.suppress(Exception):
-                async with session.get(self.apphash_url, headers=no_cache) as resp:
-                    if resp.status == 200:
-                        ah_json = await resp.json(content_type=None)
-                        android = ah_json.get("production_android")
-                        if isinstance(android, dict):
-                            ah_ver = str(android.get("app_version") or "")
-                            ah_hash = str(android.get("app_hash") or "")
-                            if (
-                                ah_ver
-                                and ah_hash
-                                and (not app_ver or _ver_tuple(ah_ver) >= _ver_tuple(app_ver))
-                            ):
-                                app_ver = ah_ver
-                                app_hash = ah_hash
+        if ah_json:
+            android = ah_json.get("production_android")
+            if isinstance(android, dict):
+                ah_ver = str(android.get("app_version") or "")
+                ah_hash = str(android.get("app_hash") or "")
+                if (
+                    ah_ver
+                    and ah_hash
+                    and (not app_ver or _ver_tuple(ah_ver) >= _ver_tuple(app_ver))
+                ):
+                    app_ver = ah_ver
+                    app_hash = ah_hash
 
         if not app_ver or not app_hash:
+            if not force:
+                fallback = self._version or stale_disk
+                if fallback is not None:
+                    logger.warning(
+                        "PJSK (%s): failed to refresh versions; using stale cache %s",
+                        self.region.upper(),
+                        fallback.app_version,
+                    )
+                    self._version = fallback
+                    return fallback
             raise PJSKAPIError(
                 f"Không thể lấy appVersion/appHash cho server {self.region.upper()}."
             )
@@ -577,6 +635,7 @@ class PJSKClient:
     ) -> tuple[int, str, str]:
         """Register a new anonymous account for public profile queries."""
         from utils.core import database
+        from utils.pjsk.crypto import decode_jwt_user_id, pack_encrypt
 
         reg_body = pack_encrypt(
             {
@@ -593,9 +652,12 @@ class PJSKClient:
             body=reg_body,
         )
         if set_cookies and self.signature_url:
-            cookie = build_cookie_header(set_cookies) or cookie
-            self._jp_cookie = cookie
-            self._jp_cookie_fetched_at = time.time()
+            merged = build_cookie_header(set_cookies, existing=cookie)
+            if merged:
+                cookie = merged
+                async with self._init_lock:
+                    self._jp_cookie = build_cookie_header(set_cookies, existing=self._jp_cookie)
+                    self._jp_cookie_fetched_at = time.time()
         if status != 200 or not isinstance(reg, dict) or not reg.get("credential"):
             raise PJSKAPIError(
                 f"Không thể đăng ký tài khoản ẩn danh PJSK ({self.region.upper()}): HTTP {status}",
@@ -611,13 +673,18 @@ class PJSKClient:
     ) -> tuple[int, str, VersionInfo, str, str]:
         """Authenticate the bot's anonymous account for this region (with self-healing)."""
         from utils.core import database
+        from utils.pjsk.crypto import pack_encrypt
 
         async with self._bot_lock:
             ver, cookie, api_base = await self.ensure_bootstrapped(force_refresh=force_reauth)
-            if self._bot_data_version:
-                ver.data_version = self._bot_data_version
-            if self._bot_asset_version:
-                ver.asset_version = self._bot_asset_version
+            if force_reauth:
+                self._bot_data_version = None
+                self._bot_asset_version = None
+            else:
+                if self._bot_data_version:
+                    ver.data_version = self._bot_data_version
+                if self._bot_asset_version:
+                    ver.asset_version = self._bot_asset_version
 
             if not force_reauth and self._bot_uid and self._bot_session_token:
                 return self._bot_uid, self._bot_session_token, ver, cookie, api_base
@@ -644,7 +711,11 @@ class PJSKClient:
                 headers=self._base_headers(ver, cookie=cookie),
                 body=auth_body,
             )
-            if status == 426 and not force_reauth:
+            # First handle version bump (426) or expired JP CloudFront cookie (403) WITHOUT
+            # wiping a valid persisted bot account.
+            if (status == 426 or (status == 403 and self.signature_url)) and not force_reauth:
+                self._bot_data_version = None
+                self._bot_asset_version = None
                 ver, cookie, api_base = await self.ensure_bootstrapped(force_refresh=True)
                 status, auth, _, _ = await self._raw_request(
                     "PUT",
@@ -652,8 +723,12 @@ class PJSKClient:
                     headers=self._base_headers(ver, cookie=cookie),
                     body=auth_body,
                 )
-            elif status in (401, 403, 404):
+
+            if status in (401, 403, 404):
                 # Persisted anonymous account was invalidated: wipe & register a fresh one
+                self._bot_uid = None
+                self._bot_cred = None
+                self._bot_session_token = None
                 await database.delete_pjsk_bot_account(self.region)
                 self._bot_uid, self._bot_cred, cookie = await self._register_bot_account(
                     ver, cookie, api_base
@@ -701,7 +776,8 @@ class PJSKClient:
                 return parse_profile_summary(data, fallback_user_id=target_user_id)
             if status in (403, 426) and attempt == 0:
                 async with self._bot_lock:
-                    self._bot_session_token = None
+                    if self._bot_session_token == token:
+                        self._bot_session_token = None
                 continue
             if status == 404:
                 raise PJSKNotFoundError(
@@ -734,6 +810,8 @@ class PJSKClient:
 
     async def preview_transfer(self, transfer_id: str, password: str) -> TransferPreview:
         """Preview a Transfer ID without consuming it (isExecuteInherit=False)."""
+        from utils.pjsk.crypto import pack_encrypt, sign_inherit_jwt
+
         secret = self._require_inherit_token()
         transfer_id = validate_transfer_id(transfer_id)
         verify_jwt = sign_inherit_jwt(transfer_id, password, secret)
@@ -792,72 +870,92 @@ class PJSKClient:
 
         Returns (session_token, new_transfer_id, new_password, updated_ver, cookie, api_base).
         """
+        from utils.pjsk.crypto import pack_encrypt
+
         auth_body = pack_encrypt(
             {"credential": credential, "deviceId": None, "authTriggerType": "normal"},
             self.region,
         )
-        auth_url = f"{api_base}/api/user/{user_id}/auth?refreshUpdatedResources=False"
-
-        auth_data: dict[str, Any] | None = None
-        for attempt in range(2):
-            if attempt > 0:
-                ver, cookie, api_base = await self.ensure_bootstrapped(force_refresh=True)
-                auth_url = f"{api_base}/api/user/{user_id}/auth?refreshUpdatedResources=False"
-            status, data, _, _ = await self._raw_request(
-                "PUT",
-                auth_url,
-                headers=self._base_headers(ver, cookie=cookie),
-                body=auth_body,
-                secrets_to_redact=secrets_list,
-            )
-            if status == 200 and isinstance(data, dict) and data.get("sessionToken"):
-                auth_data = data
-                break
-            if (status == 426 or (status == 403 and self.signature_url)) and attempt == 0:
-                continue
-            raise PJSKAPIError(
-                f"Đăng nhập tài khoản sau khi transfer thất bại (HTTP {status}).",
-                status=status,
-            )
-
-        assert auth_data is not None
-        session_token = str(auth_data["sessionToken"])
-        secrets_list.append(session_token)
-        session_ver = VersionInfo(
-            app_version=ver.app_version,
-            app_hash=ver.app_hash,
-            data_version=str(auth_data.get("dataVersion") or ver.data_version),
-            asset_version=str(auth_data.get("assetVersion") or ver.asset_version),
-            fetched_at=ver.fetched_at,
-        )
-
-        # Immediately issue a fresh Transfer ID + password BEFORE fetching suite!
         new_password = generate_transfer_password(12)
         secrets_list.append(new_password)
         inherit_body = pack_encrypt({"password": new_password}, self.region)
-        inherit_url = f"{api_base}/api/user/{user_id}/inherit"
 
-        status, inh_data, resp_headers, _ = await self._raw_request(
-            "PUT",
-            inherit_url,
-            headers=self._base_headers(session_ver, cookie=cookie, session_token=session_token),
-            body=inherit_body,
-            secrets_to_redact=secrets_list,
-        )
-        if resp_headers.get("x-session-token"):
-            session_token = resp_headers["x-session-token"]
+        last_status = 0
+        for round_idx in range(2):
+            if round_idx > 0:
+                ver, cookie, api_base = await self.ensure_bootstrapped(force_refresh=True)
+
+            auth_url = f"{api_base}/api/user/{user_id}/auth?refreshUpdatedResources=False"
+            auth_data: dict[str, Any] | None = None
+            for attempt in range(2):
+                if attempt > 0:
+                    ver, cookie, api_base = await self.ensure_bootstrapped(force_refresh=True)
+                    auth_url = f"{api_base}/api/user/{user_id}/auth?refreshUpdatedResources=False"
+                status, data, _, _ = await self._raw_request(
+                    "PUT",
+                    auth_url,
+                    headers=self._base_headers(ver, cookie=cookie),
+                    body=auth_body,
+                    secrets_to_redact=secrets_list,
+                )
+                if status == 200 and isinstance(data, dict) and data.get("sessionToken"):
+                    auth_data = data
+                    break
+                if (status == 426 or (status == 403 and self.signature_url)) and attempt == 0:
+                    continue
+                raise PJSKAPIError(
+                    f"Đăng nhập tài khoản sau khi transfer thất bại (HTTP {status}).",
+                    status=status,
+                )
+
+            assert auth_data is not None
+            session_token = str(auth_data["sessionToken"])
             secrets_list.append(session_token)
-        user_inherit = inh_data.get("userInherit") if isinstance(inh_data, dict) else None
-        new_transfer_id = (
-            str(user_inherit.get("inheritId") or "") if isinstance(user_inherit, dict) else ""
-        )
-        if status != 200 or not new_transfer_id:
-            raise PJSKAPIError(
-                f"Không thể tạo Transfer ID mới cho tài khoản (HTTP {status}).",
-                status=status,
+            session_ver = VersionInfo(
+                app_version=ver.app_version,
+                app_hash=ver.app_hash,
+                data_version=str(auth_data.get("dataVersion") or ver.data_version),
+                asset_version=str(auth_data.get("assetVersion") or ver.asset_version),
+                fetched_at=ver.fetched_at,
             )
-        secrets_list.append(new_transfer_id)
-        return session_token, new_transfer_id, new_password, session_ver, cookie, api_base
+
+            # Immediately issue a fresh Transfer ID + password BEFORE fetching suite!
+            inherit_url = f"{api_base}/api/user/{user_id}/inherit"
+            try:
+                status, inh_data, resp_headers, _ = await self._raw_request(
+                    "PUT",
+                    inherit_url,
+                    headers=self._base_headers(
+                        session_ver, cookie=cookie, session_token=session_token
+                    ),
+                    body=inherit_body,
+                    secrets_to_redact=secrets_list,
+                )
+            except PJSKAPIError:
+                if round_idx == 0:
+                    continue
+                raise
+
+            last_status = status
+            if resp_headers.get("x-session-token"):
+                session_token = resp_headers["x-session-token"]
+                secrets_list.append(session_token)
+            user_inherit = inh_data.get("userInherit") if isinstance(inh_data, dict) else None
+            new_transfer_id = (
+                str(user_inherit.get("inheritId") or "") if isinstance(user_inherit, dict) else ""
+            )
+            if status == 200 and new_transfer_id:
+                secrets_list.append(new_transfer_id)
+                return session_token, new_transfer_id, new_password, session_ver, cookie, api_base
+
+            if round_idx == 0 and (status in (403, 426) or status >= 500):
+                continue
+            break
+
+        raise PJSKAPIError(
+            f"Không thể tạo Transfer ID mới cho tài khoản (HTTP {last_status}).",
+            status=last_status,
+        )
 
     async def execute_transfer_and_sync(
         self,
@@ -871,10 +969,13 @@ class PJSKClient:
         CRITICAL SAFETY:
           - Never retries `isExecuteInherit=True` (consumes code once).
           - Calls `on_credential_acquired(user_id, credential)` immediately after execute so
-            the caller can persist a crash-recovery record in SQLite.
+            the caller can persist a crash-recovery record in SQLite; errors there are logged
+            and never abort replacement Transfer-ID issuance.
           - Generates the new Transfer ID + password BEFORE fetching suite, and raises
-            `PJSKSyncPartialError` carrying those credentials if suite fetch fails.
+            `PJSKSyncPartialError` carrying those credentials if suite fetch/parse fails.
         """
+        from utils.pjsk.crypto import decode_jwt_user_id, pack_encrypt, sign_inherit_jwt
+
         secret = self._require_inherit_token()
         transfer_id = validate_transfer_id(transfer_id)
         verify_jwt = sign_inherit_jwt(transfer_id, password, secret)
@@ -907,7 +1008,15 @@ class PJSKClient:
         user_id = decode_jwt_user_id(credential)
 
         if on_credential_acquired is not None:
-            await on_credential_acquired(user_id, credential)
+            try:
+                await on_credential_acquired(user_id, credential)
+            except Exception as exc:
+                logger.exception(
+                    "on_credential_acquired failed for PJSK %s uid=%s (continuing to issue new code): %s",
+                    self.region,
+                    user_id,
+                    _redact(str(exc), secrets_list),
+                )
 
         if self.pacing_before_login > 0:
             await asyncio.sleep(self.pacing_before_login)
@@ -928,7 +1037,8 @@ class PJSKClient:
             secrets_list=secrets_list,
         )
 
-        # Fetch full suite data (userMusics + userGamedata)
+        # Fetch & parse full suite data (userMusics/userMusicResults + userGamedata) inside the
+        # PJSKSyncPartialError boundary so ANY fetch/parse error still returns the new Transfer ID!
         suite_q = "?isLogin=true" if self.region == "jp" else ""
         suite_url = f"{api_base}/api/suite/user/{user_id}{suite_q}"
         try:
@@ -940,6 +1050,19 @@ class PJSKClient:
             )
             if status != 200 or not isinstance(suite, dict):
                 raise PJSKAPIError(f"Không thể tải dữ liệu bài hát (HTTP {status}).", status=status)
+
+            clears = await asyncio.to_thread(extract_music_clears, suite)
+            gamedata = (
+                suite.get("userGamedata") if isinstance(suite.get("userGamedata"), dict) else {}
+            )
+            name = str(gamedata.get("name") or "Unknown")
+            rank = int(gamedata.get("rank") or 0)
+            user_musics = suite.get("userMusics")
+            total_musics = (
+                len(user_musics)
+                if isinstance(user_musics, list) and user_musics
+                else len({mid for mid, _ in clears})
+            )
         except Exception as exc:
             safe_msg = _redact(str(exc), secrets_list)
             raise PJSKSyncPartialError(
@@ -948,12 +1071,6 @@ class PJSKClient:
                 new_password=new_password,
                 user_id=user_id,
             ) from None
-
-        clears = extract_music_clears(suite)
-        gamedata = suite.get("userGamedata") if isinstance(suite.get("userGamedata"), dict) else {}
-        name = str(gamedata.get("name") or "Unknown")
-        rank = int(gamedata.get("rank") or 0)
-        total_musics = len(suite.get("userMusics") or [])
 
         return TransferResult(
             user_id=user_id,

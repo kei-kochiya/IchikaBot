@@ -264,11 +264,16 @@ async def _write_tx() -> AsyncIterator[aiosqlite.Connection]:
 
 
 async def init_db() -> None:
-    """Create tables and run one-time JSON migration.  Call before loading cogs."""
+    """Create tables, run one-time JSON migration, and prune stale recovery rows."""
+    import time
+
     async with _write_lock:
         conn = await _get_conn()
         await _create_tables(conn)
         await _migrate_json(conn)
+        cutoff = time.time() - PJSK_RECOVERY_TTL_SECONDS
+        await conn.execute("DELETE FROM pjsk_recovery WHERE created_at < ?", (cutoff,))
+        await conn.commit()
     logger.info("DB: initialised at %s", DB_FILE)
 
 
@@ -455,7 +460,7 @@ async def set_pjsk_link(
         ) as cur:
             prev = await cur.fetchone()
 
-        changed_account = prev is not None and int(prev["pjsk_user_id"]) != int(pjsk_user_id)
+        changed_account = prev is None or int(prev["pjsk_user_id"]) != int(pjsk_user_id)
         if changed_account:
             await conn.execute(
                 "DELETE FROM pjsk_clears WHERE discord_id=? AND region=?",
@@ -499,11 +504,26 @@ async def replace_pjsk_clears(
     *,
     pjsk_name: str | None = None,
     synced_at: float = 0.0,
-) -> None:
-    """Atomically replace a user's saved PJSK music clear states for *region*."""
+    expected_pjsk_user_id: int | None = None,
+) -> bool:
+    """Atomically replace a user's saved PJSK music clear states for *region*.
+
+    When *expected_pjsk_user_id* is provided, verifies the link row still exists and
+    matches that game ID before writing (preventing cross-account corruption if the user
+    unlinked or re-linked while a sync/import was in flight). Returns True if saved.
+    """
     reg = region.lower()
     safe_name = " ".join(pjsk_name.split())[:32] if pjsk_name is not None else None
     async with _write_tx() as conn:
+        if expected_pjsk_user_id is not None:
+            async with conn.execute(
+                "SELECT pjsk_user_id FROM pjsk_links WHERE discord_id=? AND region=?",
+                (discord_id, reg),
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None or int(row["pjsk_user_id"]) != int(expected_pjsk_user_id):
+                return False
+
         await conn.execute(
             "DELETE FROM pjsk_clears WHERE discord_id=? AND region=?",
             (discord_id, reg),
@@ -527,6 +547,7 @@ async def replace_pjsk_clears(
                 "UPDATE pjsk_links SET synced_at=? WHERE discord_id=? AND region=?",
                 (synced_at, discord_id, reg),
             )
+        return True
 
 
 async def get_pjsk_clears(discord_id: int, region: str) -> dict[tuple[int, str], str]:
@@ -554,7 +575,11 @@ async def save_pjsk_recovery(
     discord_id: int, region: str, pjsk_user_id: int, credential: str, created_at: float
 ) -> None:
     """Temporarily persist an in-flight transfer credential until the new Transfer ID is sent."""
+    import time
+
+    cutoff = time.time() - PJSK_RECOVERY_TTL_SECONDS
     async with _write_tx() as conn:
+        await conn.execute("DELETE FROM pjsk_recovery WHERE created_at < ?", (cutoff,))
         await conn.execute(
             "INSERT INTO pjsk_recovery (discord_id, region, pjsk_user_id, credential, created_at) "
             "VALUES (?, ?, ?, ?, ?) "
@@ -569,7 +594,6 @@ async def get_pjsk_recovery(discord_id: int, region: str) -> dict | None:
     """Fetch a non-expired crash-recovery credential for (discord_id, region), if any."""
     import time
 
-    await prune_expired_pjsk_recovery()
     conn = await _get_conn()
     async with conn.execute(
         "SELECT discord_id, region, pjsk_user_id, credential, created_at "

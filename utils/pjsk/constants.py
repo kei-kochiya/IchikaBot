@@ -58,46 +58,117 @@ _PLAY_RESULT_TO_STATE = {
 _STATE_RANK = {"not_clear": 0, "clear": 1, "fc": 2, "ap": 3}
 
 
-def extract_music_clears(suite: dict) -> dict[tuple[int, str], str]:
-    """Extract best clear state ('ap', 'fc', 'clear') per (music_id, difficulty) from suite JSON."""
+def _result_state(entry: dict) -> str | None:
+    """Resolve clear state ('ap', 'fc', 'clear') from a PJSK music result or status dict."""
+    best_rank = 0
+    best_state: str | None = None
+
+    play_result = entry.get("playResult")
+    if play_result is not None:
+        pr = str(play_result).strip().lower()
+        rank = _PLAY_RESULT_RANK.get(pr, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best_state = _PLAY_RESULT_TO_STATE.get(pr)
+
+    if (
+        entry.get("fullPerfectFlg") or entry.get("allPerfect") or entry.get("fullPerfect")
+    ) and _STATE_RANK["ap"] > best_rank:
+        best_rank = _STATE_RANK["ap"]
+        best_state = "ap"
+    elif (entry.get("fullComboFlg") or entry.get("fullCombo")) and _STATE_RANK["fc"] > best_rank:
+        best_rank = _STATE_RANK["fc"]
+        best_state = "fc"
+    elif (entry.get("isCleared") or entry.get("cleared")) and _STATE_RANK["clear"] > best_rank:
+        best_rank = _STATE_RANK["clear"]
+        best_state = "clear"
+
+    return best_state
+
+
+_MAX_MUSIC_ID = 1_000_000
+_MAX_CLEAR_ENTRIES = 20_000
+_STALE_RETRY_BACKOFF = 300.0  # 5 minutes before retrying Google Sheets after an outage
+
+
+def extract_music_clears(
+    suite: dict, *, max_entries: int = _MAX_CLEAR_ENTRIES
+) -> dict[tuple[int, str], str]:
+    """Extract best clear state ('ap', 'fc', 'clear') per (music_id, difficulty) from suite JSON.
+
+    Supports both modern PJSK v5/v6 top-level `userMusicResults` (with `musicDifficultyType`
+    and `fullComboFlg`/`fullPerfectFlg`/`playResult`) and nested `userMusics[*].userMusicDifficultyStatuses`.
+    """
     clears: dict[tuple[int, str], str] = {}
+
+    def _record(raw_music_id: object, raw_diff: object, state: str | None) -> None:
+        if not raw_music_id or raw_diff is None or not state:
+            return
+        diff = str(raw_diff).strip().lower()
+        if diff not in VALID_DIFFICULTIES:
+            return
+        try:
+            mid = int(raw_music_id)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return
+        if not (1 <= mid <= _MAX_MUSIC_ID):
+            return
+        key = (mid, diff)
+        prev = clears.get(key)
+        if prev is None:
+            if len(clears) >= max_entries:
+                return
+            clears[key] = state
+        elif _STATE_RANK[state] > _STATE_RANK[prev]:
+            clears[key] = state
+
+    # 1. Top-level userMusicResults (PJSK v5/v6 EN & JP)
+    top_results = suite.get("userMusicResults")
+    if isinstance(top_results, list):
+        for result in top_results:
+            if not isinstance(result, dict):
+                continue
+            _record(
+                result.get("musicId"),
+                result.get("musicDifficultyType") or result.get("musicDifficulty"),
+                _result_state(result),
+            )
+
+    # 2. Nested userMusics (legacy + hybrid suite payloads)
     user_musics = suite.get("userMusics")
-    if not isinstance(user_musics, list):
-        return clears
+    if isinstance(user_musics, list):
+        for music in user_musics:
+            if not isinstance(music, dict):
+                continue
+            parent_mid = music.get("musicId")
 
-    for music in user_musics:
-        if not isinstance(music, dict):
-            continue
-        statuses = music.get("userMusicDifficultyStatuses") or []
-        for status in statuses:
-            if not isinstance(status, dict):
-                continue
-            music_id = status.get("musicId") or music.get("musicId")
-            diff_raw = status.get("musicDifficulty")
-            diff = str(diff_raw).strip().lower() if diff_raw is not None else ""
-            if not music_id or diff not in VALID_DIFFICULTIES:
-                continue
-            try:
-                mid = int(music_id)
-            except (TypeError, ValueError):
-                continue
+            direct_results = music.get("userMusicResults")
+            if isinstance(direct_results, list):
+                for result in direct_results:
+                    if not isinstance(result, dict):
+                        continue
+                    _record(
+                        result.get("musicId") or parent_mid,
+                        result.get("musicDifficultyType") or result.get("musicDifficulty"),
+                        _result_state(result),
+                    )
 
-            best_rank = 0
-            best_state: str | None = None
-            for result in status.get("userMusicResults") or []:
-                if not isinstance(result, dict):
+            for status in music.get("userMusicDifficultyStatuses") or []:
+                if not isinstance(status, dict):
                     continue
-                play_result = str(result.get("playResult", "")).strip().lower()
-                rank = _PLAY_RESULT_RANK.get(play_result, 0)
-                if rank > best_rank:
-                    best_rank = rank
-                    best_state = _PLAY_RESULT_TO_STATE.get(play_result)
-
-            if best_state:
-                key = (mid, diff)
-                prev = clears.get(key)
-                if prev is None or _STATE_RANK[best_state] > _STATE_RANK[prev]:
-                    clears[key] = best_state
+                status_mid = status.get("musicId") or parent_mid
+                status_diff = status.get("musicDifficulty") or status.get("musicDifficultyType")
+                _record(status_mid, status_diff, _result_state(status))
+                for result in status.get("userMusicResults") or []:
+                    if not isinstance(result, dict):
+                        continue
+                    _record(
+                        result.get("musicId") or status_mid,
+                        result.get("musicDifficultyType")
+                        or result.get("musicDifficulty")
+                        or status_diff,
+                        _result_state(result),
+                    )
 
     return clears
 
@@ -204,11 +275,19 @@ def compute_b30(
     total_ap = 0
     total_fc = 0
 
+    # Deduplicate normalized (song_id, difficulty) keys keeping highest clear rank
+    normalized_clears: dict[tuple[int, str], str] = {}
     for (song_id, diff_raw), state_raw in clears.items():
         diff = diff_raw.lower()
         state = state_raw.lower()
         if diff not in B30_DIFFICULTIES or state not in ("ap", "fc"):
             continue
+        key = (int(song_id), diff)
+        prev = normalized_clears.get(key)
+        if prev is None or _STATE_RANK[state] > _STATE_RANK[prev]:
+            normalized_clears[key] = state
+
+    for (song_id, diff), state in normalized_clears.items():
         if state == "ap":
             total_ap += 1
         else:
@@ -400,11 +479,14 @@ async def get_chart_constants(
             return merged
         except Exception as exc:
             logger.warning("pjskb30: Failed to fetch fresh chart constants: %s", exc)
+            backoff_ts = now - CONSTANTS_CACHE_TTL + _STALE_RETRY_BACKOFF
             if disk_cached is not None:
                 charts, ts = disk_cached
                 if use_default:
-                    _mem_constants, _mem_fetched_at = charts, ts
+                    _mem_constants = charts
+                    _mem_fetched_at = max(ts, backoff_ts)
                 return charts
             if use_default and _mem_constants:
+                _mem_fetched_at = max(_mem_fetched_at, backoff_ts)
                 return _mem_constants
             raise

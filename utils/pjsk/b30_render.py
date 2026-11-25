@@ -168,20 +168,26 @@ def _diagonal_gradient(
     return img
 
 
-@lru_cache(maxsize=2)
 def _build_pastel_background() -> Image.Image:
-    """Soft SEKAI-inspired pastel gradient background with subtle geometric accents."""
-    bg = _vertical_gradient(
+    """Soft SEKAI-inspired pastel gradient background with subtle geometric accents.
+
+    Renders the bokeh overlay at quarter resolution and is not cached globally so idle RAM
+    returns to 0 MB immediately after each render.
+    """
+    grad_rgb = _vertical_gradient(
         (WIDTH, HEIGHT),
         [
             (0.0, (226, 238, 255)),
             (0.48, (238, 234, 255)),
             (1.0, (252, 232, 248)),
         ],
-    ).convert("RGBA")
+    )
+    bg = grad_rgb.convert("RGBA")
+    grad_rgb.close()
 
-    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+    sw, sh = WIDTH // 4, HEIGHT // 4
+    small_overlay = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(small_overlay)
     # Soft translucent bokeh circles reminiscent of pjskb30 backgrounds
     accents = [
         (140, 210, 170, (255, 255, 255, 55)),
@@ -190,9 +196,20 @@ def _build_pastel_background() -> Image.Image:
         (790, 1260, 210, (185, 245, 240, 55)),
     ]
     for cx, cy, r, fill in accents:
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
-    overlay = overlay.filter(ImageFilter.GaussianBlur(28))
-    return Image.alpha_composite(bg, overlay).convert("RGB")
+        draw.ellipse(((cx - r) // 4, (cy - r) // 4, (cx + r) // 4, (cy + r) // 4), fill=fill)
+    blurred = small_overlay.filter(ImageFilter.GaussianBlur(7))
+    small_overlay.close()
+    overlay = blurred.resize((WIDTH, HEIGHT), Image.BILINEAR)
+    blurred.close()
+    try:
+        composited = Image.alpha_composite(bg, overlay)
+        try:
+            return composited.convert("RGB")
+        finally:
+            composited.close()
+    finally:
+        bg.close()
+        overlay.close()
 
 
 @lru_cache(maxsize=2)
@@ -341,7 +358,10 @@ def _load_jacket(path: str | None) -> Image.Image:
         try:
             with Image.open(path) as im:
                 rgb = im.convert("RGB")
-                return rgb.resize((JACKET_SIZE, JACKET_SIZE), Image.LANCZOS)
+                try:
+                    return rgb.resize((JACKET_SIZE, JACKET_SIZE), Image.LANCZOS)
+                finally:
+                    rgb.close()
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
             logger.debug("B30 render: could not open jacket %s: %s", path, exc)
 
@@ -435,126 +455,140 @@ def _render_b30_unlocked(
     player_name: str,
     region: str,
 ) -> BytesIO:
-    canvas = _build_pastel_background().copy()
-
-    # Soft shadow layer for header bar + all populated cards
-    shadow_layer = Image.new("L", (WIDTH // 2, HEIGHT // 2), 0)
-    sdraw = ImageDraw.Draw(shadow_layer)
-    sdraw.rectangle((0, 0, WIDTH // 2, (HEADER_HEIGHT + 3) // 2), fill=110)
-
-    card_positions: list[tuple[int, int, B30Entry]] = []
-    for idx, entry in enumerate(summary.entries[: COLS * ROWS]):
-        row, col = divmod(idx, COLS)
-        x = GUTTER_WIDTH + col * (CARD_WIDTH + GUTTER_WIDTH)
-        y = HEADER_HEIGHT + GUTTER_HEIGHT + row * (CARD_HEIGHT + GUTTER_HEIGHT)
-        card_positions.append((x, y, entry))
-        sdraw.rectangle(
-            (x // 2, (y + 3) // 2, (x + CARD_WIDTH) // 2, (y + CARD_HEIGHT + 3) // 2),
-            fill=85,
-        )
-
-    shadow = shadow_layer.filter(ImageFilter.GaussianBlur(3.0)).resize(
-        (WIDTH, HEIGHT), Image.BILINEAR
-    )
-    canvas.paste(SHADOW_COLOR, (0, 0), shadow)
-
-    # Top header bar (#b4ccfa)
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, WIDTH, HEADER_HEIGHT), fill=HEADER_BG)
-
-    header_font = _get_font(21, bold=True)
-    safe_name = (" ".join((player_name or "Player").split()) or "Player")[:28]
-    left_label = f"{safe_name}'s Best 30  [{region.upper()}]"
-    right_label = f"Ranking: {summary.ranking:.2f}"
-    _draw_text_aligned(
-        draw, (14, HEADER_HEIGHT // 2), left_label, fill=TEXT_DARK, font=header_font, anchor="lm"
-    )
-    _draw_text_aligned(
-        draw,
-        (WIDTH - 14, HEADER_HEIGHT // 2),
-        right_label,
-        fill=TEXT_DARK,
-        font=header_font,
-        anchor="rm",
-    )
-
-    title_font = _get_font(16, bold=True)
-    sub_font = _get_font(12, bold=False)
-    badge_font = _get_font(13, bold=True)
+    canvas = _build_pastel_background()
     jacket_cache: dict[int, Image.Image] = {}
+    j_mask: Image.Image | None = None
+    try:
+        # Soft shadow layer for header bar + all populated cards
+        shadow_layer = Image.new("L", (WIDTH // 2, HEIGHT // 2), 0)
+        sdraw = ImageDraw.Draw(shadow_layer)
+        sdraw.rectangle((0, 0, WIDTH // 2, (HEADER_HEIGHT + 3) // 2), fill=110)
 
-    # Rounded mask for song jackets
-    j_mask = Image.new("L", (JACKET_SIZE, JACKET_SIZE), 0)
-    ImageDraw.Draw(j_mask).rounded_rectangle(
-        (0, 0, JACKET_SIZE - 1, JACKET_SIZE - 1), radius=4, fill=255
-    )
+        card_positions: list[tuple[int, int, B30Entry]] = []
+        for idx, entry in enumerate(summary.entries[: COLS * ROWS]):
+            row, col = divmod(idx, COLS)
+            x = GUTTER_WIDTH + col * (CARD_WIDTH + GUTTER_WIDTH)
+            y = HEADER_HEIGHT + GUTTER_HEIGHT + row * (CARD_HEIGHT + GUTTER_HEIGHT)
+            card_positions.append((x, y, entry))
+            sdraw.rectangle(
+                (x // 2, (y + 3) // 2, (x + CARD_WIDTH) // 2, (y + CARD_HEIGHT + 3) // 2),
+                fill=85,
+            )
 
-    for idx, (x, y, entry) in enumerate(card_positions, start=1):
-        is_ap = entry.clear_state == "ap"
-        is_append = entry.difficulty == "append"
+        blurred_shadow = shadow_layer.filter(ImageFilter.GaussianBlur(3.0))
+        shadow_layer.close()
+        shadow = blurred_shadow.resize((WIDTH, HEIGHT), Image.BILINEAR)
+        blurred_shadow.close()
+        canvas.paste(SHADOW_COLOR, (0, 0), shadow)
+        shadow.close()
 
-        # 1. Card body (AP or FC frame)
-        base_card = _build_card_base(is_ap)
-        canvas.paste(base_card, (x, y), base_card)
+        # Top header bar (#b4ccfa)
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, WIDTH, HEADER_HEIGHT), fill=HEADER_BG)
 
-        # 2. Song jacket on left
-        if entry.song_id not in jacket_cache:
-            jacket_cache[entry.song_id] = _load_jacket(jacket_paths.get(entry.song_id))
-        canvas.paste(
-            jacket_cache[entry.song_id],
-            (x + JACKET_PADDING, y + JACKET_PADDING),
-            j_mask,
-        )
-
-        # 3. Song title + rank/rating subline on right
-        text_x = x + JACKET_PADDING * 2 + JACKET_SIZE
-        text_w = CARD_WIDTH - (JACKET_PADDING * 3 + JACKET_SIZE)
-        lines = _wrap_title(entry.title, title_font, text_w, max_lines=3)
-        line_h = 20
-        block_h = len(lines) * line_h
-        # Reserve small space at bottom of text column for "#rank · rating"
-        text_area_top = y + 12
-        text_area_h = CARD_HEIGHT - 32
-        start_y = text_area_top + max(0, (text_area_h - block_h) // 2)
-        for li, line in enumerate(lines):
-            draw.text((text_x, start_y + li * line_h), line, fill=TEXT_DARK, font=title_font)
-
-        meta_label = f"#{idx}  ·  {entry.rating:.1f}"
-        draw.text((text_x, y + CARD_HEIGHT - 20), meta_label, fill=TEXT_MUTED, font=sub_font)
-
-        # 4. Difficulty constant badge overlapping top-left corner
-        bx = x - BADGE_WIDTH // 2 + 4
-        by = y - BADGE_HEIGHT // 2 + 2
-        badge_img = _build_diff_badge(entry.difficulty)
-        canvas.paste(badge_img, (bx, by), badge_img)
+        header_font = _get_font(21, bold=True)
+        safe_name = (" ".join((player_name or "Player").split()) or "Player")[:28]
+        left_label = f"{safe_name}'s Best 30  [{region.upper()}]"
+        right_label = f"Ranking: {summary.ranking:.2f}"
         _draw_text_aligned(
             draw,
-            (bx + BADGE_WIDTH // 2, by + BADGE_HEIGHT // 2),
-            f"{entry.constant:.1f}",
-            fill=(255, 255, 255),
-            font=badge_font,
-            anchor="mm",
+            (14, HEADER_HEIGHT // 2),
+            left_label,
+            fill=TEXT_DARK,
+            font=header_font,
+            anchor="lm",
         )
-
-        # 5. AP / FC diamond or Append star overlapping bottom-right corner
-        ind_img = _build_clear_indicator(is_ap, is_append)
-        ix = x + CARD_WIDTH - ind_img.width // 2 - 2
-        iy = y + CARD_HEIGHT - ind_img.height // 2 - 2
-        canvas.paste(ind_img, (ix, iy), ind_img)
-
-    # Empty state hint if player has 0 FC/AP charts
-    if not card_positions:
-        empty_font = _get_font(26, bold=True)
         _draw_text_aligned(
             draw,
-            (WIDTH // 2, HEIGHT // 2),
-            "Chưa có bài FC/AP nào trong bảng B30",
-            fill=TEXT_MUTED,
-            font=empty_font,
-            anchor="mm",
+            (WIDTH - 14, HEADER_HEIGHT // 2),
+            right_label,
+            fill=TEXT_DARK,
+            font=header_font,
+            anchor="rm",
         )
 
-    out = BytesIO()
-    canvas.save(out, "JPEG", quality=92, subsampling=0)
-    out.seek(0)
-    return out
+        title_font = _get_font(16, bold=True)
+        sub_font = _get_font(12, bold=False)
+        badge_font = _get_font(13, bold=True)
+
+        # Rounded mask for song jackets
+        j_mask = Image.new("L", (JACKET_SIZE, JACKET_SIZE), 0)
+        ImageDraw.Draw(j_mask).rounded_rectangle(
+            (0, 0, JACKET_SIZE - 1, JACKET_SIZE - 1), radius=4, fill=255
+        )
+
+        for idx, (x, y, entry) in enumerate(card_positions, start=1):
+            is_ap = entry.clear_state == "ap"
+            is_append = entry.difficulty == "append"
+
+            # 1. Card body (AP or FC frame)
+            base_card = _build_card_base(is_ap)
+            canvas.paste(base_card, (x, y), base_card)
+
+            # 2. Song jacket on left
+            if entry.song_id not in jacket_cache:
+                jacket_cache[entry.song_id] = _load_jacket(jacket_paths.get(entry.song_id))
+            canvas.paste(
+                jacket_cache[entry.song_id],
+                (x + JACKET_PADDING, y + JACKET_PADDING),
+                j_mask,
+            )
+
+            # 3. Song title + rank/rating subline on right
+            text_x = x + JACKET_PADDING * 2 + JACKET_SIZE
+            text_w = CARD_WIDTH - (JACKET_PADDING * 3 + JACKET_SIZE)
+            lines = _wrap_title(entry.title, title_font, text_w, max_lines=3)
+            line_h = 20
+            block_h = len(lines) * line_h
+            # Reserve small space at bottom of text column for "#rank · rating"
+            text_area_top = y + 12
+            text_area_h = CARD_HEIGHT - 32
+            start_y = text_area_top + max(0, (text_area_h - block_h) // 2)
+            for li, line in enumerate(lines):
+                draw.text((text_x, start_y + li * line_h), line, fill=TEXT_DARK, font=title_font)
+
+            meta_label = f"#{idx}  ·  {entry.rating:.1f}"
+            draw.text((text_x, y + CARD_HEIGHT - 20), meta_label, fill=TEXT_MUTED, font=sub_font)
+
+            # 4. Difficulty constant badge overlapping top-left corner
+            bx = x - BADGE_WIDTH // 2 + 4
+            by = y - BADGE_HEIGHT // 2 + 2
+            badge_img = _build_diff_badge(entry.difficulty)
+            canvas.paste(badge_img, (bx, by), badge_img)
+            _draw_text_aligned(
+                draw,
+                (bx + BADGE_WIDTH // 2, by + BADGE_HEIGHT // 2),
+                f"{entry.constant:.1f}",
+                fill=(255, 255, 255),
+                font=badge_font,
+                anchor="mm",
+            )
+
+            # 5. AP / FC diamond or Append star overlapping bottom-right corner
+            ind_img = _build_clear_indicator(is_ap, is_append)
+            ix = x + CARD_WIDTH - ind_img.width // 2 - 2
+            iy = y + CARD_HEIGHT - ind_img.height // 2 - 2
+            canvas.paste(ind_img, (ix, iy), ind_img)
+
+        # Empty state hint if player has 0 FC/AP charts
+        if not card_positions:
+            empty_font = _get_font(26, bold=True)
+            _draw_text_aligned(
+                draw,
+                (WIDTH // 2, HEIGHT // 2),
+                "Chưa có bài FC/AP nào trong bảng B30",
+                fill=TEXT_MUTED,
+                font=empty_font,
+                anchor="mm",
+            )
+
+        out = BytesIO()
+        canvas.save(out, "JPEG", quality=92, subsampling=0)
+        out.seek(0)
+        return out
+    finally:
+        canvas.close()
+        if j_mask is not None:
+            j_mask.close()
+        for j_img in jacket_cache.values():
+            j_img.close()

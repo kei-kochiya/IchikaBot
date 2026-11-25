@@ -141,6 +141,48 @@ def test_client_pure_parsers_and_password_generator():
     clears = extract_music_clears(suite)
     assert clears == {(1, "master"): "ap", (1, "expert"): "fc"}
 
+    # Modern PJSK v5/v6 top-level userMusicResults with musicDifficultyType & boolean flags
+    v6_suite = {
+        "userMusics": [{"musicId": 1}, {"musicId": 2}],
+        "userMusicResults": [
+            {
+                "musicId": 1,
+                "musicDifficultyType": "append",
+                "playType": "multi",
+                "playResult": "clear",
+                "fullComboFlg": False,
+                "fullPerfectFlg": False,
+            },
+            {
+                "musicId": 1,
+                "musicDifficultyType": "master",
+                "playType": "solo",
+                "playResult": "clear",
+                "fullComboFlg": True,
+                "fullPerfectFlg": False,
+            },
+            {
+                "musicId": 1,
+                "musicDifficultyType": "master",
+                "playType": "multi",
+                "playResult": "full_perfect",
+                "fullComboFlg": True,
+                "fullPerfectFlg": True,
+            },
+            {
+                "musicId": 2,
+                "musicDifficultyType": "expert",
+                "playResult": "not_clear",
+                "fullComboFlg": False,
+                "fullPerfectFlg": False,
+            },
+        ],
+    }
+    assert extract_music_clears(v6_suite) == {
+        (1, "append"): "clear",
+        (1, "master"): "ap",
+    }
+
     prof = parse_profile_summary(
         {
             "user": {"userId": 999, "name": "Hoshino", "rank": 250},
