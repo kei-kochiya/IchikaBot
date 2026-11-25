@@ -424,37 +424,3 @@ async def test_pjsk_sync_guards_restriction_partial_failure_and_import(
         assert "Đã tạo Transfer ID mới" in warn_embed.title
         assert server_state.issued_codes[0][0] in warn_embed.description
         assert await database.get_pjsk_recovery(301, "en") is None
-
-        # /pjsk import accepts suite.json attachment and rejects mismatched userId
-        suite_payload = json.dumps(
-            {
-                "userGamedata": {"userId": server_state.target_uid, "name": "ImportedIchika"},
-                "userMusics": [
-                    {
-                        "musicId": 5,
-                        "userMusicDifficultyStatuses": [
-                            {
-                                "musicId": 5,
-                                "musicDifficulty": "master",
-                                "userMusicResults": [{"playResult": "full_perfect"}],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ).encode("utf-8")
-        good_att = SimpleNamespace(
-            size=len(suite_payload), read=AsyncMock(return_value=suite_payload)
-        )
-        inter_imp = make_interaction(user_id=301)
-        await cog.pjsk_import.callback(cog, inter_imp, region="en", suite_file=good_att)
-        assert "Đã nhập thành công" in inter_imp.last_reply["content"]
-        assert await database.get_pjsk_clears(301, "en") == {(5, "master"): "ap"}
-
-        bad_payload = json.dumps({"userGamedata": {"userId": 999999}, "userMusics": []}).encode(
-            "utf-8"
-        )
-        bad_att = SimpleNamespace(size=len(bad_payload), read=AsyncMock(return_value=bad_payload))
-        inter_bad = make_interaction(user_id=301)
-        await cog.pjsk_import.callback(cog, inter_bad, region="en", suite_file=bad_att)
-        assert "không khớp" in inter_bad.last_reply["content"]

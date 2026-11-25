@@ -13,7 +13,7 @@ Discord bot dành cho *Project Sekai: Colorful Stage!* — hỗ trợ tra cứu 
 - **Đoán nhân vật (`/guess`).** Nhìn một phần ảnh thẻ để đoán tên nhân vật với 3 độ khó: *Dễ* (crop đúng vùng nhân vật dựa trên ảnh cutout), *Thường* (crop ngẫu nhiên trên thẻ) và *Khó* (đen trắng, vỡ hạt, làm mờ hoặc đảo màu). Mỗi người dùng có thể đặt độ khó mặc định bằng `/guessmode` (mặc định là Dễ).
 - **Đoán nhạc trong Voice (`/songguess`).** Bot vào kênh voice và phát đoạn nhạc 20 giây. Mặc định lấy các bài commissioned, hoặc chọn toàn bộ bài hát; chế độ khó phát nhanh hơn, chậm hơn hoặc phát ngược.
 - **Thông báo tự động theo server.** Đăng bài chúc mừng lúc 00:00 JST vào sinh nhật mỗi nhân vật (và thẻ đếm ngược vào ngày thường), cùng tính năng gửi *Card of the Day* theo chu kỳ từ 0.5 đến 24 giờ.
-- **Tài khoản PJSK & Bảng Best 30 (B30).** Liên kết tài khoản Project Sekai server **EN** hoặc **JP** qua xác minh Bio trong game (`/pjsk link`), đồng bộ dữ liệu FC/AP qua Transfer ID trong DM và nhận lại ngay **Transfer ID + mật khẩu mới** (`/pjsk sync`, kèm cơ chế khôi phục `/pjsk recover` và nhập thủ công file `suite.json` qua `/pjsk import`), sau đó render ảnh **Best 30** (`/b30` / `/pjsk b30`) theo bảng hằng số của `pjskb30`.
+- **Tài khoản PJSK & Bảng Best 30 (B30).** Liên kết tài khoản Project Sekai server **EN** hoặc **JP** qua xác minh Bio trong game (`/pjsk link`), đồng bộ dữ liệu FC/AP qua Transfer ID trong DM và nhận lại ngay **Transfer ID + mật khẩu mới** (`/pjsk sync`, kèm cơ chế khôi phục `/pjsk recover`), sau đó render ảnh **Best 30** (`/b30` / `/pjsk b30`) theo bảng hằng số của `pjskb30`.
 - **Tiện ích khác.** Tra cứu sản phẩm Mercari Nhật theo link hoặc ID kèm ước tính giá VND, và xem giá xăng dầu PVOIL hôm nay tại Việt Nam.
 
 ## Danh sách lệnh
@@ -43,7 +43,6 @@ Lệnh Slash (`/`) là cách dùng chính; nhiều lệnh cũng hỗ trợ dạn
 | `/pjsk profile [region] [user]` | | Xem hồ sơ PJSK đã liên kết |
 | `/pjsk sync [region]` | | Đồng bộ FC/AP qua Transfer ID (trong DM) và nhận lại Transfer ID mới |
 | `/pjsk recover [region]` | | Cấp lại Transfer ID mới nếu quá trình sync bị gián đoạn |
-| `/pjsk import [region] <file>` | | Nhập dữ liệu FC/AP từ file `suite.json` |
 | `/b30 [region] [user]` | | Render ảnh bảng xếp hạng Best 30 (B30) |
 | `/gasprice` | `!gasprice` | Xem giá xăng dầu PVOIL hôm nay |
 
@@ -93,7 +92,7 @@ Lệnh Slash được đồng bộ tự động mỗi khi bot khởi động. Ch
 > **Lưu ý về JWT Token (`PJSK_EN_INHERIT_TOKEN` / `PJSK_JP_INHERIT_TOKEN`):**
 > Hai secret JWT dùng để xác thực Transfer ID **không được cung cấp sẵn** trong repository này — nếu muốn bật tính năng `/pjsk sync` khi tự host, **bạn phải tự tìm / tự xin quyền sử dụng các JWT secret này** rồi điền vào file `.env` (tuyệt đối không commit `.env` lên git).
 >
-> Nếu chưa có JWT secret, bot vẫn hoạt động bình thường với đầy đủ các tính năng khác, và người dùng vẫn có thể tạo bảng `/b30` bằng cách tải lên file `suite.json` thông qua lệnh `/pjsk import`.
+> Nếu chưa có JWT secret, bot vẫn hoạt động bình thường với đầy đủ các tính năng còn lại (bao gồm `/pjsk link` và `/pjsk profile`), chỉ riêng lệnh `/pjsk sync` sẽ bị khóa cho tới khi cấu hình secret.
 
 ### Dữ liệu và thư mục cục bộ
 

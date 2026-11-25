@@ -13,7 +13,7 @@ A Discord bot for *Project Sekai: Colorful Stage!* It looks up cards, songs, eve
 - **Character guess.** Name the character from part of a card, at three difficulties. Easy crops onto the card's own character (found with the game's close-up of them), normal crops anywhere on the card, and hard shows the card black-and-white, pixelated, blurred or inverted. Each player picks their default with `/guessmode`; it is easy until they do.
 - **Music quiz.** The bot joins your voice channel and plays a 20-second clip. Commissioned songs by default, or every song; hard mode plays the clip faster, slower or reversed.
 - **Announcements.** A post at midnight JST on each character's birthday (and a countdown card on other days), and a card of the day every 0.5 to 24 hours. Both are set up per server.
-- **PJSK Account & B30.** Link EN or JP Project Sekai accounts via in-game Bio verification (`/pjsk link`), sync FC/AP clears automatically via Transfer ID in DMs with a fresh Transfer ID returned immediately (`/pjsk sync`, plus crash recovery via `/pjsk recover` and `suite.json` import via `/pjsk import`), and render a Best 30 rating image (`/b30` / `/pjsk b30`) using the `pjskb30` chart constant table.
+- **PJSK Account & B30.** Link EN or JP Project Sekai accounts via in-game Bio verification (`/pjsk link`), sync FC/AP clears automatically via Transfer ID in DMs with a fresh Transfer ID returned immediately (`/pjsk sync`, plus crash recovery via `/pjsk recover`), and render a Best 30 rating image (`/b30` / `/pjsk b30`) using the `pjskb30` chart constant table.
 - **Utilities.** Mercari Japan item lookup by link or ID with an estimated price in VND, and today's PVOIL fuel prices in Vietnam.
 
 ## Commands
@@ -43,7 +43,6 @@ Slash commands are the main way in. Most also have a prefix form: type `!` (or `
 | `/pjsk profile [region] [user]` | | Show a linked PJSK profile |
 | `/pjsk sync [region]` | | Sync FC/AP clears via Transfer ID (in DM) and get a new Transfer ID back |
 | `/pjsk recover [region]` | | Re-issue a Transfer ID if a sync was interrupted |
-| `/pjsk import [region] <file>` | | Import clears from a `suite.json` file |
 | `/b30 [region] [user]` | | Render your Best 30 (B30) rating chart |
 | `/gasprice` | `!gasprice` | Today's fuel prices |
 
@@ -93,7 +92,7 @@ Slash commands are registered each time the bot starts. The bot owner can regist
 > **Note on JWT Tokens (`PJSK_EN_INHERIT_TOKEN` / `PJSK_JP_INHERIT_TOKEN`):**
 > These JWT signing secrets are **not included** in this repository — if you want to enable live `/pjsk sync` on your own instance, **you must obtain/source them yourself** and place them in your local `.env` file (never commit `.env`).
 >
-> Without these tokens, all other bot features continue to work normally, and users can still generate `/b30` charts by uploading a `suite.json` file via `/pjsk import`.
+> Without these tokens, all other bot features (including `/pjsk link` and `/pjsk profile`) continue to work normally; only `/pjsk sync` requires the secret.
 
 ### Data and files
 

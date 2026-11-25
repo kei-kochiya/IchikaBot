@@ -6,9 +6,7 @@ Heavy PJSK dependencies (`cryptography`, `msgpack`, `PIL`) are imported lazily i
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import time
 
 import discord
 from discord import app_commands
@@ -32,32 +30,6 @@ REGION_CHOICES = [
     app_commands.Choice(name="EN (Global)", value="en"),
     app_commands.Choice(name="JP (Japan)", value="jp"),
 ]
-
-_MAX_SUITE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB safety limit for suite.json uploads
-
-
-def _parse_suite_upload_sync(
-    raw_bytes: bytes,
-) -> tuple[dict[tuple[int, str], str], int | None, str | None]:
-    """Decode and extract clears from an uploaded `suite.json` off the event loop."""
-    from utils.pjsk.constants import extract_music_clears
-
-    suite = json.loads(raw_bytes.decode("utf-8-sig"))
-    if not isinstance(suite, dict) or (
-        "userMusics" not in suite and "userMusicResults" not in suite
-    ):
-        raise ValueError("File không chứa trường `userMusics` hoặc `userMusicResults`.")
-    gamedata = suite.get("userGamedata") if isinstance(suite.get("userGamedata"), dict) else {}
-    raw_uid = gamedata.get("userId")
-    file_uid: int | None = None
-    if raw_uid is not None:
-        try:
-            file_uid = int(raw_uid)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Trường `userGamedata.userId` không phải số nguyên hợp lệ.") from exc
-    name = str(gamedata.get("name") or "").strip() or None
-    clears = extract_music_clears(suite)
-    return clears, file_uid, name
 
 
 class PJSKCog(commands.Cog):
@@ -210,9 +182,7 @@ class PJSKCog(commands.Cog):
                     title=f"Chưa cấu hình Transfer Token cho {reg.upper()}",
                     description=(
                         f"Chủ bot chưa thiết lập biến môi trường `{env_name}` trong `.env` "
-                        "(secret dùng để ký header `x-inherit-id-verify-token` khi đăng nhập Transfer ID).\n\n"
-                        f"Trong lúc chờ cấu hình `{env_name}`, bạn vẫn có thể nhập dữ liệu bằng lệnh "
-                        f"`/pjsk import region:{reg}` với file `suite.json`."
+                        "(secret dùng để ký header `x-inherit-id-verify-token` khi đăng nhập Transfer ID)."
                     ),
                     color=discord.Color.orange(),
                 ),
@@ -313,87 +283,6 @@ class PJSKCog(commands.Cog):
         finally:
             cleanup_transfer_lock(interaction.user.id, reg, op_lock)
 
-    @pjsk_group.command(
-        name="import",
-        description="Nhập dữ liệu FC/AP từ file suite.json (thay thế hoặc bổ sung cho Transfer ID)",
-    )
-    @app_commands.checks.cooldown(1, 15.0)
-    @app_commands.describe(
-        region="Chọn server (EN hoặc JP)",
-        suite_file="File suite.json xuất từ game/Haruki/sssekai",
-    )
-    @app_commands.choices(region=REGION_CHOICES)
-    async def pjsk_import(
-        self,
-        interaction: discord.Interaction,
-        region: str,
-        suite_file: discord.Attachment,
-    ) -> None:
-        reg = region.lower()
-        op_lock = get_transfer_lock(interaction.user.id, reg)
-        if op_lock.locked():
-            await interaction.response.send_message(
-                f"Đang có phiên sync/recover chạy cho server **{reg.upper()}**. Vui lòng đợi hoàn tất trước.",
-                ephemeral=True,
-            )
-            return
-        cleanup_transfer_lock(interaction.user.id, reg, op_lock)
-
-        link = await database.get_pjsk_link(interaction.user.id, reg)
-        if not link:
-            await interaction.response.send_message(
-                f"Bạn cần liên kết tài khoản PJSK **{reg.upper()}** trước bằng `/pjsk link region:{reg}`.",
-                ephemeral=True,
-            )
-            return
-
-        if suite_file.size > _MAX_SUITE_UPLOAD_BYTES:
-            await interaction.response.send_message("File quá lớn (tối đa 15 MB).", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        try:
-            raw_bytes = await suite_file.read()
-            clears, file_uid, parsed_name = await asyncio.to_thread(
-                _parse_suite_upload_sync, raw_bytes
-            )
-            del raw_bytes
-        except Exception as exc:
-            await interaction.followup.send(f"File JSON không hợp lệ: {exc}", ephemeral=True)
-            return
-
-        if file_uid is not None and file_uid != link["pjsk_user_id"]:
-            await interaction.followup.send(
-                f"User ID trong file (`{file_uid}`) không khớp với tài khoản đã liên kết (`{link['pjsk_user_id']}`).",
-                ephemeral=True,
-            )
-            return
-
-        name = parsed_name or link.get("pjsk_name") or "Player"
-        saved = await database.replace_pjsk_clears(
-            interaction.user.id,
-            reg,
-            clears,
-            pjsk_name=name,
-            synced_at=time.time(),
-            expected_pjsk_user_id=link["pjsk_user_id"],
-        )
-        if not saved:
-            await interaction.followup.send(
-                f"Liên kết tài khoản **{reg.upper()}** đã thay đổi trong lúc nhập dữ liệu. Vui lòng thử lại.",
-                ephemeral=True,
-            )
-            return
-        ap_total = sum(1 for st in clears.values() if st == "ap")
-        fc_total = sum(1 for st in clears.values() if st == "fc")
-        await interaction.followup.send(
-            f"Đã nhập thành công dữ liệu **{safe_display_name(name)}** ({reg.upper()}): "
-            f"**{ap_total}** AP · **{fc_total}** FC.\n"
-            f"Dùng `/b30 region:{reg}` để xem bảng B30!",
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
     async def _send_b30(
         self,
         interaction: discord.Interaction,
@@ -425,7 +314,7 @@ class PJSKCog(commands.Cog):
             )
             await interaction.response.send_message(
                 f"{who} chưa có dữ liệu bài hát cho **{reg.upper()}**. "
-                f"Hãy dùng `/pjsk sync region:{reg}` (hoặc `/pjsk import region:{reg}`) để cập nhật trước nhé.",
+                f"Hãy dùng `/pjsk sync region:{reg}` để đồng bộ trước nhé.",
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
             )

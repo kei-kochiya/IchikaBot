@@ -218,14 +218,15 @@ def build_cookie_header(set_cookies: list[str], existing: str = "") -> str:
 
     for raw in set_cookies:
         for header_entry in _SET_COOKIE_SPLIT_RE.split(raw):
-            first = header_entry.split(";", 1)[0].strip()
-            if "=" not in first:
-                continue
-            name, value = first.split("=", 1)
-            name = name.strip()
-            if not name or any(c.isspace() for c in name) or name.lower() in _COOKIE_ATTRS:
-                continue
-            cookies[name] = value.strip()
+            for part in header_entry.split(";"):
+                part = part.strip()
+                if "=" not in part:
+                    continue
+                name, value = part.split("=", 1)
+                name = name.strip()
+                if not name or any(c.isspace() for c in name) or name.lower() in _COOKIE_ATTRS:
+                    continue
+                cookies[name] = value.strip()
     return "; ".join(f"{k}={v}" for k, v in cookies.items())
 
 

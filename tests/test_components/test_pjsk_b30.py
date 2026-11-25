@@ -103,6 +103,17 @@ def test_client_pure_parsers_and_password_generator():
     newest = build_cookie_header(["CloudFront-Policy=old; Path=/", "CloudFront-Policy=new; Path=/"])
     assert newest == "CloudFront-Policy=new"
 
+    # SEGA JP /api/signature packs all 3 CloudFront cookies semicolon-delimited in one Set-Cookie header
+    jp_sig = build_cookie_header(
+        [
+            "CloudFront-Policy=pol123; CloudFront-Signature=sig456; CloudFront-Key-Pair-Id=KP789; Path=/;"
+        ]
+    )
+    assert (
+        jp_sig
+        == "CloudFront-Policy=pol123; CloudFront-Signature=sig456; CloudFront-Key-Pair-Id=KP789"
+    )
+
     # Transfer ID validation rejects path/query injection characters
     assert validate_transfer_id("  AbCdEfGh12345678 ") == "AbCdEfGh12345678"
     for bad_tid in ("short", "AbCdEfGh1234567/", "AbCdEfGh1234567?", "AbCdEfGh1234567#"):
