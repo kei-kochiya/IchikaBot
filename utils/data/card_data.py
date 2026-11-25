@@ -162,7 +162,9 @@ class CardDataManager:
             if not self.en_prefix:
                 self.en_prefix = {}
             else:
-                logger.warning("CardData: EN cards file missing on reload; keeping cached EN prefixes")
+                logger.warning(
+                    "CardData: EN cards file missing on reload; keeping cached EN prefixes"
+                )
         except Exception as e:
             logger.warning("CardData: Failed to load EN prefixes (keeping existing): %s", e)
 

@@ -126,7 +126,9 @@ class CardCog(commands.Cog):
             full_label = f"{rarity_str} // {prefix} [{char_name}]"
             display = full_label[:100]
             jp_prefix = card.get("prefix") or ""
-            hay = f"{full_label}\x00{jp_prefix}" if jp_prefix and jp_prefix != prefix else full_label
+            hay = (
+                f"{full_label}\x00{jp_prefix}" if jp_prefix and jp_prefix != prefix else full_label
+            )
             return (hay.lower(), display, str(card["id"]))
 
         for card_id, en_pfx in card_data.en_prefix.items():
@@ -204,7 +206,9 @@ class CardCog(commands.Cog):
         )
 
         clean_name = (
-            (char_info.get("givenName") or char_info.get("firstName") or "").lower().replace(" ", "")
+            (char_info.get("givenName") or char_info.get("firstName") or "")
+            .lower()
+            .replace(" ", "")
         )
         icon_img_path = ASSETS_PATH / "chara_icons" / f"{clean_name}.png"
 

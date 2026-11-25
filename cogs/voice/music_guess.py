@@ -350,11 +350,12 @@ class MusicGuess(commands.Cog):
                 )
 
             if not user.voice or not user.voice.channel:
-                await send_msg(
-                    "Bạn đã rời kênh voice trước khi ván chơi bắt đầu.", delete_after=10
-                )
+                await send_msg("Bạn đã rời kênh voice trước khi ván chơi bắt đầu.", delete_after=10)
                 return
-            if channel.id in self.active_games or self._guild_game_channel(user.guild.id) is not None:
+            if (
+                channel.id in self.active_games
+                or self._guild_game_channel(user.guild.id) is not None
+            ):
                 await send_msg("Đã có ván chơi khác đang diễn ra trong server!", delete_after=10)
                 return
 
@@ -372,7 +373,10 @@ class MusicGuess(commands.Cog):
                 await send_msg(f"Lỗi vào voice: {e}")
                 return
 
-            if channel.id in self.active_games or self._guild_game_channel(user.guild.id) is not None:
+            if (
+                channel.id in self.active_games
+                or self._guild_game_channel(user.guild.id) is not None
+            ):
                 await send_msg("Đã có ván chơi khác đang diễn ra trong server!", delete_after=10)
                 return
 
