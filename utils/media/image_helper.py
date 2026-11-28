@@ -255,3 +255,20 @@ async def get_song_jacket_path(song_id: int, asset_bundle_name: str | None = Non
         return path
     png_url = SONG_JACKET_URL.format(asset=asset, ext="png")
     return await _cached_download(png_url, png_dest)
+
+
+SONG_CHART_URL = "https://storage.sekai.best/sekai-music-charts/jp/{song_id:04d}/{difficulty}.png"
+
+
+async def get_song_chart_path(song_id: int, difficulty: str = "master") -> str | None:
+    """Get path to a pre-rendered song chart PNG from sekai.best, cached in CACHE_DIR/charts."""
+    diff = difficulty.lower().strip()
+    folder = CACHE_DIR / "charts"
+    dest = folder / f"{song_id:04d}_{diff}.png"
+    with contextlib.suppress(OSError):
+        if dest.stat().st_size > 0:
+            return str(dest)
+
+    folder.mkdir(parents=True, exist_ok=True)
+    url = SONG_CHART_URL.format(song_id=song_id, difficulty=diff)
+    return await _cached_download(url, dest)

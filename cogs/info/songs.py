@@ -134,40 +134,6 @@ class SongsCog(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return song_data.get_autocomplete_choices(current)
 
-    # ===== PREFIX COMMANDS =====
-    @commands.command(name="song", aliases=["music", "s"])
-    async def song_prefix(self, ctx: commands.Context, *, query: str | None = None):
-        """Search for a song: !song <name>"""
-        if not query:
-            await ctx.send("Vui lòng nhập tên bài hát: `!song <name>`")
-            return
-
-        embed, view = self._build_search_reply(query)
-        if embed is None:
-            await ctx.send(
-                f"Không tìm thấy bài hát nào với từ khóa: **{query[:100]}**",
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-            return
-        if view is None:
-            await ctx.send(embed=embed)
-            return
-        msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-
-    @commands.command(name="songr", aliases=["randomsong"])
-    async def song_random_prefix(self, ctx: commands.Context):
-        """Get a random song: !songr"""
-        chosen = song_data.get_random_song()
-        if not chosen:
-            await ctx.send("Không có dữ liệu bài hát!")
-            return
-
-        title = self.get_display_title(chosen, chosen["id"])
-        embed = create_song_embed(chosen, title, self.difficulties)
-        embed.title = f"Bài hát ngẫu nhiên: {title}"
-        await ctx.send(embed=embed)
-
 
 async def setup(bot):
     await bot.add_cog(SongsCog(bot))

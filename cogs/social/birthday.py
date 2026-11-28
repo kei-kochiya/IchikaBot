@@ -316,34 +316,6 @@ class BirthdayCog(commands.Cog):
             with contextlib.suppress(discord.HTTPException):
                 await interaction.response.send_message(msg, ephemeral=True)
 
-    # ===== PREFIX COMMANDS =====
-    @commands.command(name="bday", aliases=["birthday", "bdaycheck"])
-    async def bday_check_prefix(self, ctx: commands.Context):
-        """Check today's and upcoming birthdays: !bday"""
-        now = datetime.now(JST)
-        today = now.strftime("%m-%d")
-
-        embed = build_birthday_calendar_embed(
-            today,
-            get_characters_with_birthday(today),
-            get_upcoming_birthdays(days=30),
-            discord.Color,
-        )
-        embed.timestamp = now
-        await ctx.send(embed=embed)
-
-    @commands.command(name="bdayu", aliases=["countdown", "upcoming", "bdaycountdown"])
-    async def bday_countdown_prefix(self, ctx: commands.Context, *, character: str | None = None):
-        """Check upcoming birthday countdown with card: !bdayu [character]"""
-        res = resolve_character_and_countdown(character)
-        if not res:
-            await ctx.send("Không tìm thấy thông tin sinh nhật sắp tới.")
-            return
-
-        days_until, target_char = res
-        if not await self.send_daily_card_message(ctx.channel, target_char, days_until):
-            await ctx.send("Nhân vật này chưa có card 3★ hoặc 4★ nào.")
-
 
 async def setup(bot):
     await bot.add_cog(BirthdayCog(bot))

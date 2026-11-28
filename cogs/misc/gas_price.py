@@ -198,7 +198,7 @@ def _build_embed(products: list[dict]) -> discord.Embed:
 
 
 class GasPriceCog(commands.Cog):
-    """Slash and prefix command to show current Vietnamese fuel retail prices."""
+    """Slash command to show current Vietnamese fuel retail prices."""
 
     def __init__(self, bot: commands.Bot, cache_file: Path | str = _CACHE_FILE) -> None:
         self.bot = bot
@@ -306,28 +306,6 @@ class GasPriceCog(commands.Cog):
                 )
         else:
             logger.error("GasPrice slash error: %s", error)
-
-    # ------------------------------------------------------------------
-    # Prefix command
-    # ------------------------------------------------------------------
-
-    @commands.command(name="gasprice", aliases=["gas", "xangdau", "xăngdầu"])
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def prefix_gasprice(self, ctx: commands.Context) -> None:
-        async with ctx.typing():
-            result = await self._price_embed()
-        if isinstance(result, str):
-            await ctx.send(result)
-        else:
-            await ctx.send(embed=result)
-
-    @prefix_gasprice.error
-    async def prefix_gasprice_error(self, ctx: commands.Context, error) -> None:
-        if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(
-                f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.",
-                delete_after=5,
-            )
 
 
 async def setup(bot: commands.Bot) -> None:

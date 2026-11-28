@@ -117,11 +117,6 @@ class MercariCog(commands.Cog):
         else:
             logger.error("Mercari slash error: %s", error)
 
-    @staticmethod
-    async def _reply_prefix_cooldown(ctx: commands.Context, error) -> None:
-        if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(f"Chờ **{error.retry_after:.1f}s** trước khi dùng lại.", delete_after=5)
-
     # Slash command: /mercari
     @app_commands.command(
         name="mercari",
@@ -141,26 +136,6 @@ class MercariCog(commands.Cog):
     @slash_mercari.error
     async def slash_mercari_error(self, interaction: discord.Interaction, error):
         await self._reply_slash_cooldown(interaction, error)
-
-    # Prefix command: !mercari
-    @commands.command(name="mercari", aliases=["mer", "merca"])
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def prefix_mercari(self, ctx: commands.Context, *, link: str | None = None):
-        if not link:
-            await ctx.send("Vui lòng cung cấp link hoặc ID sản phẩm: `!mercari <link>`")
-            return
-
-        async with ctx.typing():
-            result = await self._lookup(link, ctx.author.id)
-
-        if isinstance(result, str):
-            await ctx.send(result)
-        else:
-            await ctx.send(embed=result)
-
-    @prefix_mercari.error
-    async def prefix_mercari_error(self, ctx: commands.Context, error):
-        await self._reply_prefix_cooldown(ctx, error)
 
 
 async def setup(bot: commands.Bot):

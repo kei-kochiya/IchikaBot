@@ -175,31 +175,6 @@ class ProfileCog(commands.Cog):
         if "view" in kwargs:
             kwargs["view"].message = msg
 
-    # ===== PREFIX COMMANDS =====
-    @commands.command(name="profile", aliases=["char", "character"])
-    async def profile_prefix(self, ctx: commands.Context, *, name: str | None = None):
-        """Get character profile: !profile <name>"""
-        if not name:
-            await ctx.send("Vui lòng nhập tên nhân vật: `!profile <name>`")
-            return
-
-        char_id, _ = game_data.get_character_by_name(name)
-        if char_id is None:
-            await ctx.send(
-                f"Không tìm thấy nhân vật: **{name[:100]}**",
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-            return
-
-        kwargs = await self._build_profile_kwargs(char_id)
-        if kwargs is None:
-            await ctx.send("Không có thông tin profile cho nhân vật này.")
-            return
-
-        msg = await ctx.send(**kwargs)
-        if "view" in kwargs:
-            kwargs["view"].message = msg
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ProfileCog(bot))

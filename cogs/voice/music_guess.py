@@ -427,30 +427,6 @@ class MusicGuess(commands.Cog):
 
     # ── Commands ───────────────────────────────────────────────────────────────
 
-    @commands.command(name="songguess", aliases=["sg", "sgc"])
-    @commands.guild_only()
-    async def guess_music(self, ctx, pool: str = "comm"):
-        """Đoán nhạc. Mặc định là commission (-sg), hoặc tất cả (-sg all)"""
-        await self.start_game_logic(ctx, variant_mode=False, pool_type=pool)
-
-    @commands.command(name="songguessv", aliases=["sgv"])
-    @commands.guild_only()
-    async def guess_music_variant(self, ctx, pool: str = "comm"):
-        """Đoán nhạc có hiệu ứng (-sgv hoặc -sgv all)"""
-        await self.start_game_logic(ctx, variant_mode=True, pool_type=pool)
-
-    @commands.command(name="songguessall", aliases=["sga"])
-    @commands.guild_only()
-    async def guess_music_all(self, ctx):
-        """Đoán nhạc toàn bộ bài hát (-sga)"""
-        await self.start_game_logic(ctx, variant_mode=False, pool_type="all")
-
-    @commands.command(name="songguessallv", aliases=["sgav"])
-    @commands.guild_only()
-    async def guess_music_all_variant(self, ctx):
-        """Đoán nhạc toàn bộ bài hát có hiệu ứng (-sgav)"""
-        await self.start_game_logic(ctx, variant_mode=True, pool_type="all")
-
     @app_commands.command(name="songguess", description="Bắt đầu game đoán bài hát!")
     @app_commands.guild_only()
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)

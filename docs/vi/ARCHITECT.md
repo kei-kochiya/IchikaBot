@@ -21,8 +21,8 @@ Thư mục `utils/` là xương sống của bot. Các Cog nên gọi lại các
 - **`card_data.py`**: Singleton (`card_data`) đọc và lưu cache toàn bộ dữ liệu thẻ (`cards.json`) trong bộ nhớ với bảng tra cứu `O(1)` và tiêu đề EN/JP.
 - **`event_data.py`**: Singleton (`event_data`) quản lý dữ liệu sự kiện JP/EN (`events.json`), sự kiện đang diễn ra/đã qua và lịch banner.
 - **`song_data.py`**: Singleton (`song_data`) quản lý danh sách bài hát (`musics.json`) và độ khó chart (`musicDifficulties.json`).
-- **`music_quiz_db.py`**: Lớp cơ sở dữ liệu (`MusicQuizDB`) cho file `song.xlsx` dùng trong minigame đoán nhạc, kèm hàm chuẩn hóa câu trả lời `normalize()` dùng chung cho cả 2 trò chơi `-g`. Kết quả đọc Excel được cache sang JSON (`.gachacache/song_db_cache.json`, theo kích thước và `mtime` của file), nhờ vậy thư viện `openpyxl` (~16 MB RAM) chỉ được import khi `song.xlsx` thực sự thay đổi.
-- **Được sử dụng bởi**: Hầu hết các cog game và tra cứu (`birthday.py`, `guess.py`, `profile.py`, `card.py`, `events.py`, `songs.py`, `pjsk.py`).
+- **`music_quiz_db.py`**: Lớp cơ sở dữ liệu (`MusicQuizDB`) cho file `song.xlsx` dùng trong minigame đoán nhạc, kèm hàm chuẩn hóa câu trả lời `normalize()` dùng chung cho các trò chơi `-g`. Kết quả đọc Excel được cache sang JSON (`.assetcache/song_db_cache.json`, theo kích thước và `mtime` của file), nhờ vậy thư viện `openpyxl` (~16 MB RAM) chỉ được import khi `song.xlsx` thực sự thay đổi.
+- **Được sử dụng bởi**: Hầu hết các cog game và tra cứu (`birthday.py`, `cardguess.py`, `jacketguess.py`, `chartguess.py`, `profile.py`, `card.py`, `events.py`, `songs.py`, `pjsk.py`).
 
 ### `utils/core/` (Hệ thống cốt lõi)
 - **`database.py`**: Xử lý toàn bộ thao tác bất đồng bộ với `ichika.db` (pity gacha, cài đặt server, liên kết & lịch sử clear PJSK) trên một kết nối SQLite dùng chung sống lâu dài (chế độ WAL). Toàn bộ thao tác ghi đi qua `_write_tx()` có khóa tuần tự và rollback an toàn khi gặp lỗi/hủy task. Đóng sạch bằng `close_db()` khi tắt bot.
@@ -34,11 +34,11 @@ Thư mục `utils/` là xương sống của bot. Các Cog nên gọi lại các
 ### `utils/media/` (Xử lý hình ảnh & âm thanh)
 - **`image_helper.py`**: Tải và cache ảnh bất đồng bộ. Ảnh thẻ được lưu dạng WebP (nhỏ hơn PNG gốc từ CDN khoảng 20 lần: tiết kiệm băng thông tải, ổ đĩa và thời gian gửi lên Discord); gửi đi dưới tên `card.webp`. Ghi file nguyên tử, gộp nhiều yêu cầu trùng nhau cho cùng một ảnh thành 1 lượt tải duy nhất (`_inflight`), nhớ lỗi 404 từ CDN trong 1 giờ, và lỗi mạng không kích hoạt tải fallback tràn lan. Đồng thời hỗ trợ cache jacket bài hát cho B30.
 - **`card_focus.py`**: Tự động định vị nhân vật trên ảnh thẻ cho chế độ Dễ của `/guess`, dựa vào phân bố màu từ ảnh `member_cutout` kết hợp độ sắc nét (vì ảnh cutout là bố cục vẽ lại nên không thể khớp pixel trực tiếp). Chỉ dùng Pillow, xử lý trong ~0.1 giây.
-- **`gacha_render.py`**: Vẽ ảnh kết quả quay gacha theo phong cách màn hình kết quả trong game (nền, ảnh thẻ, sao hiếm và biểu tượng thuộc tính). Tài nguyên UI tải 1 lần vào `.gachacache/ui`; thumbnail thẻ cache ở `.gachacache/tiles`. Mọi tài nguyên đều có phương án vẽ dự phòng nếu thiếu.
+- **`gacha_render.py`**: Vẽ ảnh kết quả quay gacha theo phong cách màn hình kết quả trong game (nền, ảnh thẻ, sao hiếm và biểu tượng thuộc tính). Tài nguyên UI tải 1 lần vào `.assetcache/ui`; thumbnail thẻ cache ở `.assetcache/tiles`. Mọi tài nguyên đều có phương án vẽ dự phòng nếu thiếu.
 - **`audio_fx.py`**: Xử lý cắt nhạc và hiệu ứng âm thanh (FFmpeg/Pydub). Đoạn nhạc được cắt trực tiếp bằng `ffmpeg` seek nên không bao giờ phải giải mã cả bài hát vào RAM.
 
 ### Các nhóm tiện ích theo tính năng
-- **`utils/game/`**: Lọc thẻ, chọn ngẫu nhiên, kiểm tra ảnh thường/sau nâng cấp (`cards.py`) và bộ lọc/chọn bài hát + chuẩn hóa đáp án cho minigame đoán nhạc (`music_helpers.py`).
+- **`utils/game/`**: Lọc thẻ, chọn ngẫu nhiên, kiểm tra ảnh thường/sau nâng cấp (`cards.py`), bộ lọc/chọn bài hát cho đoán nhạc (`music_helpers.py`), engine vòng chơi `-g` & khóa kênh dùng chung (`guess_engine.py`), và xử lý cắt ảnh jacket/chart + tạo đáp án đa ngôn ngữ (`song_guess_media.py`).
 - **`utils/social/`**: Tính toán ngày theo múi giờ JST và dựng Embed/View cho tính năng sinh nhật (`birthday_helpers.py`, `birthday_ui.py`).
 - **`utils/info/`**: Dựng Embed và giao diện phân trang dùng chung (`songs_ui.py`, `events_ui.py`).
 - **`utils/mercari_scraper/`**: Tra cứu sản phẩm Mercari Nhật hỗ trợ cả tin đăng cá nhân C2C (`c2c_client.py`) và Mercari Shops (`shops_client.py` dùng chung `aiohttp`). `AsyncC2CClient` (cùng `mercapi`/`httpx`, ~12 MB) chỉ được lazy import ở lần tra cứu C2C đầu tiên; phần phân tích URL nhẹ nằm riêng trong `urls.py`.
@@ -53,7 +53,7 @@ Các Cog được phân loại vào từng thư mục con theo chức năng. Bot
 | Thư mục | Chức năng chính | Phụ thuộc tiêu biểu |
 |:---|:---|:---|
 | **`cogs/voice/`** | Minigame đoán nhạc trong kênh voice (`music_guess.py`). | `utils.media.audio_fx`, `utils.data.music_quiz_db`, `utils.game.music_helpers` |
-| **`cogs/game/`** | Đoán nhân vật qua ảnh thẻ (`guess.py`) & Giả lập quay gacha (`gacha.py`). | `utils.data.*`, `utils.game.*`, `utils.core.database` |
+| **`cogs/game/`** | Đoán nhân vật (`cardguess.py`), Đoán jacket (`jacketguess.py`), Đoán chart (`chartguess.py`) & Giả lập gacha (`gacha.py`). | `utils.data.*`, `utils.game.*`, `utils.core.database` |
 | **`cogs/info/`** | Tra cứu Thẻ, Hồ sơ, Bài hát, Sự kiện & Liên kết tài khoản / đồng bộ / B30 PJSK (`pjsk.py`). | `utils.info.*`, `utils.data.*`, `utils.pjsk.*`, `utils.core.romaji` |
 | **`cogs/social/`** | Tương tác cộng đồng: Sinh nhật nhân vật (`birthday.py`), Card of the Day (`card_of_day.py`). | `utils.social.*`, `utils.data.*`, `utils.core.database` |
 | **`cogs/system/`** | Quản trị bot: Tự động cập nhật dữ liệu (`data_updater.py`), Trợ giúp tương tác (`help.py`). | `utils.core.autoupdater` |

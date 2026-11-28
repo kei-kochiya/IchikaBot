@@ -1,3 +1,5 @@
+"""Character guessing minigame (`/guess` and `/guessmode`) from cropped/effected card art."""
+
 import asyncio
 import contextlib
 import logging
@@ -12,39 +14,38 @@ from PIL import Image, ImageFilter, ImageOps
 
 from config import SONG_GUESS_DURATION
 from utils.core import database
-from utils.core.tasks import react_in_background
 from utils.data.card_data import card_data
 from utils.data.game_data import game_data
-from utils.data.music_quiz_db import is_correct_guess, normalize
+from utils.data.music_quiz_db import normalize
 from utils.game.cards import is_pre_trained_card, supports_trained_art
+from utils.game.guess_engine import (
+    GUESS_MODES,
+    GUESS_PREFIX,
+    MODE_COLORS,
+    MODE_LABELS,
+    acquire_channel,
+    is_channel_active,
+    release_channel,
+    run_guess_round,
+)
 from utils.media.card_focus import focus_crop_box
 from utils.media.image_helper import get_card_image_path, get_member_cutout_path
 
 logger = logging.getLogger(__name__)
 
-GUESS_PREFIX = "-g "
-MAX_FAILS = 4
 MAX_PUZZLE_WIDTH = 1280
 CROP_SIZE = 300
 
 # Difficulties: easy crops on the card's own character (found with its member_cutout),
 # normal crops anywhere on the card, hard adds a random effect.
-GUESS_MODES = ("easy", "normal", "hard")
 MODE_ALIASES = {"random": "hard"}  # the old name of hard mode
 DEFAULT_MODE = "easy"  # for players who never chose one with /guessmode
 MODE_SETTING = "guess_mode"  # user_settings key
-MODE_LABELS = {"easy": "Dễ", "normal": "Thường", "hard": "Khó"}
-MODE_COLORS = {"easy": 0x2ECC71, "normal": 0xF1C40F, "hard": 0x9B59B6}
 MODE_CHOICES = [
     app_commands.Choice(name="Dễ: cắt vào nhân vật", value="easy"),
     app_commands.Choice(name="Thường: cắt ngẫu nhiên", value="normal"),
     app_commands.Choice(name="Khó: hiệu ứng ngẫu nhiên", value="hard"),
 ]
-_OUTCOME_META = {
-    "failed": (f"Game Over. Bạn chỉ được phép đoán sai {MAX_FAILS} lần!", 0xE74C3C),
-    "gave_up": ("Đã bỏ cuộc!", 0xE74C3C),
-    "timeout": ("Hết giờ rồi!", 0xE74C3C),
-}
 
 
 def _focus_box(img: Image.Image, cutout_path: str | None) -> tuple[int, int, int, int] | None:
@@ -61,14 +62,11 @@ def _focus_box(img: Image.Image, cutout_path: str | None) -> tuple[int, int, int
 def _process_game_image_sync(
     local_path: str, mode: str, cutout_path: str | None = None
 ) -> tuple[BytesIO | None, str | None, str]:
-    """Synchronous helper for image processing with effects.
+    """Build a puzzle JPEG from cached card art off the event loop.
 
-    mode: "easy" (a crop on the card's character, located with cutout_path; without a
-    usable cutout it falls back to a normal crop), "normal" (a crop anywhere) or "hard"
-    (a random effect; "random" is accepted as its old name).
-
-    Returns (puzzle_jpeg, reveal_path, effect_name).  The reveal image is the untouched
-    cached card file, so it is never decoded/re-encoded or held in memory during a game.
+    mode: "easy" (crops on the character using cutout_path, falling back to normal crop),
+    "normal" (random 300x300 crop), or "hard" (random effect; "random" accepted as alias).
+    Returns `(puzzle_jpeg, reveal_path, effect_name)`.
     """
     mode = MODE_ALIASES.get(mode, mode)
     try:
@@ -95,9 +93,7 @@ def _process_game_image_sync(
             if focus is not None:
                 game_img = img.crop(focus)
                 effect_used = "Focus"
-
-            elif effect == "crop" or effect == "crop_bw":
-                # Crop first: only the 300x300 region is ever copied/converted
+            elif effect in ("crop", "crop_bw"):
                 x = random.randint(0, w - CROP_SIZE)
                 y = random.randint(0, h - CROP_SIZE)
                 game_img = img.crop((x, y, x + CROP_SIZE, y + CROP_SIZE))
@@ -106,10 +102,7 @@ def _process_game_image_sync(
                     effect_used = "Trắng đen"
                 else:
                     effect_used = "Crop"
-
             else:
-                # Whole-image effects don't need the 2520px source art: cap the output width
-                # so encoding is faster and the upload to Discord is several times smaller.
                 tw, th = (
                     (MAX_PUZZLE_WIDTH, round(h * MAX_PUZZLE_WIDTH / w))
                     if w > MAX_PUZZLE_WIDTH
@@ -117,12 +110,9 @@ def _process_game_image_sync(
                 )
 
                 if effect == "pixelate":
-                    # Shrink straight to 48x48 and scale back up (skips intermediate 1280px resize)
                     game_img = img.resize((48, 48), Image.NEAREST).resize((tw, th), Image.NEAREST)
                     effect_used = "Pixelate"
-
                 elif effect == "blur":
-                    # Shrink directly to quarter size, blur, then upscale (skips 1280px resize)
                     small = img.resize(
                         (max(1, tw // 4), max(1, th // 4)),
                         Image.BILINEAR,
@@ -130,16 +120,13 @@ def _process_game_image_sync(
                     ).filter(ImageFilter.GaussianBlur(radius=25 / 4))
                     game_img = small.resize((tw, th), Image.BILINEAR)
                     effect_used = "Blur"
-
-                else:  # negative
+                else:
                     if (tw, th) != (w, h):
                         img = img.resize((tw, th), Image.BILINEAR, reducing_gap=2.0)
                     rgb = img if img.mode == "RGB" else img.convert("RGB")
                     game_img = ImageOps.invert(rgb)
                     effect_used = "Âm bản"
 
-            # JPEG: a 1280px effect image is ~1-2 MB as PNG but ~0.2 MB here, and the
-            # upload dominates how long the round takes to appear.
             game_io = BytesIO()
             if game_img.mode not in ("RGB", "L"):
                 game_img = game_img.convert("RGB")
@@ -147,40 +134,20 @@ def _process_game_image_sync(
             game_io.seek(0)
 
         return game_io, local_path, effect_used
-
     except OSError as e:
-        logger.error(f"Failed to process image: {e}")
+        logger.error("Failed to process image: %s", e)
         return None, None, ""
 
 
-class GuessCog(commands.Cog):
+class CardGuessCog(commands.Cog):
+    """Slash commands for character guessing from card art (`/guess`, `/guessmode`)."""
+
     def __init__(self, bot):
         self.bot = bot
-        self.active_channels: dict[int, float] = {}
-        self._channel_tokens: dict[int, object] = {}
-        # References to shared singletons — no per-cog loading
         self.cards = card_data.pool_3_4
 
-    def _is_channel_active(self, channel_id: int) -> bool:
-        """Check if game is actively running in channel. Auto-recovers stale/hung channels."""
-        if channel_id not in self.active_channels:
-            return False
-        start_time = self.active_channels[channel_id]
-        now = asyncio.get_running_loop().time()
-        stale_after = SONG_GUESS_DURATION + 35.0
-        if now - start_time > stale_after:
-            logger.warning(
-                "Guess game in channel %s hung or timed out (%0.1fs ago). Auto-recovering channel.",
-                channel_id,
-                now - start_time,
-            )
-            self.active_channels.pop(channel_id, None)
-            self._channel_tokens.pop(channel_id, None)
-            return False
-        return True
-
     def load_data(self):
-        """Card/character data managed by shared singletons."""
+        """Refresh card pool reference after singleton reload."""
         self.cards = card_data.pool_3_4
 
     def get_display_prefix(self, card: dict) -> str:
@@ -200,7 +167,7 @@ class GuessCog(commands.Cog):
     async def process_game_image(
         self, asset_name: str, is_trained: bool, mode: str
     ) -> tuple[BytesIO | None, str | None, str]:
-        """Process card image for guessing game in executor. Returns (game_img_io, reveal_path, effect_name)."""
+        """Fetch card art (and cutout in easy mode) and build the puzzle JPEG off-thread."""
         try:
             async with asyncio.timeout(15.0):
                 is_easy = MODE_ALIASES.get(mode, mode) == "easy"
@@ -211,7 +178,6 @@ class GuessCog(commands.Cog):
                     )
                     if not local_path:
                         return None, None, ""
-                    # If the CDN served the fallback training variant, match the cutout to it
                     trained_art = Path(local_path).stem.endswith("_after_training")
                     if trained_art != is_trained:
                         cutout_path = await get_member_cutout_path(asset_name, trained_art)
@@ -232,7 +198,7 @@ class GuessCog(commands.Cog):
             return None, None, ""
 
     async def resolve_mode(self, user_id: int, mode: str | None) -> str:
-        """The mode to play: the one asked for, else the player's default, else easy."""
+        """Resolve effective difficulty: explicit choice, else saved user setting, else easy."""
         if mode is None:
             mode = await database.get_user_setting(user_id, MODE_SETTING)
         mode = MODE_ALIASES.get(mode, mode)
@@ -257,7 +223,6 @@ class GuessCog(commands.Cog):
         )
 
     @app_commands.command(name="guess", description="Đoán nhân vật qua hình ảnh!")
-    # Needs gateway MESSAGE_CREATE events for -g answers (not delivered in user-install/group DMs)
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.describe(mode="Độ khó (để trống: độ khó mặc định của bạn, ban đầu là Dễ)")
@@ -276,18 +241,13 @@ class GuessCog(commands.Cog):
             )
             return
 
-        if self._is_channel_active(channel_id):
+        if is_channel_active(channel_id):
             await interaction.response.send_message(
                 "Ai đó đang thử tài rồi, hãy chơi cùng họ nhé!", ephemeral=True
             )
             return
 
-        token = object()
-        self.active_channels[channel_id] = asyncio.get_running_loop().time()
-        self._channel_tokens[channel_id] = token
-        view: GiveUpView | None = None
-        msg = None
-
+        token = acquire_channel(channel_id)
         try:
             await interaction.response.defer()
             try:
@@ -300,7 +260,7 @@ class GuessCog(commands.Cog):
                 else:
                     is_trained = random.choice([True, False])
 
-                game_img, full_img, effect_name = await self.process_game_image(
+                game_img, full_img, _effect_name = await self.process_game_image(
                     card["assetbundleName"], is_trained, mode
                 )
 
@@ -318,9 +278,8 @@ class GuessCog(commands.Cog):
                 possible_answers = self.build_answer_list(card["characterId"])
                 norm_answers = [na for a in possible_answers if (na := normalize(a))]
                 full_name = f"{char_data['firstName']} {char_data['givenName']}".strip()
-                logger.debug(f"Guess answer: {full_name}")
+                logger.debug("Guess answer: %s", full_name)
 
-                file = discord.File(game_img, filename="guess.jpg")
                 embed = discord.Embed(
                     title=f"Đoán nhân vật · {MODE_LABELS[mode]}",
                     description=f"Gõ `{GUESS_PREFIX}[name]` để đoán. Bạn có {SONG_GUESS_DURATION}s.",
@@ -328,135 +287,26 @@ class GuessCog(commands.Cog):
                 )
                 embed.set_image(url="attachment://guess.jpg")
 
-                # Create view with working Give Up button
-                view = GiveUpView()
-                msg = await interaction.followup.send(embed=embed, file=file, view=view)
-                view.message = msg
-
-                winner = None
-                reason = "timeout"
-                fails = 0
-
-                def check(m):
-                    return (
-                        m.channel.id == channel_id
-                        and not m.author.bot
-                        and m.content.lower().startswith(GUESS_PREFIX)
-                    )
-
-                end_time = asyncio.get_running_loop().time() + SONG_GUESS_DURATION
-
-                while not view.gave_up:
-                    remaining = end_time - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        break
-                    msg_task = asyncio.create_task(
-                        self.bot.wait_for("message", check=check, timeout=remaining)
-                    )
-                    give_up_task = asyncio.create_task(view.give_up_event.wait())
-                    done, pending = await asyncio.wait(
-                        (msg_task, give_up_task),
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for task in pending:
-                        task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
-                            await task
-
-                    if msg_task in done:
-                        try:
-                            guess_msg = msg_task.result()
-                        except TimeoutError:
-                            break
-                        guess = guess_msg.content[len(GUESS_PREFIX) :].strip()
-
-                        if is_correct_guess(guess, norm_answers):
-                            winner = guess_msg.author
-                            reason = "win"
-                            react_in_background(guess_msg, "✅")
-                            break
-                        fails += 1
-                        react_in_background(guess_msg, "❌")
-                        if fails >= MAX_FAILS:
-                            reason = "failed"
-                            break
-                    elif view.gave_up:
-                        reason = "gave_up"
-                        break
-
-                if view.gave_up and reason != "win":
-                    reason = "gave_up"
-
-                # Prepare result (full_img is the cached card file's path)
-                result_file = discord.File(full_img, filename="reveal.webp")
-                result_embed = discord.Embed(description=f"Đáp án: **{full_name}**")
-                result_embed.set_image(url="attachment://reveal.webp")
-                result_embed.add_field(name="Card", value=self.get_display_prefix(card))
-
-                if reason == "win":
-                    result_embed.title = f"Đúng rồi! Xin chúc mừng {winner.display_name}"
-                    result_embed.color = 0x2ECC71
-                else:
-                    result_embed.title, result_embed.color = _OUTCOME_META[reason]
-
-                view.disable_all()
-                view.stop()
-                with contextlib.suppress(discord.HTTPException):
-                    await interaction.followup.send(embed=result_embed, file=result_file)
-                if msg:
-                    with contextlib.suppress(discord.HTTPException):
-                        await msg.edit(view=view)
-
+                await run_guess_round(
+                    self.bot,
+                    interaction,
+                    channel_id,
+                    puzzle_embed=embed,
+                    puzzle_file=discord.File(game_img, filename="guess.jpg"),
+                    norm_answers=norm_answers,
+                    answer_label=full_name,
+                    reveal_path=full_img,
+                    reveal_fields=[("Card", self.get_display_prefix(card))],
+                )
             except Exception as e:
-                logger.error(f"Guess game error: {e}")
-                if view is not None:
-                    view.disable_all()
-                    view.stop()
-                    if msg:
-                        with contextlib.suppress(discord.HTTPException):
-                            await msg.edit(view=view)
+                logger.error("Guess game error: %s", e)
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(
                         "Ván đoán gặp lỗi và đã dừng. Bạn thử lại nhé.", ephemeral=True
                     )
         finally:
-            if view is not None and not view.is_finished():
-                view.stop()
-            if self._channel_tokens.get(channel_id) is token:
-                self._channel_tokens.pop(channel_id, None)
-                self.active_channels.pop(channel_id, None)
-
-
-class GiveUpView(discord.ui.View):
-    """View with a working Give Up button."""
-
-    def __init__(self):
-        super().__init__(timeout=SONG_GUESS_DURATION + 5)
-        self.gave_up = False
-        self.give_up_event = asyncio.Event()
-        self.message = None
-
-    @discord.ui.button(label="Give Up", style=discord.ButtonStyle.danger)
-    async def give_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Handle give up button click."""
-        self.gave_up = True
-        self.give_up_event.set()
-        button.disabled = True
-        with contextlib.suppress(discord.HTTPException):
-            await interaction.response.defer()
-
-    def disable_all(self):
-        """Disable all buttons."""
-        for item in self.children:
-            item.disabled = True
-
-    async def on_timeout(self):
-        """Handle view timeout."""
-        self.disable_all()
-        if self.message:
-            with contextlib.suppress(discord.HTTPException):
-                await self.message.edit(view=self)
+            release_channel(channel_id, token)
 
 
 async def setup(bot):
-    await bot.add_cog(GuessCog(bot))
+    await bot.add_cog(CardGuessCog(bot))

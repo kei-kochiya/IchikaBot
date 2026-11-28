@@ -79,19 +79,12 @@ async def test_security_sensitive_commands_enforce_checks(mock_bot):
     ctx.bot.is_owner = AsyncMock(return_value=True)
     assert await sync_cmd.checks[0](ctx) is True
 
-    # Voice quiz commands must be guild-only (DMs have no voice channels)
+    # Voice quiz slash command must be guild-only (DMs have no voice channels)
     music = MusicGuess(mock_bot)
     assert music.slash_songguess.guild_only is True
-    for cmd in (
-        music.guess_music,
-        music.guess_music_variant,
-        music.guess_music_all,
-        music.guess_music_all_variant,
-    ):
-        assert len(cmd.checks) == 1
 
 
-async def test_help_command_flows_and_formatting(mock_bot, make_interaction, make_ctx):
+async def test_help_command_flows_and_formatting(mock_bot, make_interaction):
     cog = HelpCog(mock_bot)
 
     # Category lookup ignores case/spaces; unknown falls back to overview
@@ -99,21 +92,27 @@ async def test_help_command_flows_and_formatting(mock_bot, make_interaction, mak
     assert cog.create_help_embed("CardOfTheDay").title == "Card of the Day"
     assert cog.create_help_embed("no such thing").title == "Danh sách lệnh"
 
-    # No dangling placeholders in any category
+    # No dangling placeholders or legacy prefix syntax in any category
     for cat in COMMAND_CATEGORIES:
         for field in cog.create_help_embed(cat).fields:
-            assert "`-`" not in field.value and " / " not in field.value
+            assert "`-`" not in field.value and "!" not in field.value
 
-    # Slash & prefix invocations work end to end
+    # Slash overview and category invocations work end to end
     interaction = make_interaction()
     await cog.help_slash.callback(cog, interaction, category=None)
     overview = interaction.last_reply["embed"]
     values = " ".join(f.value for f in overview.fields)
-    for expected in ("`/gacha pull`", "`/songguess`", "`!sgv`", "`/mercari`"):
+    for expected in (
+        "`/gacha pull`",
+        "`/songguess`",
+        "`/jacketguess`",
+        "`/chartguess`",
+        "`/mercari`",
+    ):
         assert expected in values
     assert "!sync" not in values
     assert "`/mercarisearch`" not in values
 
-    ctx = make_ctx()
-    await cog.help_prefix.callback(cog, ctx, category="Mercari")
-    assert ctx.last_reply["embed"].title == "Mercari"
+    cat_inter = make_interaction()
+    await cog.help_slash.callback(cog, cat_inter, category="Mercari")
+    assert cat_inter.last_reply["embed"].title == "Mercari"

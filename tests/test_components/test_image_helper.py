@@ -250,3 +250,19 @@ async def test_member_cutout_is_cached_per_variant(cache, monkeypatch):
     assert session.urls[0].endswith("/member_cutout/res001_no004/after_training.webp")
     assert await image_helper.get_member_cutout_path("res001_no004", trained=True) == path
     assert len(session.urls) == 1
+
+
+@pytest.mark.asyncio
+async def test_song_chart_is_cached_and_remembers_missing_chart(cache, monkeypatch):
+    session = _FakeSession({"0099/append.png": 404})
+    _use_session(monkeypatch, session)
+
+    path = await image_helper.get_song_chart_path(54, "MASTER")
+    assert path == str(cache / "charts" / "0054_master.png")
+    assert session.urls[0].endswith("/jp/0054/master.png")
+    assert await image_helper.get_song_chart_path(54, "master") == path
+    assert len(session.urls) == 1
+
+    assert await image_helper.get_song_chart_path(99, "append") is None
+    assert await image_helper.get_song_chart_path(99, "append") is None
+    assert len(session.urls) == 2

@@ -26,7 +26,7 @@ STATIC_DATA_PATH = GAME_DATA_PATH / "static"
 JP_DATA_PATH = GAME_DATA_PATH / "JP_data"
 EN_DATA_PATH = GAME_DATA_PATH / "EN_data"
 
-CACHE_DIR = BASE_DIR / ".gachacache"
+CACHE_DIR = BASE_DIR / ".assetcache"
 TEMP_DIR = CACHE_DIR / "temp"
 ASSETS_PATH = BASE_DIR / "assets"
 AUDIO_DIR = BASE_DIR / "music"

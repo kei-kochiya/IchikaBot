@@ -21,8 +21,8 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 - **`card_data.py`**: Singleton (`card_data`) that parses and caches all card data (`cards.json`) in memory with O(1) lookups and prefix tables.
 - **`event_data.py`**: Singleton (`event_data`) that manages JP/EN event data (`events.json`), active/past events, and banner schedules.
 - **`song_data.py`**: Singleton (`song_data`) managing music tracks (`musics.json`) and chart master difficulties (`musicDifficulties.json`).
-- **`music_quiz_db.py`**: Database class (`MusicQuizDB`) for `song.xlsx` used in the music guessing minigame, plus the guess `normalize()` shared by both `-g` games. The parsed sheet is cached as JSON (`.gachacache/song_db_cache.json`, keyed by the file's size and mtime), so `openpyxl` (~16 MB RAM) is only imported when `song.xlsx` changes.
-- **Depended on by**: Almost all game and info cogs (e.g., `birthday.py`, `guess.py`, `profile.py`, `card.py`, `events.py`, `songs.py`, `pjsk.py`).
+- **`music_quiz_db.py`**: Database class (`MusicQuizDB`) for `song.xlsx` used in the music guessing minigame, plus the guess `normalize()` shared across `-g` games. The parsed sheet is cached as JSON (`.assetcache/song_db_cache.json`, keyed by the file's size and mtime), so `openpyxl` (~16 MB RAM) is only imported when `song.xlsx` changes.
+- **Depended on by**: Almost all game and info cogs (e.g., `birthday.py`, `cardguess.py`, `jacketguess.py`, `chartguess.py`, `profile.py`, `card.py`, `events.py`, `songs.py`, `pjsk.py`).
 
 ### `utils/core/` (System Core)
 - **`database.py`**: Handles all asynchronous interactions with `ichika.db` (gacha pity, per-guild settings, and PJSK links/clears) over one shared, long-lived SQLite connection (WAL). All writes serialize through `_write_tx()` with atomic commit/rollback. Call `close_db()` on shutdown.
@@ -34,11 +34,11 @@ The `utils/` directory acts as the backbone of the bot. Cogs should rely on thes
 ### `utils/media/` (Media Processing)
 - **`image_helper.py`**: Asynchronous image caching and fetching. Card art is cached as WebP (~20x smaller than the CDN's PNG: smaller downloads, disk cache and Discord uploads); send it as `card.webp`. Writes are atomic, concurrent requests for one image share a single download, CDN 404s are remembered for an hour, and a network error never triggers fallback downloads. Also caches song jackets for B30 rendering.
 - **`card_focus.py`**: Finds a card's own character in its card art for easy `/guess` crops, from the colours of the card's `member_cutout` close-up plus sharpness (the close-up is recomposed artwork, so it cannot be overlaid on the card). Pillow only, ~0.1 s.
-- **`gacha_render.py`**: Gacha result images in the style of the in-game result screen (result background, card art, rarity stars and attribute icon). The game UI images are fetched once into `.gachacache/ui`; resized card tiles are cached in `.gachacache/tiles`. Every asset is optional (falls back to plain drawing).
+- **`gacha_render.py`**: Gacha result images in the style of the in-game result screen (result background, card art, rarity stars and attribute icon). The game UI images are fetched once into `.assetcache/ui`; resized card tiles are cached in `.assetcache/tiles`. Every asset is optional (falls back to plain drawing).
 - **`audio_fx.py`**: Audio manipulation logic (FFmpeg/Pydub). Clips are cut with an ffmpeg seek, so a whole track is never decoded into RAM.
 
 ### Domain-Specific Helpers
-- **`utils/game/`**: Card filtering, random sampling, and trained/untrained art validation (`cards.py`), plus song-pool filtering and answer matching helpers (`music_helpers.py`).
+- **`utils/game/`**: Card filtering, random sampling, and trained/untrained art validation (`cards.py`), song-pool/voice helpers (`music_helpers.py`), shared `-g` round engine & cross-cog channel lock (`guess_engine.py`), and jacket/chart cropping + multilingual song answer builders (`song_guess_media.py`).
 - **`utils/social/`**: Date calculations and Embed generation for social features (`birthday_helpers.py`, `birthday_ui.py`).
 - **`utils/info/`**: Shared Embed generation and Pagination Views (`songs_ui.py`, `events_ui.py`).
 - **`utils/mercari_scraper/`**: Lightweight Mercari Japan item lookup supporting individual C2C listings (`c2c_client.py`) and Mercari Shops products (`shops_client.py`, via shared `aiohttp`). `AsyncC2CClient` (and its `mercapi`/`httpx` dependencies, ~12 MB) is imported lazily only on first C2C lookup; `extract_item_info` lives in the light `urls.py`.
@@ -53,7 +53,7 @@ Cogs are organized into subdirectories by category. The bot recursively loads al
 | Module Area | Feature Description | Key Dependencies |
 |:---|:---|:---|
 | **`cogs/voice/`** | Music Guessing minigame (`music_guess.py`). | `utils.media.audio_fx`, `utils.data.music_quiz_db`, `utils.game.music_helpers` |
-| **`cogs/game/`** | Character Guessing game (`guess.py`) & Gacha simulator (`gacha.py`). | `utils.data.*`, `utils.game.*`, `utils.core.database` |
+| **`cogs/game/`** | Character guess (`cardguess.py`), Jacket guess (`jacketguess.py`), Chart guess (`chartguess.py`) & Gacha simulator (`gacha.py`). | `utils.data.*`, `utils.game.*`, `utils.core.database` |
 | **`cogs/info/`** | Database lookups (Cards, Profiles, Songs, Events) & PJSK account link / Transfer-ID sync / B30 (`pjsk.py`). | `utils.info.*`, `utils.data.*`, `utils.pjsk.*`, `utils.core.romaji` |
 | **`cogs/social/`** | Server engagement (Character Birthdays, Scheduled Card of the Day). | `utils.social.*`, `utils.data.*`, `utils.core.database` |
 | **`cogs/system/`** | Bot administration (Auto-updater for assets, Interactive Help). | `utils.core.autoupdater` |

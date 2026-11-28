@@ -10,16 +10,17 @@ import discord
 import pytest
 from PIL import Image
 
-from cogs.game import guess as guess_module
-from cogs.game.gacha import GachaCog
-from cogs.game.guess import (
+from cogs.game import cardguess as cardguess_module
+from cogs.game.cardguess import (
     MAX_PUZZLE_WIDTH,
-    GuessCog,
+    CardGuessCog,
     _process_game_image_sync,
 )
+from cogs.game.gacha import GachaCog
 from config import GACHA_RATES, PITY_THRESHOLD
 from utils.core import database
 from utils.data.music_quiz_db import is_correct_guess, normalize
+from utils.game import guess_engine
 
 # ── /gacha ────────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ async def test_gacha_pity_lock_serializes_same_user_and_releases_when_idle(mock_
 
 
 def test_guess_answer_matching_normalizes_before_length_check():
-    cog = GuessCog(MagicMock())
+    cog = CardGuessCog(MagicMock())
 
     def norm_answers(cid: int) -> list[str]:
         return [na for a in cog.build_answer_list(cid) if (na := normalize(a))]
@@ -140,7 +141,7 @@ def test_guess_answer_matching_normalizes_before_length_check():
 
 
 async def test_guessmode_persists_per_player_and_honors_alias(mock_bot, make_interaction, temp_db):
-    cog = GuessCog(mock_bot)
+    cog = CardGuessCog(mock_bot)
     assert await cog.resolve_mode(5, None) == "easy"
 
     inter = make_interaction(user_id=5)
@@ -160,12 +161,12 @@ async def test_guessmode_persists_per_player_and_honors_alias(mock_bot, make_int
 async def test_guess_round_win_and_stale_channel_recovery(
     mock_bot, make_interaction, tmp_path, temp_db
 ):
-    cog = GuessCog(mock_bot)
+    cog = CardGuessCog(mock_bot)
     reveal = tmp_path / "reveal.webp"
     reveal.write_bytes(b"RIFFfake")
 
-    # Stale channel (>45s) auto-recovers and plays a full winning round
-    cog.active_channels[888] = asyncio.get_running_loop().time() - 60.0
+    # Stale channel (>55s) auto-recovers and plays a full winning round
+    guess_engine.active_channels[888] = asyncio.get_running_loop().time() - 60.0
     inter = make_interaction(channel_id=888)
 
     winning_msg = MagicMock(spec=discord.Message)
@@ -186,13 +187,13 @@ async def test_guess_round_win_and_stale_channel_recovery(
     ):
         await cog.guess.callback(cog, inter, mode="easy")
 
-    assert 888 not in cog.active_channels
+    assert 888 not in guess_engine.active_channels
     assert len(inter.followup.messages) == 2
     assert "Đúng rồi" in inter.followup.messages[1]["embed"].title
 
 
 async def test_guess_defer_failure_and_empty_pool_do_not_softlock(mock_bot, make_interaction):
-    cog = GuessCog(mock_bot)
+    cog = CardGuessCog(mock_bot)
     inter = make_interaction(channel_id=999)
     inter.response.defer = AsyncMock(
         side_effect=discord.NotFound(MagicMock(), "Unknown interaction")
@@ -200,13 +201,13 @@ async def test_guess_defer_failure_and_empty_pool_do_not_softlock(mock_bot, make
 
     with pytest.raises(discord.NotFound):
         await cog.guess.callback(cog, inter, mode="normal")
-    assert 999 not in cog.active_channels
+    assert 999 not in guess_engine.active_channels
 
     cog.cards = []
     inter_empty = make_interaction(channel_id=999)
     await cog.guess.callback(cog, inter_empty, mode="normal")
     assert inter_empty.last_reply["ephemeral"] is True
-    assert 999 not in cog.active_channels
+    assert 999 not in guess_engine.active_channels
 
 
 def test_guess_image_pipeline_modes_and_fallbacks(tmp_path, monkeypatch):
@@ -237,7 +238,7 @@ def test_guess_image_pipeline_modes_and_fallbacks(tmp_path, monkeypatch):
         ("blur", (MAX_PUZZLE_WIDTH, round(1200 * MAX_PUZZLE_WIDTH / 2000)), "RGB"),
         ("negative", (MAX_PUZZLE_WIDTH, round(1200 * MAX_PUZZLE_WIDTH / 2000)), "RGB"),
     ):
-        monkeypatch.setattr(guess_module.random, "choice", lambda _seq, e=effect: e)
+        monkeypatch.setattr(cardguess_module.random, "choice", lambda _seq, e=effect: e)
         out, _, _ = _process_game_image_sync(str(card_path), "hard")
         img = Image.open(out)
         assert img.format == "JPEG" and img.size == expected_size and img.mode == expected_mode

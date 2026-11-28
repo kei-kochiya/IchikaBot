@@ -18,7 +18,7 @@ env/
 pityData.json
 birthdaySettings.json
 gas_price_cache.json
-.gachacache/
+.assetcache/
 
 # Music folder
 music/

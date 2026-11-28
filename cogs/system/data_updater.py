@@ -82,7 +82,7 @@ class DataUpdaterCog(commands.Cog):
             "cards_jp": {
                 "CardCog",
                 "BirthdayCog",
-                "GuessCog",
+                "CardGuessCog",
                 "ProfileCog",
                 "GachaCog",
                 "CardOfDayCog",
@@ -90,7 +90,7 @@ class DataUpdaterCog(commands.Cog):
             "cards_en": {
                 "CardCog",
                 "BirthdayCog",
-                "GuessCog",
+                "CardGuessCog",
                 "ProfileCog",
                 "GachaCog",
                 "CardOfDayCog",

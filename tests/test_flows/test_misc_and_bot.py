@@ -105,7 +105,7 @@ def test_gas_price_15h_refresh_window():
 # ── MercariCog (Shops via local TestServer + C2C lookup) ──────────────────────
 
 
-async def test_mercari_lookup_shops_via_test_server_and_c2c(mock_bot, make_interaction, make_ctx):
+async def test_mercari_lookup_shops_via_test_server_and_c2c(mock_bot, make_interaction):
     assert (
         extract_item_info("https://jp.mercari.com/item/m12345678901?source=shared")[0]
         == "m12345678901"
@@ -191,9 +191,9 @@ async def test_mercari_lookup_shops_via_test_server_and_c2c(mock_bot, make_inter
         )
         scraper._c2c_client = c2c
 
-        ctx = make_ctx(user_id=123)
-        await cog.prefix_mercari.callback(cog, ctx, link="m12345678901")
-        c2c_embed = ctx.last_reply["embed"]
+        inter_c2c = make_interaction(user_id=123)
+        await cog.slash_mercari.callback(cog, inter_c2c, link="m12345678901")
+        c2c_embed = inter_c2c.last_reply["embed"]
         assert c2c_embed.title == "Ichika Badge"
         assert c2c_embed.color == discord.Color.green()
         assert c2c_embed.fields[1].value == "920,000 VND"

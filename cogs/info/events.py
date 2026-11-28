@@ -137,49 +137,6 @@ class EventsCog(commands.Cog):
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
-    # ===== PREFIX COMMANDS =====
-    @commands.command(name="event", aliases=["ev"])
-    async def event_prefix(self, ctx: commands.Context):
-        """Get current event: !event"""
-        event = self.get_current_event()
-        if event is None:
-            await ctx.send("Không tìm thấy sự kiện!")
-            return
-        await ctx.send(embed=create_event_embed(event, self.get_display_name(event, event["id"])))
-
-    @commands.command(name="events", aliases=["evhistory"])
-    async def events_history_prefix(self, ctx: commands.Context, count: int = 5):
-        """Get event history: !events [count]"""
-        embed, view = self._build_history_reply(count)
-        if embed is None:
-            await ctx.send("Không có sự kiện đã kết thúc!")
-            return
-        if view is None:
-            await ctx.send(embed=embed)
-            return
-        msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-
-    @commands.command(name="eventsearch", aliases=["evsearch"])
-    async def event_search_prefix(self, ctx: commands.Context, *, name: str | None = None):
-        """Search events: !eventsearch <name>"""
-        if not name:
-            await ctx.send("Vui lòng nhập tên sự kiện: `!eventsearch <name>`")
-            return
-
-        embed, view = self._build_search_reply(name)
-        if embed is None:
-            await ctx.send(
-                f"Không tìm thấy sự kiện: **{name[:100]}**",
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-            return
-        if view is None:
-            await ctx.send(embed=embed)
-            return
-        msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(EventsCog(bot))

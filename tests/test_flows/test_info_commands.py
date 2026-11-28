@@ -64,7 +64,7 @@ async def test_card_command_lookup_autocomplete_and_toggle(
 
 
 async def test_song_commands_search_info_random_and_pagination(
-    mock_bot, make_interaction, make_ctx, monkeypatch
+    mock_bot, make_interaction, monkeypatch
 ):
     cog = SongsCog(mock_bot)
 
@@ -82,14 +82,10 @@ async def test_song_commands_search_info_random_and_pagination(
     await cog.song_info.callback(cog, inter_info, song_name="1")
     assert inter_info.last_reply["embed"].title == "Tell Your World"
 
-    # /song random & !songr
+    # /song random
     inter_rnd = make_interaction()
     await cog.song_random.callback(cog, inter_rnd, min_level=20, max_level=30)
     assert "Tell Your World" in inter_rnd.last_reply["embed"].title
-
-    ctx = make_ctx()
-    await cog.song_random_prefix.callback(cog, ctx)
-    assert "Tell Your World" in ctx.last_reply["embed"].title
 
     # Multi-result search exercises SearchPaginationView next/prev buttons
     many_songs = [
@@ -97,9 +93,9 @@ async def test_song_commands_search_info_random_and_pagination(
         for i in range(1, 13)
     ]
     monkeypatch.setattr(song_data, "search_songs", lambda q, limit=50: many_songs)
-    ctx_search = make_ctx()
-    await cog.song_prefix.callback(cog, ctx_search, query="Track")
-    view = ctx_search.last_reply["view"]
+    inter_search = make_interaction()
+    await cog.song_search.callback(cog, inter_search, query="Track")
+    view = inter_search.last_reply["view"]
     assert view.total_pages == 2 and view.current_page == 0
 
     nav = make_interaction()
@@ -109,9 +105,7 @@ async def test_song_commands_search_info_random_and_pagination(
     assert view.current_page == 0
 
 
-async def test_event_commands_current_history_and_search(
-    mock_bot, make_interaction, make_ctx, monkeypatch
-):
+async def test_event_commands_current_history_and_search(mock_bot, make_interaction, monkeypatch):
     now = int(datetime.now(UTC).timestamp() * 1000)
     day = 86_400_000
     events = [
@@ -175,10 +169,10 @@ async def test_event_commands_current_history_and_search(
     await cog.event_history.callback(cog, inter_hist, count=5)
     assert "Lịch sử sự kiện" in inter_hist.last_reply["embed"].title
 
-    # !eventsearch single match vs multi match vs not found
-    ctx = make_ctx()
-    await cog.event_search_prefix.callback(cog, ctx, name="Running Event")
-    assert ctx.last_reply["embed"].title == "Running Event EN"
+    # /event search single match vs multi match vs not found
+    inter_one = make_interaction()
+    await cog.event_search.callback(cog, inter_one, name="Running Event")
+    assert inter_one.last_reply["embed"].title == "Running Event EN"
 
     inter_multi = make_interaction()
     await cog.event_search.callback(cog, inter_multi, name="Event")
@@ -189,9 +183,7 @@ async def test_event_commands_current_history_and_search(
     assert "Không tìm thấy" in inter_none.last_reply["content"]
 
 
-async def test_profile_command_and_character_ranking(
-    mock_bot, make_interaction, make_ctx, monkeypatch
-):
+async def test_profile_command_and_character_ranking(mock_bot, make_interaction, monkeypatch):
     cog = ProfileCog(mock_bot)
     monkeypatch.setitem(
         ProfileCog._build_profile_kwargs.__globals__,
@@ -237,12 +229,12 @@ async def test_profile_command_and_character_ranking(
     }
     assert is_pre_trained_card(pre_trained) and not supports_trained_art(pre_trained)
     monkeypatch.setattr(cog, "get_random_card_for_character", lambda cid, rarity=None: pre_trained)
-    ctx = make_ctx()
-    await cog.profile_prefix.callback(cog, ctx, name="Ichika")
-    assert "view" not in ctx.last_reply
+    inter_pt = make_interaction()
+    await cog.profile_info.callback(cog, inter_pt, character="Ichika")
+    assert "view" not in inter_pt.last_reply
 
     # Unknown character replies cleanly
-    ctx_miss = make_ctx()
-    await cog.profile_prefix.callback(cog, ctx_miss, name="nobody_xyz")
-    assert "Không tìm thấy" in ctx_miss.last_reply["content"]
+    inter_miss = make_interaction()
+    await cog.profile_info.callback(cog, inter_miss, character="nobody_xyz")
+    assert "Không tìm thấy" in inter_miss.last_reply["content"]
     assert len(card_data.cards) >= 1
