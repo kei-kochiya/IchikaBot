@@ -530,16 +530,6 @@ async def get_pjsk_clears(discord_id: int, region: str) -> dict[tuple[int, str],
     return {(int(r["music_id"]), str(r["difficulty"])): str(r["clear_state"]) for r in rows}
 
 
-async def prune_expired_pjsk_recovery(max_age_seconds: float = PJSK_RECOVERY_TTL_SECONDS) -> int:
-    """Delete orphaned crash-recovery credentials older than *max_age_seconds*."""
-    import time
-
-    cutoff = time.time() - max_age_seconds
-    async with _write_tx() as conn:
-        cur = await conn.execute("DELETE FROM pjsk_recovery WHERE created_at < ?", (cutoff,))
-        return cur.rowcount
-
-
 async def save_pjsk_recovery(
     discord_id: int, region: str, pjsk_user_id: int, credential: str, created_at: float
 ) -> None:

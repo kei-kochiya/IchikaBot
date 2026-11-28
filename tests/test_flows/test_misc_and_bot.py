@@ -16,9 +16,10 @@ from cogs.misc.gas_price import (
     _is_fresh,
     _load_cache,
 )
-from cogs.misc.mercari import MercariCog, _compute_vnd_price, extract_item_id
+from cogs.misc.mercari import MercariCog, _compute_vnd_price
 from utils.mercari_scraper import AsyncMercariScraper
 from utils.mercari_scraper.shops_client import AsyncShopsClient
+from utils.mercari_scraper.urls import extract_item_info
 
 # ── GasPriceCog (end-to-end against local aiohttp TestServer) ─────────────────
 
@@ -106,10 +107,11 @@ def test_gas_price_15h_refresh_window():
 
 async def test_mercari_lookup_shops_via_test_server_and_c2c(mock_bot, make_interaction, make_ctx):
     assert (
-        extract_item_id("https://jp.mercari.com/item/m12345678901?source=shared") == "m12345678901"
+        extract_item_info("https://jp.mercari.com/item/m12345678901?source=shared")[0]
+        == "m12345678901"
     )
     assert (
-        extract_item_id("https://jp.mercari.com/shops/product/2JXEJvn8QLxnZwwEJZ4RfK")
+        extract_item_info("https://jp.mercari.com/shops/product/2JXEJvn8QLxnZwwEJZ4RfK")[0]
         == "2JXEJvn8QLxnZwwEJZ4RfK"
     )
     assert _compute_vnd_price(1000, 999999999999) == 192_000

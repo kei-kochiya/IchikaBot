@@ -28,7 +28,6 @@ from utils.pjsk.constants import (
     parse_constants_csv,
 )
 from utils.pjsk.crypto import (
-    REQUEST_DATA_GENERAL,
     decode_jwt_payload,
     decode_jwt_user_id,
     decrypt_bytes,
@@ -61,9 +60,9 @@ def test_pjsk_crypto_roundtrip_and_jwt_helpers():
         assert abs(decoded["ratio"] - 1.5) < 1e-5
         assert decoded["nested"] == sample["nested"]
 
-    # REQUEST_DATA_GENERAL is JP-encrypted empty bytes
-    assert decrypt_bytes(REQUEST_DATA_GENERAL, "jp") == b""
-    assert pack_encrypt(None, "jp") == REQUEST_DATA_GENERAL
+    # Empty payload encrypts and decrypts cleanly for both regions
+    for region in ("en", "jp"):
+        assert decrypt_bytes(pack_encrypt(None, region), region) == b""
 
     with pytest.raises(ValueError):
         pack_encrypt({}, "kr")

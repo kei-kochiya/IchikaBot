@@ -17,7 +17,7 @@ from utils.core.romaji import (
 from utils.data import event_data as event_module
 from utils.data import music_quiz_db
 from utils.data import song_data as song_module
-from utils.data.card_data import EXCLUDED_HEAVY_KEYS, CardDataManager
+from utils.data.card_data import CARD_KEYS, CardDataManager
 from utils.data.event_data import EventDataManager
 from utils.data.music_quiz_db import MusicQuizDB, is_correct_guess, normalize
 from utils.data.song_data import SongDataManager
@@ -85,7 +85,7 @@ def test_card_event_and_song_stream_loaders_prune_and_survive_corrupt_reloads(
         [{"id": i, "prefix": f"card {i}", "cardParameters": [{"p": 1}]} for i in range(10)],
         separators=(",", ":"),
     )
-    loaded_cards = CardDataManager._stream_cards(cards_jp, excluded_keys=EXCLUDED_HEAVY_KEYS)
+    loaded_cards = CardDataManager._stream_cards(cards_jp, included_keys=CARD_KEYS)
     assert len(loaded_cards) == 10 and all("cardParameters" not in c for c in loaded_cards)
 
     cards_en = _dump(

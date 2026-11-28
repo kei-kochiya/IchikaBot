@@ -121,6 +121,85 @@ async def test_birthday_daily_loop_and_date_math(mock_bot, monkeypatch):
     assert channel.send.await_count == 3
 
 
+async def test_birthday_ui_embeds_prepare_rollback_and_timeout(
+    make_interaction, monkeypatch, tmp_path
+):
+    from utils.social import birthday_ui as bui
+
+    char = {"id": "1", "unit": "leo_need", "birthday": "08-11"}
+    card1 = {
+        "id": 102,
+        "characterId": 1,
+        "cardRarityType": "rarity_birthday",
+        "assetbundleName": "res001_bd2",
+        "prefix": "Happy Bday 2",
+        "releaseAt": 1700000000000,
+    }
+    card2 = {
+        "id": 101,
+        "characterId": 1,
+        "cardRarityType": "rarity_birthday",
+        "assetbundleName": "res001_bd1",
+        "prefix": "Happy Bday 1",
+        "releaseAt": 1600000000000,
+    }
+
+    # Embeds: card vs trim fallback + daily countdown wording across day ranges
+    emb_card = bui.create_birthday_embed(char, card1)
+    assert any(f.name == "Card Year" for f in emb_card.fields)
+    monkeypatch.setattr(bui, "get_birthday_card_for_character", lambda _cid: None)
+    emb_trim = bui.create_birthday_embed(char, None)
+    assert "chr_trim_1.webp" in emb_trim.image.url
+
+    for days, expected in ((0, "Hôm nay"), (1, "Ngày mai"), (5, "5 ngày"), (20, "20 ngày")):
+        d_emb = bui.create_daily_card_embed(char, card1, days)
+        assert expected in d_emb.description
+
+    # BirthdayCardView rolls back index if Discord edit fails, and disables buttons on timeout
+    view = bui.BirthdayCardView(char, [card1, card2], current_index=0)
+    monkeypatch.setattr(
+        "utils.media.image_helper.get_card_image_path", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(bui, "update_card_attachment_message", AsyncMock(return_value=False))
+    await view.prev_callback(make_interaction())
+    assert view.current_index == 0
+
+    msg = MagicMock(edit=AsyncMock())
+    view.message = msg
+    await view.on_timeout()
+    assert all(item.disabled for item in view.children)
+    msg.edit.assert_awaited_once()
+
+    # prepare_birthday_message: multi-card view vs single-card vs trim fallback
+    img = tmp_path / "bday.webp"
+    img.write_bytes(b"RIFF")
+    monkeypatch.setattr(
+        "utils.media.image_helper.get_card_image_path", AsyncMock(return_value=str(img))
+    )
+    monkeypatch.setattr(
+        "utils.media.image_helper.get_character_trim_path", AsyncMock(return_value=str(img))
+    )
+    monkeypatch.setattr(
+        "utils.social.birthday_helpers.get_birthday_cards_for_character",
+        lambda _cid: [card1, card2],
+    )
+    emb_m, file_m, view_m = await bui.prepare_birthday_message(char)
+    assert isinstance(view_m, bui.BirthdayCardView) and file_m is not None
+    file_m.close()
+
+    monkeypatch.setattr(
+        "utils.social.birthday_helpers.get_birthday_cards_for_character", lambda _cid: []
+    )
+    emb_none, file_none, view_none = await bui.prepare_birthday_message(char)
+    assert view_none is None and file_none is not None
+    file_none.close()
+
+    # prepare_daily_card_message builds embed + toggle view for a 4* card
+    emb_d, file_d, view_d = await bui.prepare_daily_card_message(char, 3)
+    assert emb_d is not None and file_d is not None
+    file_d.close()
+
+
 # ── Card of the Day ───────────────────────────────────────────────────────────
 
 

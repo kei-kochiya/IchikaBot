@@ -74,9 +74,6 @@ class CardOfDayCog(commands.Cog):
             logger.error("CardOfDay: Failed to load settings: %s", e)
             self.settings = {}
 
-    async def save_settings(self):
-        """Deprecated — DB writes happen directly in the command handlers."""
-
     async def _save_guild_cfg(self, guild_id: int, cfg: dict) -> None:
         """Persist a single guild's cotd config to the DB (one transaction)."""
         await database.set_settings(guild_id, {f"cotd_{key}": str(val) for key, val in cfg.items()})

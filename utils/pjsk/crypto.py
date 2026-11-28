@@ -24,9 +24,6 @@ KEYSETS: dict[str, tuple[bytes, bytes]] = {
     ),
 }
 
-# Encrypted empty payload used by POST /api/inherit/user/{inheritId}
-REQUEST_DATA_GENERAL: bytes = base64.b64decode("/6O9YhTzP+c8ty/uImK+2w==")
-
 
 def get_keyset(region: str) -> tuple[bytes, bytes]:
     """Return the (key, iv) AES-128-CBC keyset for *region* ('en' or 'jp')."""

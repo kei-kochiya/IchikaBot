@@ -16,10 +16,10 @@ from cogs.game.guess import (
     MAX_PUZZLE_WIDTH,
     GuessCog,
     _process_game_image_sync,
-    is_correct_name_guess,
 )
 from config import GACHA_RATES, PITY_THRESHOLD
 from utils.core import database
+from utils.data.music_quiz_db import is_correct_guess, normalize
 
 # ── /gacha ────────────────────────────────────────────────────────────────────
 
@@ -120,19 +120,23 @@ async def test_gacha_pity_lock_serializes_same_user_and_releases_when_idle(mock_
 
 def test_guess_answer_matching_normalizes_before_length_check():
     cog = GuessCog(MagicMock())
-    ichika = cog.build_answer_list(1)
-    kanade = cog.build_answer_list(17)
-    honami = cog.build_answer_list(3)
-    an = cog.build_answer_list(10)
 
-    assert is_correct_name_guess("Ichika  Hoshino", ichika)
-    assert is_correct_name_guess("ick", ichika)
-    assert is_correct_name_guess("an", an)
-    assert not is_correct_name_guess("n e", kanade)
-    assert not is_correct_name_guess("k.a", kanade)
-    assert is_correct_name_guess("k a n", kanade)
-    assert is_correct_name_guess("bánh táo", honami)
-    assert is_correct_name_guess("banh tao", honami)
+    def norm_answers(cid: int) -> list[str]:
+        return [na for a in cog.build_answer_list(cid) if (na := normalize(a))]
+
+    ichika = norm_answers(1)
+    kanade = norm_answers(17)
+    honami = norm_answers(3)
+    an = norm_answers(10)
+
+    assert is_correct_guess("Ichika  Hoshino", ichika)
+    assert is_correct_guess("ick", ichika)
+    assert is_correct_guess("an", an)
+    assert not is_correct_guess("n e", kanade)
+    assert not is_correct_guess("k.a", kanade)
+    assert is_correct_guess("k a n", kanade)
+    assert is_correct_guess("bánh táo", honami)
+    assert is_correct_guess("banh tao", honami)
 
 
 async def test_guessmode_persists_per_player_and_honors_alias(mock_bot, make_interaction, temp_db):

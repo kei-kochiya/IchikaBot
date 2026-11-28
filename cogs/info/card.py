@@ -147,10 +147,6 @@ class CardCog(commands.Cog):
 
         self._autocomplete_index = index
 
-    def get_card_by_id(self, card_id: int) -> dict | None:
-        """O(1) lookup via shared singleton."""
-        return card_data.get_by_id(card_id)
-
     def get_display_name(self, card: dict, card_id: int) -> str:
         """Return EN prefix if available, otherwise JP prefix."""
         return card_data.get_display_prefix(card)

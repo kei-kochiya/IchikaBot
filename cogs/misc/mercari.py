@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.mercari_scraper import ItemSource, MercariItem, extract_item_info
+from utils.mercari_scraper import ItemSource, MercariItem
 
 if TYPE_CHECKING:
     from utils.mercari_scraper import AsyncMercariScraper
@@ -25,12 +25,6 @@ _PREFERRED_RATE_USERS: frozenset[int] = frozenset(
         458547599947857920,
     }
 )
-
-
-def extract_item_id(text: str) -> str:
-    """Extract the Mercari item ID from a full URL or bare ID string."""
-    item_id, _ = extract_item_info(text)
-    return item_id
 
 
 def _compute_vnd_price(jpy: int, user_id: int) -> int:

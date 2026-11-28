@@ -47,16 +47,6 @@ _OUTCOME_META = {
 }
 
 
-def is_correct_name_guess(guess: str, answers: list[str]) -> bool:
-    """True if guess matches an answer exactly, or is any 3+ character piece of one.
-
-    Both sides go through the music quiz's normalize() first (Unicode fold, letters and
-    digits only, lowercase), so the 3 characters are counted after normalizing: "n e" is
-    only 2 and doesn't win, and "banh tao" matches the nickname "bánh táo".
-    """
-    return is_correct_guess(guess, [na for answer in answers if (na := normalize(answer))])
-
-
 def _focus_box(img: Image.Image, cutout_path: str | None) -> tuple[int, int, int, int] | None:
     if not cutout_path:
         return None

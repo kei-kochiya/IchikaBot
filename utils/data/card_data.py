@@ -9,13 +9,6 @@ from utils.core.jsonstream import iter_json_array
 
 logger = logging.getLogger(__name__)
 
-# Exclude massive nested tables that are unused by the bot (e.g. 220,000+ per-level param dicts)
-EXCLUDED_HEAVY_KEYS = {
-    "cardParameters",
-    "specialTrainingCosts",
-    "masterLessonAchieveResources",
-}
-
 # Only the fields actually read across cogs and utilities
 CARD_KEYS = frozenset(
     {
@@ -60,7 +53,6 @@ class CardDataManager:
     @staticmethod
     def _stream_cards(
         filepath: Path | str,
-        excluded_keys: set[str] | None = None,
         included_keys: frozenset[str] | set[str] | None = None,
     ) -> list[dict]:
         """Stream cards one element at a time and drop heavy per-level tables to minimize RAM."""
@@ -73,11 +65,6 @@ class CardDataManager:
                         slim[key] = sys.intern(slim[key])
                 cards.append(slim)
             return cards
-        if excluded_keys:
-            return [
-                {k: v for k, v in card.items() if k not in excluded_keys}
-                for card in iter_json_array(filepath)
-            ]
         return list(iter_json_array(filepath))
 
     @staticmethod
